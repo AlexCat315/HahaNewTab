@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /**
- * AppHeader - 顶部应用栏
+ * AppHeader - 悬浮顶栏
  *
- * 包含品牌区（Logo / 标题）、侧边栏折叠按钮、移动端菜单按钮与右侧操作区插槽。
+ * 贴在壁纸上的一块半透明浮层，不再是一条实色渐变带：
+ * 左侧依次是折叠开关、移动端菜单按钮、品牌区，右侧留给 actions 插槽。
  * 个性化入口不在顶栏：已并入右下角 FAB 菜单（极简模式则由控制区的 palette 按钮提供）。
  */
 import { computed } from 'vue';
@@ -61,35 +62,33 @@ function handleBrandDblclick(): void {
 
 <template>
     <header class="app-header">
-        <div class="header-brand">
+        <div class="header-leading">
+            <button
+                v-if="showCollapseToggle"
+                type="button"
+                class="header-icon-btn collapse-toggle"
+                :title="sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'"
+                :aria-label="sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'"
+                @click="handleCollapseClick"
+            >
+                <IconSvg :name="collapseIconName" :size="18" monochrome />
+            </button>
+
             <button
                 type="button"
-                class="menu-toggle"
+                class="header-icon-btn menu-toggle"
                 title="打开菜单"
+                aria-label="打开分类菜单"
                 @click="handleMenuClick"
             >
-                <IconSvg name="menu" :size="20" />
+                <IconSvg name="menu" :size="18" monochrome />
             </button>
 
             <!-- 不加 title 提示：隐藏站点的入口刻意保持隐蔽，提示由 HiddenTipModal 负责 -->
             <div class="brand" @dblclick="handleBrandDblclick">
-                <div class="brand-icon is-image">
-                    <img :src="resolvedLogoSrc" alt="Haha" loading="lazy" />
-                </div>
-                <div class="brand-text">
-                    <h1>{{ title }}</h1>
-                </div>
+                <img class="brand-logo" :src="resolvedLogoSrc" alt="Haha" loading="lazy" />
+                <h1 class="brand-title">{{ title }}</h1>
             </div>
-
-            <button
-                v-if="showCollapseToggle"
-                type="button"
-                class="collapse-toggle-btn"
-                :title="sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'"
-                @click="handleCollapseClick"
-            >
-                <IconSvg :name="collapseIconName" :size="18" />
-            </button>
         </div>
 
         <div class="header-actions">
@@ -99,169 +98,100 @@ function handleBrandDblclick(): void {
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/variables' as *;
 @use '@/styles/mixins' as *;
 
 .app-header {
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
+    top: var(--shell-inset);
+    left: var(--shell-inset);
+    right: var(--shell-inset);
     height: var(--header-height);
-    // 顶栏回到「主色渐变」的主题色语言：主色 → 主色混入一点次色。
-    // 不用满幅 secondary：实测 5 套主题的 on-primary 压在 secondary 上只有 1.8~3.5:1，
-    // 渐变右端的标题/按钮会糊掉；混 38% 后最差 3.1，其余 4.5+，视觉上仍是明显的两段渐变。
-    // 先给纯主色兜底：万一 color-mix 不被支持，顶栏仍是主题色而不是透明。
-    background: var(--md-sys-color-primary);
-    background: linear-gradient(
-        135deg,
-        var(--md-sys-color-primary) 0%,
-        color-mix(in srgb, var(--md-sys-color-primary) 62%, var(--md-sys-color-secondary)) 100%
-    );
-    color: var(--md-sys-color-on-primary);
-    padding: 0 16px;
-    z-index: 1000;
+    @include glass-surface(var(--glass-bg), var(--radius-xl));
+    padding: 0 var(--space-3);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px solid color-mix(in srgb, var(--md-sys-color-on-primary) 18%, transparent);
+    gap: var(--space-3);
+    z-index: var(--z-header);
+    contain: layout;
 }
 
-.header-brand {
+.header-leading {
     display: flex;
     align-items: center;
-    gap: 10px;
-    height: 100%;
+    gap: var(--space-2);
     flex: 1;
     min-width: 0;
+}
+
+.header-icon-btn {
+    @include icon-button(34px);
+    border-radius: var(--radius-sm);
 }
 
 .brand {
     display: flex;
     align-items: center;
-    gap: 10px;
-    height: 100%;
+    gap: var(--space-2);
     min-width: 0;
-    transition: gap 0.2s ease;
     /* 双击切换隐藏站点时不希望顺带选中标题文字 */
     user-select: none;
 }
 
-.collapse-toggle-btn {
-    @include button-reset;
-    color: color-mix(in srgb, var(--md-sys-color-on-primary) 70%, transparent);
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    @include md-transition(color transform);
-
-    &:hover {
-        color: var(--md-sys-color-on-primary);
-        background: color-mix(in srgb, var(--md-sys-color-on-primary) 14%, transparent);
-        transform: scale(1.1);
-    }
-
-    &:active {
-        transform: scale(0.95);
-    }
-}
-
-.brand-icon {
+// 品牌图自带白底，按原图显示只做圆角裁切，不加内边距/边框/投影
+.brand-logo {
     width: 32px;
     height: 32px;
-    // 顶栏现在是渐变主色，容器色一律用 on-primary 的半透明层
-    background: color-mix(in srgb, var(--md-sys-color-on-primary) 15%, transparent);
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid color-mix(in srgb, var(--md-sys-color-on-primary) 20%, transparent);
-    overflow: hidden;
+    border-radius: var(--radius-sm);
+    object-fit: contain;
     flex-shrink: 0;
-    @include md-transition(all);
-
-    // 品牌图自带白底，直接按原图显示，只做圆角裁切，不加内边距/边框/投影
-    &.is-image {
-        width: 36px;
-        height: 36px;
-        background: transparent;
-        border: none;
-        border-radius: 10px;
-        box-shadow: none;
-        padding: 0;
-    }
-
-    img {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-        padding: 2px;
-    }
-
-    &.is-image img {
-        padding: 0;
-        filter: none;
-    }
+    display: block;
 }
 
-.brand-text {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    height: 100%;
-    gap: 1px;
-    transition: opacity 0.2s ease, width 0.2s ease;
-    overflow: hidden;
-    white-space: nowrap;
-
-    h1 {
-        font-size: 1.05rem;
-        font-weight: 600;
-        // 顶栏是主色渐变，标题用配套的 on-primary
-        color: var(--md-sys-color-on-primary);
-        margin: 0;
-        letter-spacing: -0.3px;
-        line-height: 1.2;
-    }
-}
-
-.menu-toggle {
-    display: none;
-    width: 32px;
-    height: 32px;
-    background: color-mix(in srgb, var(--md-sys-color-on-primary) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--md-sys-color-on-primary) 22%, transparent);
-    border-radius: 8px;
-    color: var(--md-sys-color-on-primary);
-    cursor: pointer;
-    align-items: center;
-    justify-content: center;
-    @include md-transition(all);
-    flex-shrink: 0;
-
-    &:hover {
-        background: color-mix(in srgb, var(--md-sys-color-on-primary) 22%, transparent);
-    }
+.brand-title {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
+    color: var(--md-sys-color-on-surface);
+    letter-spacing: var(--tracking-tight);
+    line-height: var(--leading-tight);
+    margin: 0;
+    @include text-ellipsis;
 }
 
 .header-actions {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-2);
     flex-shrink: 0;
 }
 
-@media (max-width: 768px) {
-    .collapse-toggle-btn {
-        display: none !important;
+.menu-toggle {
+    display: none;
+}
+
+@include respond-to(mobile) {
+    .app-header {
+        top: var(--shell-inset);
+        left: var(--shell-inset);
+        right: var(--shell-inset);
+        padding: 0 var(--space-2);
+    }
+
+    .collapse-toggle {
+        display: none;
     }
 
     .menu-toggle {
         display: flex;
-        margin-right: 8px;
+    }
+
+    .brand-logo {
+        width: 28px;
+        height: 28px;
+    }
+
+    .brand-title {
+        font-size: var(--text-md);
     }
 }
 </style>

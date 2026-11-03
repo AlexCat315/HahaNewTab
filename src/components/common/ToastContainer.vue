@@ -79,7 +79,6 @@ function handleClose(item: ToastItem): void {
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/variables' as *;
 @use '@/styles/mixins' as *;
 
 .mnt-toast-container {

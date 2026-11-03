@@ -27,15 +27,29 @@ const themesConfig = {
     ]
 };
 
+async function wait(ms = 30): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+    await flushPromises();
+}
+
+const mounted: Array<{ unmount: () => void }> = [];
+
+function track<T extends { unmount: () => void }>(wrapper: T): T {
+    mounted.push(wrapper);
+    return wrapper;
+}
+
 function cleanupTeleports(): void {
     document.body
-        .querySelectorAll('.personalization-panel-wrapper')
+        .querySelectorAll('.mnt-modal-overlay')
         .forEach((el) => el.remove());
+    document.body.style.overflow = '';
 }
 
 describe('PersonalizationPanel', () => {
     beforeEach(() => {
         localStorage.clear();
+        document.body.innerHTML = '';
         setActivePinia(createPinia());
         vi.stubGlobal(
             'fetch',
@@ -44,65 +58,128 @@ describe('PersonalizationPanel', () => {
     });
 
     afterEach(() => {
+        // 不卸载会把面板留在 ModalOverlay 的模块级打开栈里，影响后续用例的滚动锁断言
+        while (mounted.length) {
+            mounted.pop()?.unmount();
+        }
         vi.unstubAllGlobals();
         cleanupTeleports();
     });
 
-    it('关闭时不渲染内容', () => {
-        mount(PersonalizationPanel, {
+    it('关闭时面板不可见', async () => {
+        track(mount(PersonalizationPanel, {
             props: { modelValue: false, autoInit: false }
-        });
+        }));
 
-        expect(document.body.querySelector('.personalization-dropdown')).toBeNull();
+        await wait();
+
+        const overlay = document.body.querySelector('.mnt-modal-overlay') as HTMLElement;
+        expect(overlay.style.display).toBe('none');
     });
 
     it('打开时渲染栏目导航与各设置栏目', async () => {
-        mount(PersonalizationPanel, {
+        track(mount(PersonalizationPanel, {
             props: { modelValue: true, autoInit: false }
-        });
+        }));
 
-        await flushPromises();
+        await wait();
 
-        const dropdown = document.body.querySelector('.personalization-dropdown');
-        expect(dropdown).not.toBeNull();
-        expect(dropdown!.querySelectorAll('.panel-nav__item')).toHaveLength(4);
-        expect(dropdown!.querySelector('.theme-selector')).not.toBeNull();
-        expect(dropdown!.querySelector('.wallpaper-settings')).not.toBeNull();
-        expect(dropdown!.querySelector('.layout-settings')).not.toBeNull();
-        expect(dropdown!.querySelector('.cache-settings')).not.toBeNull();
+        const panel = document.body.querySelector('.mnt-modal-content');
+        expect(panel).not.toBeNull();
+        expect(panel!.querySelectorAll('.panel-nav__item')).toHaveLength(4);
+        expect(panel!.querySelector('.theme-selector')).not.toBeNull();
+        expect(panel!.querySelector('.wallpaper-settings')).not.toBeNull();
+        expect(panel!.querySelector('.layout-settings')).not.toBeNull();
+        expect(panel!.querySelector('.cache-settings')).not.toBeNull();
         // 默认激活「主题」栏目
-        expect(dropdown!.querySelector('.panel-nav__item.active')?.textContent).toContain('主题');
+        expect(panel!.querySelector('.panel-nav__item.active')?.textContent).toContain('主题');
     });
 
     it('点击导航切换激活栏目', async () => {
-        mount(PersonalizationPanel, {
+        track(mount(PersonalizationPanel, {
             props: { modelValue: true, autoInit: false }
-        });
+        }));
 
-        await flushPromises();
+        await wait();
 
         const items = document.body.querySelectorAll('.panel-nav__item');
         (items[1] as HTMLButtonElement).click();
-        await flushPromises();
+        await wait();
         expect(document.body.querySelector('.panel-nav__item.active')?.textContent).toContain('壁纸');
 
         (items[2] as HTMLButtonElement).click();
-        await flushPromises();
+        await wait();
+        expect(document.body.querySelector('.panel-nav__item.active')?.textContent).toContain('页面布局');
+    });
+
+    it('重新打开时回到调用方指定的栏目，不保留上次浏览位置', async () => {
+        const wrapper = track(mount(PersonalizationPanel, {
+            props: { modelValue: true, autoInit: false }
+        }));
+
+        await wait();
+        const items = document.body.querySelectorAll('.panel-nav__item');
+        (items[1] as HTMLButtonElement).click();
+        await wait();
+        expect(document.body.querySelector('.panel-nav__item.active')?.textContent).toContain('壁纸');
+
+        await wrapper.setProps({ modelValue: false });
+        await wait();
+        await wrapper.setProps({ modelValue: true });
+        await wait();
+
+        expect(document.body.querySelector('.panel-nav__item.active')?.textContent).toContain('主题');
+    });
+
+    it('tab 属性可指定打开时定位的栏目', async () => {
+        track(mount(PersonalizationPanel, {
+            props: { modelValue: true, autoInit: false, tab: 'layout' }
+        }));
+
+        await wait();
+
         expect(document.body.querySelector('.panel-nav__item.active')?.textContent).toContain('页面布局');
     });
 
     it('点击遮罩层触发 update:modelValue 与 close', async () => {
-        const wrapper = mount(PersonalizationPanel, {
+        const wrapper = track(mount(PersonalizationPanel, {
             props: { modelValue: true, autoInit: false }
-        });
+        }));
 
-        await flushPromises();
+        await wait();
 
-        const overlay = document.body.querySelector('.personalization-overlay');
+        const overlay = document.body.querySelector('.mnt-modal-overlay');
         expect(overlay).not.toBeNull();
         await overlay!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await wait();
 
         expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([false]);
         expect(wrapper.emitted('close')).toHaveLength(1);
+    });
+
+    it('按 ESC 关闭面板', async () => {
+        const wrapper = track(mount(PersonalizationPanel, {
+            props: { modelValue: true, autoInit: false }
+        }));
+
+        await wait();
+
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await wait();
+
+        expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([false]);
+    });
+
+    it('打开时锁定页面滚动，关闭后恢复', async () => {
+        const wrapper = track(mount(PersonalizationPanel, {
+            props: { modelValue: true, autoInit: false }
+        }));
+
+        await wait();
+        expect(document.body.style.overflow).toBe('hidden');
+
+        await wrapper.setProps({ modelValue: false });
+        await wait(60);
+        expect(document.body.style.overflow).toBe('');
     });
 });

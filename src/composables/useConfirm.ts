@@ -355,9 +355,18 @@ export function useConfirm(): ConfirmManager {
 
 // ==================== 渲染宿主组件 ====================
 
+// 记录打开前的值：确认框常常盖在面板之上，关闭时要还原成「面板还开着」的状态，
+// 直接清空会让下层面板失去滚动锁定。
+let savedBodyOverflow = '';
+
 function setBodyScroll(blocked: boolean): void {
     if (typeof document === 'undefined') return;
-    document.body.style.overflow = blocked ? 'hidden' : '';
+    if (blocked) {
+        savedBodyOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+    } else {
+        document.body.style.overflow = savedBodyOverflow;
+    }
 }
 
 export const MntConfirmHost = defineComponent({

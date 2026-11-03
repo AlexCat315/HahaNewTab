@@ -50,7 +50,6 @@
 
     --card-bg: var(--md-sys-color-surface-container);
     --card-border: var(--md-sys-color-outline-variant);
-    --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 14px rgba(0, 0, 0, 0.08);
     --hover-bg: color-mix(in srgb, var(--md-sys-color-on-surface) 7%, transparent);
 
     // 动效变量
@@ -58,13 +57,113 @@
     --md-transition-fast: 0.15s;
     --md-transition-medium: 0.25s;
 
-    // 布局尺寸变量
-    --sidebar-width: 200px;
-    --sidebar-collapsed-width: 56px;
-    --header-height: 52px;
+    // ==================== 排版阶（唯一合法的字号来源） ====================
+    //
+    // 这套令牌之前不存在，各组件各自写死 px，同一层面板里能同时数出 11 种字号，
+    // 其中 10~11px 的一批（徽章、诊断文本、图标库项名）在 1080p 上几乎读不动。
+    // 现在规定：正文一律 --text-base，说明文字 --text-sm，最小只到 --text-xs(12px)，
+    // 任何组件都不再出现 12px 以下的字号。
+    --text-xs: 12px;
+    --text-sm: 13px;
+    --text-base: 14px;
+    --text-md: 15px;
+    --text-lg: 17px;
+    --text-xl: 20px;
+    --text-2xl: 24px;
+    --text-3xl: 30px;
+    --leading-tight: 1.25;
+    --leading-normal: 1.5;
+    --leading-relaxed: 1.65;
+    --tracking-tight: -0.01em;
+    --weight-regular: 400;
+    --weight-medium: 500;
+    --weight-semibold: 600;
+
+    // ==================== 间距阶 ====================
+    // 4px 基数。组件里写 gap/padding/margin 时只能取这些值，
+    // 避免「12px 和 14px 挨着放、肉眼看不出差别但就是不对齐」。
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+    --space-10: 40px;
+    --space-12: 48px;
+
+    // ==================== 圆角阶 ====================
+    --radius-xs: 6px;
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 22px;
+    --radius-full: 999px;
+
+    // ==================== 悬浮外壳几何 ====================
+    // 非简洁模式的所有浮层（顶栏 / 侧栏 rail / 分组卡）共用这套尺寸语言：
+    // 浮层与视口边缘留 --shell-inset，浮层之间留 --shell-gap，
+    // 内容区限宽 --content-max-width 并居中，缩放窗口时先长内容、到顶后再留白。
+    --shell-inset: 16px;
+    --shell-gap: 16px;
+    --header-height: 56px;
+    --sidebar-width: 216px;
+    --sidebar-collapsed-width: 60px;
+    --content-max-width: 1240px;
+    --card-min-width: 240px;
     --fab-size: 56px;
     --fab-bottom: 24px;
     --fab-right: 24px;
+
+    // ==================== 面板宽度档 ====================
+    // 所有弹层只能从这四档里取宽度，不再出现 420/480/520/640 各自为政。
+    --panel-w-sm: 420px;
+    --panel-w-md: 520px;
+    --panel-w-lg: 660px;
+    --panel-w-xl: 780px;
+
+    // ==================== 玻璃浮层 ====================
+    // 浮在壁纸上的表面：半透明 surface + 背景模糊 + 18% 描边。
+    // 透明度分两档是因为 rail/顶栏要「轻」，而弹层里的文字必须有足够对比。
+    --glass-bg: color-mix(in srgb, var(--md-sys-color-surface) 78%, transparent);
+    --glass-bg-strong: color-mix(in srgb, var(--md-sys-color-surface) 92%, transparent);
+    --glass-blur: 20px;
+    --glass-border: var(--md-sys-color-outline-variant);
+
+    // 遮罩层：一律用黑。以前这里想走 inverse-surface，但深色主题的 inverse-surface
+    // 是浅色，混出来的「遮罩」会把弹窗后面点亮而不是压暗。
+    --scrim: rgba(0, 0, 0, 0.5);
+
+    // 焦点环：全局 :focus-visible 用它，组件无需各自补
+    --focus-ring: var(--md-sys-color-primary);
+    --focus-ring-width: 2px;
+    --focus-ring-offset: 2px;
+
+    // ==================== 投影 ====================
+    // 几何只写一份，暗色主题把强度乘上去（--shadow-k）。
+    // 阴影不是主题色，不违反「不在深色里另写一套值」的约定：同一份公式，
+    // 只是深色下 5% 的黑完全看不见，必须加权。
+    --shadow-k: 1;
+    --elevation-1: 0 1px 2px rgba(0, 0, 0, calc(0.05 * var(--shadow-k))),
+        0 2px 8px rgba(0, 0, 0, calc(0.06 * var(--shadow-k)));
+    --elevation-2: 0 2px 4px rgba(0, 0, 0, calc(0.06 * var(--shadow-k))),
+        0 8px 24px rgba(0, 0, 0, calc(0.10 * var(--shadow-k)));
+    --elevation-3: 0 8px 20px rgba(0, 0, 0, calc(0.10 * var(--shadow-k))),
+        0 24px 56px rgba(0, 0, 0, calc(0.16 * var(--shadow-k)));
+    --card-shadow: var(--elevation-1);
+
+    // ==================== 层序 ====================
+    // 之前每个组件自己挑 z-index（999/1000/1003/2000/2100/2200），
+    // 加一层就得猜一次谁压谁；收成命名档位，浮层关系一眼可读。
+    --z-wallpaper: 0;
+    --z-content: 10;
+    --z-rail: 20;
+    --z-header: 30;
+    --z-fab: 40;
+    --z-dropdown: 50;
+    --z-panel: 100;
+    --z-panel-raised: 110;
+    --z-toast: 200;
 
     // 图标滤镜：浅色模式显示原始图标，深色模式反转为白色（仅作用于 monochrome 图标）
     --icon-filter: none;
@@ -97,11 +196,22 @@ html.dark-mode {
     --icon-filter: invert(1) brightness(2);
     --md-sys-color-surface-rgb: 30, 30, 30;
     --md-sys-color-background-rgb: 20, 20, 20;
+
+    // 深色底上 5% 的黑等于没有投影，浮层会「粘」回背景。只加强度，几何不变。
+    --shadow-k: 3;
 }
 
 // 响应式布局变量
 @media (max-width: 768px) {
     :root {
-        --sidebar-width: 220px;
+        // 移动端侧栏是抽屉，不再是常驻 rail：给足宽度让分类名不截断
+        --sidebar-width: 240px;
+        --shell-inset: 10px;
+        --shell-gap: 10px;
+        --header-height: 52px;
+        --card-min-width: 112px;
+        --fab-size: 48px;
+        --fab-bottom: 16px;
+        --fab-right: 16px;
     }
 }

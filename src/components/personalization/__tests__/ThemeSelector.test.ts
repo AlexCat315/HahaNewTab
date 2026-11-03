@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import ThemeSelector from '@/components/personalization/ThemeSelector.vue';
+import { useThemeStore } from '@/stores/theme.store';
 
 /** 两个主题族，每族明/暗各一个变体 */
 const themesConfig = {
@@ -94,6 +95,8 @@ function mountSelector() {
     return mount(ThemeSelector, { props: { autoInit: true } });
 }
 
+
+
 describe('ThemeSelector', () => {
     beforeEach(() => {
         localStorage.clear();
@@ -120,64 +123,62 @@ describe('ThemeSelector', () => {
         expect(options[1].text()).toContain('午夜蔷薇');
     });
 
-    it('渲染明/暗模式开关，默认高亮明亮', async () => {
+    it('渲染明/暗模式分段控件，默认选中明亮', async () => {
         const wrapper = mountSelector();
 
         await flushPromises();
 
-        const modeButtons = wrapper.findAll('.theme-mode__btn');
+        const modeButtons = wrapper.findAll('.mnt-segmented__item');
         expect(modeButtons).toHaveLength(2);
         expect(modeButtons[0].text()).toContain('明亮');
         expect(modeButtons[1].text()).toContain('深色');
-        expect(modeButtons[0].classes()).toContain('active');
-        expect(modeButtons[1].classes()).not.toContain('active');
+        expect(modeButtons[0].classes()).toContain('mnt-segmented__item--active');
+        expect(modeButtons[1].classes()).not.toContain('mnt-segmented__item--active');
     });
 
-    it('点击深色开关应切换到当前族的深色变体并触发事件', async () => {
+    it('点击深色分段应落到当前族的深色变体', async () => {
         const wrapper = mountSelector();
+        const themeStore = useThemeStore();
 
         await flushPromises();
 
-        await wrapper.findAll('.theme-mode__btn')[1].trigger('click');
+        await wrapper.findAll('.mnt-segmented__item')[1].trigger('click');
         await flushPromises();
 
-        expect(wrapper.emitted('select-mode')).toHaveLength(1);
-        expect(wrapper.emitted('select-mode')![0]).toEqual(['dark']);
-        expect(wrapper.emitted('select-theme')![0]).toEqual(['material-rose-dark']);
-
-        const modeButtons = wrapper.findAll('.theme-mode__btn');
-        expect(modeButtons[1].classes()).toContain('active');
+        expect(themeStore.selectedThemeId).toBe('material-rose-dark');
+        expect(wrapper.findAll('.mnt-segmented__item')[1].classes())
+            .toContain('mnt-segmented__item--active');
         // 切模式不换族，列表里的 active 仍停在同一个主题族
         const active = wrapper.findAll('.theme-option.active');
         expect(active).toHaveLength(1);
         expect(active[0].text()).toContain('Haha娘经典');
     });
 
-    it('点击主题族切换并触发事件（沿用当前明暗模式）', async () => {
+    it('点击主题族切换，沿用当前明暗模式', async () => {
         const wrapper = mountSelector();
+        const themeStore = useThemeStore();
 
         await flushPromises();
 
         await wrapper.findAll('.theme-option')[1].trigger('click');
         await flushPromises();
 
-        expect(wrapper.emitted('select-theme')).toHaveLength(1);
-        expect(wrapper.emitted('select-theme')![0]).toEqual(['midnight-rose-light']);
+        expect(themeStore.selectedThemeId).toBe('midnight-rose-light');
     });
 
     it('深色模式下切换主题族应落在该族的深色变体', async () => {
         const wrapper = mountSelector();
+        const themeStore = useThemeStore();
 
         await flushPromises();
 
-        await wrapper.findAll('.theme-mode__btn')[1].trigger('click');
+        await wrapper.findAll('.mnt-segmented__item')[1].trigger('click');
         await flushPromises();
 
         await wrapper.findAll('.theme-option')[1].trigger('click');
         await flushPromises();
 
-        const emitted = wrapper.emitted('select-theme')!;
-        expect(emitted[emitted.length - 1]).toEqual(['midnight-rose-dark']);
+        expect(themeStore.selectedThemeId).toBe('midnight-rose-dark');
     });
 
     it('当前主题带有 active 类', async () => {

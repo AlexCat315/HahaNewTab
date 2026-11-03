@@ -196,7 +196,6 @@ function formatCount(categoryId: string): string {
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/variables' as *;
 @use '@/styles/mixins' as *;
 
 .mnt-category-manager {

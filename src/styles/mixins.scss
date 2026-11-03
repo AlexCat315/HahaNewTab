@@ -129,6 +129,10 @@
 
 /**
  * 按钮重置：去除浏览器默认样式
+ *
+ * 只在「非 focus-visible」时抹掉轮廓。之前的 `&:focus { outline: none }` 会把
+ * 键盘焦点一起吃掉——这个 mixin 用了几十个地方，等于全站键盘用户看不见光标在哪。
+ * 真正的焦点环由 global.scss 里的 :focus-visible 统一提供。
  */
 @mixin button-reset {
     appearance: none;
@@ -140,8 +144,81 @@
     font: inherit;
     color: inherit;
 
-    &:focus {
+    &:focus:not(:focus-visible) {
         outline: none;
+    }
+}
+
+/**
+ * 浮在壁纸上的玻璃表面：半透明主题色 + 背景模糊 + 描边 + 投影
+ * @param {String} $bg - 背景 token，默认 --glass-bg
+ * @param {Number} $radius - 圆角，默认 --radius-lg
+ */
+@mixin glass-surface($bg: var(--glass-bg), $radius: var(--radius-lg)) {
+    background: $bg;
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    border-radius: $radius;
+    box-shadow: var(--elevation-1);
+}
+
+/**
+ * 可滚动区域：统一用主题化细滚动条
+ *
+ * 面板以前各自 @include hide-scrollbar，而 global.scss 定义了一套主题滚动条，
+ * 结果同一个应用里两种滚动条并存。视觉需要隐藏滚动的地方（横向胶囊条）
+ * 仍可直接用 hide-scrollbar，但正文/列表滚动区一律走这个。
+ */
+@mixin scrollable($axis: y) {
+    overflow: #{$axis};
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--md-sys-color-outline) transparent;
+
+    &::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    &::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        background: color-mix(in srgb, var(--md-sys-color-on-surface) 20%, transparent);
+        border-radius: var(--radius-full);
+        border: 2px solid transparent;
+        background-clip: padding-box;
+    }
+
+    &::-webkit-scrollbar-thumb:hover {
+        background: color-mix(in srgb, var(--md-sys-color-on-surface) 34%, transparent);
+        background-clip: padding-box;
+    }
+}
+
+/**
+ * 图标按钮：固定方形热区，hover/active 有反馈
+ * @param {Number} $size - 边长，默认 36px
+ */
+@mixin icon-button($size: 36px) {
+    @include button-reset;
+    @include flex-center;
+    width: $size;
+    height: $size;
+    border-radius: var(--radius-sm);
+    color: var(--md-sys-color-on-surface-variant);
+    flex-shrink: 0;
+    @include md-transition(color background, var(--md-transition-fast));
+
+    &:hover {
+        background: var(--hover-bg);
+        color: var(--md-sys-color-on-surface);
+    }
+
+    &:active {
+        background: var(--md-sys-color-surface-variant);
     }
 }
 

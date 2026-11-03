@@ -142,7 +142,6 @@ const deleteIconPath = 'M18 6L6 18M6 6l12 12';
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/variables' as *;
 @use '@/styles/mixins' as *;
 
 .search-history {

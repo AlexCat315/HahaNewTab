@@ -57,7 +57,6 @@ const ghostStyle = computed(() => ({
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/variables' as *;
 @use '@/styles/mixins' as *;
 
 .app-card-drag-ghost {

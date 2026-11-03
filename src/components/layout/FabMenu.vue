@@ -134,18 +134,17 @@ onUnmounted(() => {
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/variables' as *;
 @use '@/styles/mixins' as *;
 
 .fab-container {
     position: fixed;
     right: var(--fab-right);
     bottom: var(--fab-bottom);
-    z-index: 100;
+    z-index: var(--z-fab);
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .fab-main {
@@ -155,17 +154,18 @@ onUnmounted(() => {
     border-radius: 50%;
     background: var(--md-sys-color-primary);
     color: var(--md-sys-color-on-primary);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    box-shadow: var(--elevation-2);
     display: flex;
     align-items: center;
     justify-content: center;
-    @include md-transition(all, 0.3s);
+    @include md-transition(all, var(--md-transition-medium));
     position: relative;
     z-index: 2;
 
     &:hover {
-        transform: scale(1.1);
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+        transform: scale(1.08);
+        background: color-mix(in srgb, var(--md-sys-color-primary) 88%, var(--md-sys-color-on-primary));
+        box-shadow: var(--elevation-3);
     }
 
     &.active {
@@ -179,21 +179,19 @@ onUnmounted(() => {
 
 .fab-menu {
     position: absolute;
-    bottom: calc(var(--fab-size) + 12px);
+    bottom: calc(var(--fab-size) + var(--space-3));
     right: 0;
     margin: 0;
-    padding: 8px;
+    padding: var(--space-2);
     list-style: none;
-    background: var(--md-sys-color-surface);
-    border-radius: 12px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-    border: 1px solid var(--md-sys-color-outline-variant);
-    min-width: 180px;
+    @include glass-surface(var(--glass-bg-strong), var(--radius-lg));
+    box-shadow: var(--elevation-3);
+    min-width: 200px;
     opacity: 0;
     visibility: hidden;
     transform: translateY(10px) scale(0.9);
     transform-origin: bottom right;
-    @include md-transition(all, 0.2s);
+    @include md-transition(all, var(--md-transition-medium));
     z-index: 1;
 
     &.show {
@@ -206,14 +204,15 @@ onUnmounted(() => {
 .fab-item {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 12px;
-    border-radius: 8px;
+    gap: var(--space-3);
+    height: 36px;
+    padding: 0 var(--space-3);
+    border-radius: var(--radius-md);
     cursor: pointer;
     color: var(--md-sys-color-on-surface);
-    font-size: 14px;
-    font-weight: 500;
-    @include md-transition(all, 0.15s);
+    font-size: var(--text-base);
+    font-weight: var(--weight-medium);
+    @include md-transition(all, var(--md-transition-fast));
 
     &:hover {
         background: var(--md-sys-color-primary-container);
@@ -227,6 +226,7 @@ onUnmounted(() => {
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
 }
 
 .fab-item-label {
@@ -235,25 +235,25 @@ onUnmounted(() => {
 
 .fab-divider {
     height: 1px;
-    background: var(--md-sys-color-outline-variant);
-    margin: 8px 0;
+    background: var(--card-border);
+    margin: var(--space-2) 0;
     list-style: none;
 }
 
 .fab-section-title {
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--md-sys-color-on-surface-variant);
-    padding: 4px 12px;
-    font-weight: 600;
+    padding: var(--space-1) var(--space-3);
+    font-weight: var(--weight-semibold);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.04em;
     list-style: none;
 }
 
-@media (max-width: 768px) {
+@include respond-to(mobile) {
     .fab-container {
-        right: 16px !important;
-        bottom: 80px !important;
+        right: var(--shell-inset) !important;
+        bottom: calc(var(--header-height) + var(--shell-inset)) !important;
     }
 }
 </style>

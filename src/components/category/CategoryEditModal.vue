@@ -171,7 +171,7 @@ const activePresetIcon = computed(() =>
     <ModalOverlay
         :model-value="modelValue"
         :title="modalTitle"
-        :max-width="420"
+        size="sm"
         close-on-overlay
         close-on-esc
         @update:model-value="$emit('update:modelValue', $event)"
@@ -335,7 +335,6 @@ const activePresetIcon = computed(() =>
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/variables' as *;
 @use '@/styles/mixins' as *;
 
 .mnt-category-form {

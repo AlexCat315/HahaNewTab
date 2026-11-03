@@ -40,6 +40,7 @@ import UiLibPanel from '@/components/uiLib/UiLibPanel.vue';
 import PersonalizationPanel from '@/components/personalization/PersonalizationPanel.vue';
 import ToastContainer from '@/components/common/ToastContainer.vue';
 import UpdateBanner from '@/components/common/UpdateBanner.vue';
+import BaseButton from '@/components/common/BaseButton.vue';
 import CategorySection from '@/components/app/CategorySection.vue';
 import AppGrid from '@/components/app/AppGrid.vue';
 import AppCardDragGhost from '@/components/app/AppCardDragGhost.vue';
@@ -153,6 +154,39 @@ const homeCategories = computed<Category[]>(() => {
         sections.push(UNCATEGORIZED_SECTION);
     }
     return sections;
+});
+
+/** 侧栏分类右侧的站点数，与首页分组用的是同一套过滤规则 */
+const categoryCounts = computed<Record<string, number>>(() => {
+    const counts: Record<string, number> = {};
+    for (const category of dataManager.categories.value) {
+        counts[category.id] =
+            category.id === 'all'
+                ? dataManager.visibleApps.value.length
+                : getDisplayApps(category.id).length;
+    }
+    return counts;
+});
+
+/** 当前视图里被隐藏的站点数（未开启揭示模式时才有意义） */
+const hiddenCountInScope = computed(() => {
+    const source =
+        activeCategoryId.value === 'all'
+            ? dataManager.apps.value
+            : dataManager.getAppsByCategory(activeCategoryId.value);
+    return source.filter((app) => app.hidden).length;
+});
+
+/** 页头说明行：站点数 +（分组视图）分类数 +（有隐藏站点时）隐藏数 */
+const contentMeta = computed(() => {
+    const parts = [`${displayedApps.value.length} 个站点`];
+    if (activeCategoryId.value === 'all' && !layoutStore.allViewFlat) {
+        parts.push(`${homeCategories.value.length} 个分类`);
+    }
+    if (!showHiddenApps.value && hiddenCountInScope.value > 0) {
+        parts.push(`${hiddenCountInScope.value} 个已隐藏`);
+    }
+    return parts.join(' · ');
 });
 
 /**
@@ -523,21 +557,20 @@ const fabItems = [
         />
 
         <template v-else>
-        <div class="header-wrapper">
-            <AppHeader
-                ref="headerRef"
-                :sidebar-collapsed="sidebarCollapsed"
-                @toggle-sidebar="toggleSidebar"
-                @menu-click="openMobileSidebar"
-                @brand-dblclick="toggleHiddenApps"
-            />
-        </div>
+        <AppHeader
+            ref="headerRef"
+            :sidebar-collapsed="sidebarCollapsed"
+            @toggle-sidebar="toggleSidebar"
+            @menu-click="openMobileSidebar"
+            @brand-dblclick="toggleHiddenApps"
+        />
 
         <Sidebar
             :categories="visibleCategories"
             :active-category-id="activeCategoryId"
             :collapsed="sidebarCollapsed"
             :mobile-open="mobileSidebarOpen"
+            :counts="categoryCounts"
             @select-category="handleSelectCategory"
             @update:mobile-open="mobileSidebarOpen = $event"
             @open-search="openSearch"
@@ -545,33 +578,35 @@ const fabItems = [
         />
 
         <MainContent :title="pageTitle" :collapsed="sidebarCollapsed">
+            <template #meta>
+                <span>{{ contentMeta }}</span>
+            </template>
+
             <template #header-extra>
-                <button
+                <BaseButton
                     v-if="activeCategoryId !== 'all'"
-                    type="button"
-                    class="content-action-btn"
+                    variant="primary"
+                    size="small"
                     @click="openAddApp(activeCategoryId)"
                 >
-                    <IconSvg name="plus" :size="16" />
+                    <template #icon>
+                        <IconSvg name="plus" :size="16" monochrome alt="" />
+                    </template>
                     添加网站
-                </button>
+                </BaseButton>
             </template>
 
             <div v-if="dataManager.isLoading.value" class="app-loading">
-                <IconSvg name="refresh" :size="32" />
+                <IconSvg name="refresh" :size="32" monochrome />
                 <p>数据加载中…</p>
             </div>
 
             <div v-else-if="!hasApps" class="app-empty">
-                <IconSvg name="folder" :size="64" />
+                <IconSvg name="folder" :size="56" monochrome />
                 <p>该分类下暂无应用</p>
-                <button
-                    type="button"
-                    class="content-action-btn"
-                    @click="openAddApp(activeCategoryId)"
-                >
+                <BaseButton variant="primary" size="small" @click="openAddApp(activeCategoryId)">
                     添加网站
-                </button>
+                </BaseButton>
             </div>
 
             <template v-else-if="activeCategoryId === 'all' && layoutStore.allViewFlat">
@@ -592,10 +627,12 @@ const fabItems = [
                     :category="category"
                     :apps="getDisplayApps(category.id)"
                     :draggable="true"
+                    :show-add="true"
                     :animation-delay="index * 0.05"
                     @app-click="handleAppClick"
                     @edit-app="openEditApp"
                     @delete-app="handleDeleteApp"
+                    @add-app="openAddApp"
                 >
                     <template #empty>
                         <p class="section-empty-hint">该分类下暂无应用</p>
@@ -646,7 +683,7 @@ const fabItems = [
 
         <UiLibPanel v-model="uiLibPanelOpen" />
 
-        <ModalOverlay v-model="cloudSyncOpen" title="云同步" :max-width="420" close-on-overlay>
+        <ModalOverlay v-model="cloudSyncOpen" title="云同步" size="sm" close-on-overlay>
             <CloudSyncPanel />
         </ModalOverlay>
 
@@ -676,36 +713,11 @@ const fabItems = [
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/variables' as *;
 @use '@/styles/mixins' as *;
 
 .app-root {
     min-height: 100vh;
     position: relative;
-}
-
-.content-action-btn {
-    @include button-reset;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 14px;
-    border-radius: 20px;
-    background: var(--md-sys-color-primary);
-    color: var(--md-sys-color-on-primary);
-    font-size: 13px;
-    font-weight: 600;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-    @include md-transition(all, var(--md-transition-fast));
-
-    &:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
-    }
-
-    :deep(.icon-svg) {
-        color: var(--md-sys-color-on-primary);
-    }
 }
 
 .app-loading,
@@ -714,16 +726,17 @@ const fabItems = [
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 16px;
-    padding: 80px 20px;
+    gap: var(--space-4);
+    padding: var(--space-12) var(--space-5);
     color: var(--md-sys-color-on-surface-variant);
     text-align: center;
+    font-size: var(--text-md);
 }
 
 // 分组视图里的空分类只需一行提示，不要一块大图标
 .section-empty-hint {
-    padding: 12px 0;
-    font-size: 0.85rem;
+    padding: var(--space-3) 0;
+    font-size: var(--text-sm);
     color: var(--md-sys-color-on-surface-variant);
 }
 

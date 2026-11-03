@@ -1,8 +1,10 @@
 <script setup lang="ts">
 /**
- * Sidebar - 左侧分类导航栏
+ * Sidebar - 分类导航 rail
  *
- * 展示应用分类列表，支持折叠态、移动端抽屉、分类拖拽排序以及搜索入口。
+ * 浮在壁纸左侧的一块半透明圆角浮层，与顶栏同一套表面语言。
+ * 展开态显示分类名与该分类的站点数，折叠态收成图标 rail（hover 出名称提示），
+ * 移动端转为抽屉。分类拖拽排序与全局搜索入口都在这一层。
  * 当未传入 categories 时，会尝试从 useDataManager 初始化并读取分类数据。
  */
 import {
@@ -29,6 +31,8 @@ export interface SidebarProps {
     mobileOpen?: boolean;
     /** 是否启用分类拖拽排序 */
     enableDragSort?: boolean;
+    /** 各分类的可见站点数；传入时在分类名右侧显示 */
+    counts?: Record<string, number>;
 }
 
 const props = withDefaults(defineProps<SidebarProps>(), {
@@ -36,7 +40,8 @@ const props = withDefaults(defineProps<SidebarProps>(), {
     activeCategoryId: 'all',
     collapsed: false,
     mobileOpen: false,
-    enableDragSort: true
+    enableDragSort: true,
+    counts: undefined
 });
 
 const emit = defineEmits<{
@@ -163,6 +168,7 @@ watch(
                 :data-id="category.id"
                 :data-title="category.name"
                 :data-draggable="isDraggable(category)"
+                :aria-current="category.id === activeCategoryId ? 'page' : undefined"
                 @click="handleCategoryClick(category)"
             >
                 <span class="nav-icon">
@@ -174,6 +180,7 @@ watch(
                     />
                 </span>
                 <span class="nav-text">{{ category.name }}</span>
+                <span v-if="counts" class="nav-count">{{ counts[category.id] ?? 0 }}</span>
             </button>
 
             <slot name="footer" />
@@ -183,13 +190,14 @@ watch(
             <button
                 type="button"
                 class="search-nav-item"
+                title="全局搜索 (Ctrl+K)"
                 @click="handleSearchClick"
             >
                 <span class="nav-icon">
-                    <IconSvg name="search" :size="20" />
+                    <IconSvg name="search" :size="20" monochrome />
                 </span>
                 <span class="nav-text">全局搜索</span>
-                <span class="search-shortcut">Ctrl+K</span>
+                <kbd v-if="!collapsed" class="search-shortcut">Ctrl K</kbd>
             </button>
         </div>
     </aside>
@@ -202,70 +210,26 @@ watch(
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/variables' as *;
 @use '@/styles/mixins' as *;
 
 .sidebar {
     position: fixed;
-    left: 0;
-    top: var(--header-height);
+    left: var(--shell-inset);
+    top: calc(var(--header-height) + var(--shell-inset) * 2);
+    bottom: var(--shell-inset);
     width: var(--sidebar-width);
-    height: calc(100vh - var(--header-height));
-    // 侧栏走「新版」：与内容区同色的 surface，靠右侧描边分隔
-    background: var(--md-sys-color-surface);
-    z-index: 999;
-    overflow-y: auto;
-    overflow-x: hidden;
-    border-right: 1px solid var(--md-sys-color-outline-variant);
+    @include glass-surface(var(--glass-bg), var(--radius-xl));
+    z-index: var(--z-rail);
     display: flex;
     flex-direction: column;
-    @include md-transition(width);
     contain: layout;
-    will-change: width;
-
-    &.collapsed {
-        width: var(--sidebar-collapsed-width);
-    }
-
-    &.collapsed .nav-item,
-    &.collapsed .search-nav-item {
-        justify-content: center;
-        padding-left: 0;
-        padding-right: 0;
-    }
-
-    &.collapsed .nav-icon {
-        margin-right: 0;
-    }
-
-    &.collapsed .nav-text,
-    &.collapsed .search-shortcut {
-        opacity: 0;
-        width: 0;
-        display: none;
-    }
-
-    &.collapsed .nav-item:hover::after {
-        content: attr(data-title);
-        position: absolute;
-        left: calc(100% + 8px);
-        top: 50%;
-        transform: translateY(-50%);
-        background: var(--md-sys-color-inverse-surface);
-        color: var(--md-sys-color-inverse-on-surface);
-        padding: 6px 10px;
-        border-radius: 6px;
-        font-size: 12px;
-        white-space: nowrap;
-        z-index: 1003;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        pointer-events: none;
-    }
+    @include md-transition(width);
 }
 
 .nav-menu {
-    padding: 12px 8px;
+    padding: var(--space-3) var(--space-2);
     flex: 1;
+    @include scrollable;
 }
 
 .nav-item {
@@ -273,22 +237,22 @@ watch(
     width: 100%;
     display: flex;
     align-items: center;
-    padding: 10px 12px;
-    margin: 4px 0;
-    border-radius: 8px;
+    gap: var(--space-3);
+    height: 40px;
+    padding: 0 var(--space-3);
+    margin-bottom: var(--space-1);
+    border-radius: var(--radius-md);
     color: var(--md-sys-color-on-surface-variant);
-    text-decoration: none;
-    font-weight: 500;
-    font-size: 13px;
+    font-weight: var(--weight-medium);
+    font-size: var(--text-base);
     position: relative;
     white-space: nowrap;
-    border: 1px solid transparent;
     user-select: none;
-    @include md-transition(all, var(--md-transition-fast));
+    @include md-transition(background color, var(--md-transition-fast));
 
     &:hover {
         background: var(--hover-bg);
-        color: var(--md-sys-color-primary);
+        color: var(--md-sys-color-on-surface);
     }
 
     &.active {
@@ -296,8 +260,7 @@ watch(
         // 落在 *-container 底上的文字用配套的 on-*-container：
         // 重新用 primary 会掉到 2.98:1（薄荷绿那套几乎看不清）
         color: var(--md-sys-color-on-primary-container);
-        border-color: transparent;
-        font-weight: 600;
+        font-weight: var(--weight-semibold);
     }
 
     &.pressing {
@@ -307,7 +270,7 @@ watch(
     &.dragging {
         opacity: 0.6;
         background: var(--md-sys-color-surface-variant);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        box-shadow: var(--elevation-2);
         cursor: grabbing;
         z-index: 100;
     }
@@ -322,25 +285,37 @@ watch(
 }
 
 .nav-icon {
-    margin-right: 12px;
     width: 20px;
     height: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    @include md-transition(margin);
 }
 
 .nav-text {
-    @include md-transition(opacity, var(--md-transition-fast));
-    overflow: hidden;
+    flex: 1;
+    min-width: 0;
+    @include text-ellipsis;
+}
+
+.nav-count {
+    flex-shrink: 0;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+    color: var(--md-sys-color-on-surface-variant);
+    font-variant-numeric: tabular-nums;
+    opacity: 0.75;
+
+    .nav-item.active & {
+        opacity: 1;
+    }
 }
 
 .sidebar-footer {
-    padding: 12px 8px;
-    border-top: 1px solid var(--md-sys-color-outline-variant);
-    margin-top: auto;
+    padding: var(--space-3) var(--space-2);
+    border-top: 1px solid var(--glass-border);
+    flex-shrink: 0;
 }
 
 .search-nav-item {
@@ -348,77 +323,109 @@ watch(
     width: 100%;
     display: flex;
     align-items: center;
-    padding: 10px 12px;
-    border-radius: 8px;
+    gap: var(--space-3);
+    height: 40px;
+    padding: 0 var(--space-3);
+    border-radius: var(--radius-md);
     color: var(--md-sys-color-on-surface);
     background: var(--md-sys-color-surface-variant);
-    font-weight: 500;
-    font-size: 13px;
-    @include md-transition(all, 0.2s);
-    // 无可见描边：收起侧栏时这块填充色本身就是左下角那个圆角方块
-    border: 1px solid transparent;
+    font-weight: var(--weight-medium);
+    font-size: var(--text-base);
+    @include md-transition(background color transform, var(--md-transition-fast));
 
     &:hover {
         background: var(--md-sys-color-primary-container);
         color: var(--md-sys-color-on-primary-container);
-        border-color: var(--md-sys-color-primary);
-        transform: translateY(-1px);
     }
 }
 
 .search-shortcut {
     margin-left: auto;
-    font-size: 11px;
-    opacity: 0.6;
-    // 写死黑色 5% 在深色主题里等于没有背景，用主题 token
+    font-size: var(--text-xs);
+    font-family: inherit;
+    opacity: 0.7;
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-xs);
+    border: 1px solid var(--glass-border);
     background: var(--hover-bg);
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-family: monospace;
+    white-space: nowrap;
+}
+
+// ==================== 折叠态：图标 rail ====================
+.sidebar.collapsed {
+    width: var(--sidebar-collapsed-width);
+
+    .nav-item,
+    .search-nav-item {
+        justify-content: center;
+        padding: 0;
+    }
+
+    .nav-text,
+    .nav-count {
+        display: none;
+    }
+
+    // 折叠后看不见分类名，hover 时在右侧浮出名称
+    .nav-item:hover::after {
+        content: attr(data-title);
+        position: absolute;
+        left: calc(100% + 10px);
+        top: 50%;
+        transform: translateY(-50%);
+        background: var(--md-sys-color-inverse-surface);
+        color: var(--md-sys-color-inverse-on-surface);
+        padding: var(--space-1) var(--space-3);
+        border-radius: var(--radius-sm);
+        font-size: var(--text-xs);
+        white-space: nowrap;
+        z-index: var(--z-dropdown);
+        box-shadow: var(--elevation-2);
+        pointer-events: none;
+    }
 }
 
 .sidebar-overlay {
     position: fixed;
-    top: var(--header-height);
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(var(--md-sys-color-background-rgb), 0.5);
-    z-index: 998;
+    inset: 0;
+    background: var(--scrim);
     backdrop-filter: blur(4px);
+    z-index: calc(var(--z-rail) - 1);
 }
 
-@media (max-width: 768px) {
+@include respond-to(mobile) {
     .sidebar {
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: var(--sidebar-width);
+        border-radius: 0 var(--radius-xl) var(--radius-xl) 0;
         transform: translateX(-100%);
-        box-shadow: 2px 0 12px rgba(0, 0, 0, 0.08);
-        width: var(--sidebar-width) !important;
+        transition: transform var(--md-transition-medium) var(--md-easing);
 
         &.open {
             transform: translateX(0);
         }
-
-        &.collapsed .nav-text,
-        &.collapsed .search-shortcut {
-            opacity: 1;
-            width: auto;
-            display: inline;
-        }
-
-        &.collapsed .nav-icon {
-            margin-right: 12px;
-        }
-
-        &.collapsed .nav-item,
-        &.collapsed .search-nav-item {
-            justify-content: flex-start;
-            padding-left: 12px;
-            padding-right: 12px;
-        }
     }
 
-    .nav-item:hover::after {
-        display: none;
+    // 抽屉永远是展开态：触屏没有 hover，收起态的文字必须照常显示
+    .sidebar.collapsed {
+        width: var(--sidebar-width);
+
+        .nav-item,
+        .search-nav-item {
+            justify-content: flex-start;
+            padding: 0 var(--space-3);
+        }
+
+        .nav-text,
+        .nav-count {
+            display: block;
+        }
+
+        .nav-item:hover::after {
+            display: none;
+        }
     }
 }
 </style>

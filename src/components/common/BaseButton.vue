@@ -66,7 +66,6 @@ const spinnerPath = 'M12 2v4m0 12v4M2 12h4m12 0h4';
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/variables' as *;
 @use '@/styles/mixins' as *;
 
 .mnt-base-button {
@@ -75,28 +74,31 @@ const spinnerPath = 'M12 2v4m0 12v4M2 12h4m12 0h4';
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    border-radius: 10px;
-    font-weight: 600;
-    line-height: 1.5;
+    gap: var(--space-2);
+    border-radius: var(--radius-full);
+    font-weight: var(--weight-semibold);
+    line-height: 1;
     white-space: nowrap;
     @include md-transition(all, var(--md-transition-fast));
-    @include focus-ring;
 
+    // 尺寸用 height + 横向 padding 定义，不再靠上下 padding 撑：
+    // 同一排按钮里有单行文字也有图标时，垂直 padding 会让它们视觉不等高。
     &--small {
-        padding: 6px 12px;
-        font-size: 12px;
-        border-radius: 8px;
+        height: 30px;
+        padding: 0 var(--space-3);
+        font-size: var(--text-sm);
     }
 
     &--medium {
-        padding: 10px 20px;
-        font-size: 14px;
+        height: 38px;
+        padding: 0 var(--space-5);
+        font-size: var(--text-base);
     }
 
     &--large {
-        padding: 12px 28px;
-        font-size: 15px;
+        height: 46px;
+        padding: 0 var(--space-6);
+        font-size: var(--text-md);
     }
 
     &--block {
@@ -108,19 +110,21 @@ const spinnerPath = 'M12 2v4m0 12v4M2 12h4m12 0h4';
         color: var(--md-sys-color-on-primary);
 
         &:not(:disabled):hover {
-            opacity: 0.9;
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(177, 74, 107, 0.3);
+            // 混 12% 到 on-primary：浅色主题变亮、深色主题变暗，两种都成立，
+            // 不必像以前那样写死一个玫瑰色投影（换个主题就穿帮）
+            background: color-mix(in srgb, var(--md-sys-color-primary) 88%, var(--md-sys-color-on-primary));
+            box-shadow: var(--elevation-2);
         }
     }
 
     &--secondary {
         background: var(--md-sys-color-surface-variant);
         color: var(--md-sys-color-on-surface);
-        border: 1px solid var(--md-sys-color-outline);
+        border: 1px solid var(--card-border);
 
         &:not(:disabled):hover {
-            background: var(--md-sys-color-outline-variant);
+            background: var(--hover-bg);
             border-color: var(--md-sys-color-primary);
         }
     }
@@ -128,7 +132,7 @@ const spinnerPath = 'M12 2v4m0 12v4M2 12h4m12 0h4';
     &--outlined {
         background: transparent;
         color: var(--md-sys-color-primary);
-        border: 1px solid var(--md-sys-color-outline);
+        border: 1px solid var(--card-border);
 
         &:not(:disabled):hover {
             background: var(--md-sys-color-primary-container);
@@ -143,17 +147,19 @@ const spinnerPath = 'M12 2v4m0 12v4M2 12h4m12 0h4';
 
         &:not(:disabled):hover {
             color: var(--md-sys-color-on-surface);
-            background: var(--md-sys-color-surface-variant);
+            background: var(--hover-bg);
         }
     }
 
+    // 危险操作用「error 淡底 + error 文字」，不是「error 实底 + 白字」：
+    // 深色主题的 error 是浅珊瑚色，白字压上去只有 1.9:1，
+    // 而且主题 token 里根本没有 on-error 这个色，写死的 #fff 无法跟随主题。
     &--danger {
-        background: var(--md-sys-color-error);
-        color: #fff;
+        background: color-mix(in srgb, var(--md-sys-color-error) 14%, transparent);
+        color: var(--md-sys-color-error);
 
         &:not(:disabled):hover {
-            opacity: 0.9;
-            transform: translateY(-1px);
+            background: color-mix(in srgb, var(--md-sys-color-error) 24%, transparent);
         }
     }
 
@@ -170,6 +176,7 @@ const spinnerPath = 'M12 2v4m0 12v4M2 12h4m12 0h4';
         justify-content: center;
         width: 18px;
         height: 18px;
+        flex-shrink: 0;
 
         :deep(svg) {
             width: 100%;

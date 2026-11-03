@@ -229,19 +229,18 @@ function handleDelete(app: AppItem): void {
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/variables' as *;
 @use '@/styles/mixins' as *;
 
 .app-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(var(--card-min-width), 1fr));
+    gap: var(--space-3);
     min-height: 50px;
 
     &__placeholder {
         min-height: 76px;
         border: 2px dashed var(--md-sys-color-primary);
-        border-radius: 12px;
+        border-radius: var(--radius-md);
         background: color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent);
         opacity: 0.7;
     }
@@ -251,25 +250,18 @@ function handleDelete(app: AppItem): void {
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 8px;
-        padding-top: 4px;
+        gap: var(--space-2);
+        padding-top: var(--space-1);
     }
 
     &__pager-btn {
-        @include button-reset;
-        width: 26px;
-        height: 26px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--md-sys-color-on-surface-variant);
+        @include icon-button(28px);
         background: var(--md-sys-color-surface-variant);
-        @include md-transition(all, var(--md-transition-fast));
+        color: var(--md-sys-color-on-surface-variant);
 
         &:hover:not(:disabled) {
-            background: var(--md-sys-color-primary);
-            color: var(--md-sys-color-on-primary);
+            background: color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent);
+            color: var(--md-sys-color-primary);
         }
 
         &:disabled {
@@ -279,29 +271,30 @@ function handleDelete(app: AppItem): void {
     }
 
     &__pager-info {
-        font-size: 12px;
+        font-size: var(--text-xs);
         color: var(--md-sys-color-on-surface-variant);
-        min-width: 36px;
+        font-variant-numeric: tabular-nums;
+        min-width: 44px;
         text-align: center;
     }
 
     &__empty {
         grid-column: 1 / -1;
         text-align: center;
-        padding: 40px 20px;
+        padding: var(--space-10) var(--space-5);
         color: var(--md-sys-color-on-surface-variant);
-        font-size: 0.9rem;
+        font-size: var(--text-md);
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 12px;
+        gap: var(--space-3);
     }
 }
 
-@media (max-width: 768px) {
+@include respond-to(mobile) {
     .app-grid {
         grid-template-columns: 1fr;
-        gap: 10px;
+        gap: var(--space-2);
     }
 }
 </style>

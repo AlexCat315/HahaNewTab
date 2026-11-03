@@ -170,7 +170,6 @@ function highlightMatch(suggestion: string): string {
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/variables' as *;
 @use '@/styles/mixins' as *;
 
 .search-suggestions {

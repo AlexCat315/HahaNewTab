@@ -156,21 +156,20 @@ function handleDelete(event: MouseEvent): void {
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/variables' as *;
 @use '@/styles/mixins' as *;
 
 .app-card {
     position: relative;
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px;
+    gap: var(--space-3);
+    padding: var(--space-3);
     // 固定等高：容纳两行简介，无简介时内容垂直居中
     height: 76px;
     background: var(--card-bg);
     border: 1px solid var(--card-border);
-    border-radius: 12px;
-    box-shadow: var(--card-shadow);
+    border-radius: var(--radius-md);
+    box-shadow: var(--elevation-1);
     cursor: pointer;
     user-select: none;
     -webkit-user-select: none;
@@ -178,16 +177,11 @@ function handleDelete(event: MouseEvent): void {
     contain: layout style paint;
     transform: translateZ(0);
     @include md-transition(all, var(--md-transition-fast));
-    @include focus-ring;
 
+    // 只抬升不描边：整屏卡片同时换成主色边框会糊成一片，hover 也读不出层级
     &:hover {
         transform: translateY(-2px);
-        border-color: var(--md-sys-color-primary);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-    }
-
-    &:hover &__name {
-        color: var(--md-sys-color-primary);
+        box-shadow: var(--elevation-2);
     }
 
     &.is-hidden {
@@ -198,9 +192,9 @@ function handleDelete(event: MouseEvent): void {
 
     &.is-dragging {
         opacity: 0.6;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+        box-shadow: var(--elevation-3);
         cursor: grabbing;
-        z-index: 1000;
+        z-index: var(--z-dropdown);
         transform: scale(1.02);
     }
 
@@ -220,7 +214,7 @@ function handleDelete(event: MouseEvent): void {
     &__icon {
         width: 40px;
         height: 40px;
-        border-radius: 10px;
+        border-radius: var(--radius-sm);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -245,32 +239,31 @@ function handleDelete(event: MouseEvent): void {
 
     &__name {
         margin: 0;
-        font-size: 0.9rem;
-        font-weight: 600;
+        font-size: var(--text-base);
+        font-weight: var(--weight-semibold);
         color: var(--md-sys-color-on-surface);
+        line-height: var(--leading-tight);
         @include text-ellipsis;
-        @include md-transition(color, var(--md-transition-fast));
     }
 
     &__description {
         margin: 0;
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         color: var(--md-sys-color-on-surface-variant);
-        opacity: 0.85;
-        line-height: 1.3;
+        line-height: var(--leading-normal);
         @include line-clamp(2);
-        max-height: 2.8em;
+        max-height: 3em;
     }
 
     &__actions {
         position: absolute;
-        top: 8px;
-        right: 8px;
+        top: var(--space-2);
+        right: var(--space-2);
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: var(--space-1);
         opacity: 0;
-        transition: opacity 0.2s ease;
+        @include md-transition(opacity, var(--md-transition-fast));
     }
 
     &:hover &__actions,
@@ -284,22 +277,31 @@ function handleDelete(event: MouseEvent): void {
         height: 28px;
         min-width: auto;
         padding: 0 !important;
-        border-radius: 6px;
-        background: var(--md-sys-color-surface-variant);
+        border-radius: var(--radius-xs);
+        background: var(--hover-bg);
         color: var(--md-sys-color-on-surface-variant);
 
         &:hover {
-            background: var(--md-sys-color-primary);
-            color: var(--md-sys-color-on-primary);
+            background: color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent);
+            color: var(--md-sys-color-primary);
         }
 
+        // 删除用「主色底 + error 文字」而不是「error 实底 + 白字」：
+        // 深色主题的 error 是浅珊瑚色，白字压上去只有 1.9:1。
         &--delete:hover {
-            background: var(--md-sys-color-error);
-            color: #fff;
+            background: color-mix(in srgb, var(--md-sys-color-error) 16%, transparent);
+            color: var(--md-sys-color-error);
         }
     }
 }
 
+// 触屏没有 hover，操作按钮不能只靠悬停现身，否则手机端根本改不了站点
+@media (hover: none) {
+    .app-card__actions {
+        opacity: 1;
+    }
+}
+
 // 深色模式不需要另一套 hover：卡片底色 / 边框都来自主题 token，
-// 主色描边在明暗两套里都成立
+// 抬升与描边在明暗两套里都成立
 </style>

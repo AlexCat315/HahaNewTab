@@ -1,9 +1,10 @@
 <script setup lang="ts">
 /**
- * MainContent - 主内容区域
+ * MainContent - 内容区容器
  *
- * 提供带侧边栏间距的内容容器与内容头部，支持默认标题插槽、自定义标题插槽
- * 以及头部额外操作插槽。
+ * 居中限宽的一列内容，顶部与左侧为悬浮顶栏和 rail 让位。
+ * 页头由标题 + 说明行（meta 插槽）+ 右侧操作（header-extra 插槽）组成，
+ * 不再用底部分隔线和主色小横条——那两条线在新版里靠间距分层。
  */
 export interface MainContentProps {
     /** 内容区标题 */
@@ -25,9 +26,14 @@ withDefaults(defineProps<MainContentProps>(), {
     <main class="main-content" :class="{ collapsed }">
         <div class="content-wrapper">
             <header v-if="showHeader" class="content-header">
-                <h2 class="content-title">
-                    <slot name="header-title">{{ title }}</slot>
-                </h2>
+                <div class="content-heading">
+                    <h2 class="content-title">
+                        <slot name="header-title">{{ title }}</slot>
+                    </h2>
+                    <div v-if="$slots.meta" class="content-meta">
+                        <slot name="meta" />
+                    </div>
+                </div>
                 <div class="header-extra">
                     <slot name="header-extra" />
                 </div>
@@ -41,61 +47,58 @@ withDefaults(defineProps<MainContentProps>(), {
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/variables' as *;
 @use '@/styles/mixins' as *;
 
 .main-content {
-    margin-left: var(--sidebar-width);
-    margin-top: var(--header-height);
-    min-height: calc(100vh - var(--header-height));
-    padding: 24px 32px;
+    // 左侧给浮动 rail 让位（rail 宽 + 两侧留边），顶部给悬浮顶栏让位
+    margin-left: calc(var(--sidebar-width) + var(--shell-inset) * 2);
+    padding: calc(var(--header-height) + var(--shell-inset) * 2) var(--shell-gap) var(--space-10);
+    min-height: 100vh;
     @include md-transition(margin-left);
+}
 
-    &.collapsed {
-        margin-left: var(--sidebar-collapsed-width);
-    }
+.main-content.collapsed {
+    margin-left: calc(var(--sidebar-collapsed-width) + var(--shell-inset) * 2);
 }
 
 .content-wrapper {
-    // 占满整个内容区：不再限宽居中。
-    // 之前 max-width: 1200px + margin: 0 auto 在缩放（视口变宽）后会把站点挤到
-    // 屏幕中间一小块、两侧大片空白，而缩放本来就是为了看到更多内容。
-    // 宽度交给网格的 auto-fill 自适应列数。
     width: 100%;
+    max-width: var(--content-max-width);
+    margin: 0 auto;
 }
 
 .content-header {
-    margin-bottom: 24px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--md-sys-color-outline-variant);
-    position: relative;
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     justify-content: space-between;
-    gap: 16px;
+    gap: var(--space-4);
+    margin-bottom: var(--space-6);
+}
 
-    &::after {
-        content: '';
-        position: absolute;
-        bottom: -1px;
-        left: 0;
-        width: 40px;
-        height: 2px;
-        background: var(--md-sys-color-primary);
-    }
+.content-heading {
+    min-width: 0;
 }
 
 .content-title {
-    font-size: 1.35rem;
-    color: var(--md-sys-color-primary);
-    font-weight: 600;
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-semibold);
+    color: var(--md-sys-color-on-surface);
+    letter-spacing: var(--tracking-tight);
+    line-height: var(--leading-tight);
     margin: 0;
+    @include text-ellipsis;
+}
+
+.content-meta {
+    margin-top: var(--space-1);
+    font-size: var(--text-sm);
+    color: var(--md-sys-color-on-surface-variant);
 }
 
 .header-extra {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     flex-shrink: 0;
 }
 
@@ -103,14 +106,25 @@ withDefaults(defineProps<MainContentProps>(), {
     min-height: 200px;
 }
 
-@media (max-width: 768px) {
+@include respond-to(mobile) {
     .main-content {
         margin-left: 0 !important;
-        padding: 16px;
+        padding: calc(var(--header-height) + var(--shell-inset) * 2) var(--space-3) var(--space-8);
+    }
+
+    .content-header {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: var(--space-3);
+        margin-bottom: var(--space-5);
+    }
+
+    .header-extra {
+        width: 100%;
     }
 
     .content-title {
-        font-size: 1.15rem;
+        font-size: var(--text-xl);
     }
 }
 </style>

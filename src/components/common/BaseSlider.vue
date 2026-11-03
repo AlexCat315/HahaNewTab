@@ -97,29 +97,28 @@ function handleKeydown(event: KeyboardEvent): void {
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/variables' as *;
 @use '@/styles/mixins' as *;
 
 .mnt-base-slider {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--space-1);
 
     &__label {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        gap: 8px;
-        font-size: 11px;
+        gap: var(--space-2);
+        font-size: var(--text-sm);
         color: var(--md-sys-color-on-surface-variant);
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.3px;
+        font-weight: var(--weight-medium);
+        line-height: var(--leading-normal);
     }
 
     &__value {
         color: var(--md-sys-color-primary);
-        font-weight: 700;
+        font-weight: var(--weight-semibold);
+        font-variant-numeric: tabular-nums;
     }
 
     &__track {
@@ -155,37 +154,29 @@ function handleKeydown(event: KeyboardEvent): void {
 
         &::-webkit-slider-thumb {
             -webkit-appearance: none;
-            width: 14px;
-            height: 14px;
+            width: 16px;
+            height: 16px;
             border-radius: 50%;
             background: var(--md-sys-color-primary);
             cursor: pointer;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            box-shadow: var(--elevation-1);
             @include md-transition(transform, var(--md-transition-fast));
         }
 
         &::-moz-range-thumb {
-            width: 14px;
-            height: 14px;
+            width: 16px;
+            height: 16px;
             border: none;
             border-radius: 50%;
             background: var(--md-sys-color-primary);
             cursor: pointer;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            box-shadow: var(--elevation-1);
             @include md-transition(transform, var(--md-transition-fast));
         }
 
-        &::-webkit-slider-thumb:hover {
-            transform: scale(1.2);
-        }
-
+        &::-webkit-slider-thumb:hover,
         &::-moz-range-thumb:hover {
-            transform: scale(1.2);
-        }
-
-        &:focus-visible {
-            outline: 2px solid var(--md-sys-color-primary);
-            outline-offset: 2px;
+            transform: scale(1.15);
         }
     }
 

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import WallpaperSettings from '@/components/personalization/WallpaperSettings.vue';
+import { useWallpaperStore } from '@/stores/wallpaper.store';
 
 describe('WallpaperSettings', () => {
     beforeEach(() => {
@@ -21,30 +22,51 @@ describe('WallpaperSettings', () => {
         expect(wrapper.findAll('.wallpaper-actions .mnt-base-button')).toHaveLength(2);
     });
 
-    it('点击预设壁纸触发 change 事件', async () => {
+    it('点击预设壁纸写入壁纸地址', async () => {
         const wrapper = mount(WallpaperSettings, {
             props: { autoInit: false }
         });
+        const wallpaperStore = useWallpaperStore();
 
-        const presets = wrapper.findAll('.wallpaper-preset');
-        await presets[0].trigger('click');
+        await wrapper.findAll('.wallpaper-preset')[0].trigger('click');
         await flushPromises();
 
-        expect(wrapper.emitted('change')).toHaveLength(1);
+        expect(wallpaperStore.settings.url).toBe(
+            'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=80'
+        );
     });
 
-    it('重置壁纸触发 change 事件', async () => {
+    it('没有壁纸时「移除壁纸」不可用', async () => {
         const wrapper = mount(WallpaperSettings, {
             props: { autoInit: false }
         });
 
-        const buttons = wrapper.findAll('.wallpaper-actions .mnt-base-button');
-        const resetButton = buttons.find((btn) => btn.text().includes('重置'));
-        expect(resetButton).toBeDefined();
-
-        await resetButton!.trigger('click');
         await flushPromises();
 
-        expect(wrapper.emitted('change')).toHaveLength(1);
+        const removeButton = wrapper
+            .findAll('.wallpaper-actions .mnt-base-button')
+            .find((btn) => btn.text().includes('移除壁纸'));
+        expect(removeButton).toBeDefined();
+        expect(removeButton!.attributes('disabled')).toBeDefined();
+    });
+
+    it('移除壁纸清空地址但保留视觉参数', async () => {
+        const wrapper = mount(WallpaperSettings, {
+            props: { autoInit: false }
+        });
+        const wallpaperStore = useWallpaperStore();
+
+        await wrapper.findAll('.wallpaper-preset')[0].trigger('click');
+        await flushPromises();
+        await wallpaperStore.setBlur(6);
+
+        const removeButton = wrapper
+            .findAll('.wallpaper-actions .mnt-base-button')
+            .find((btn) => btn.text().includes('移除壁纸'));
+        await removeButton!.trigger('click');
+        await flushPromises();
+
+        expect(wallpaperStore.settings.url).toBe('');
+        expect(wallpaperStore.settings.blur).toBe(6);
     });
 });

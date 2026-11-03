@@ -1,5 +1,10 @@
+<script lang="ts">
+// 面板可以叠面板（分类管理里直接开编辑框），栈必须跨实例共享，所以放在模块作用域。
+const openStack: HTMLElement[] = [];
+</script>
+
 <script setup lang="ts">
-import { computed, watch, onBeforeUnmount, ref } from 'vue';
+import { computed, watch, onBeforeUnmount, ref, nextTick } from 'vue';
 import IconSvg from '@/components/icon/IconSvg.vue';
 
 interface Props {
@@ -7,17 +12,21 @@ interface Props {
     modelValue: boolean;
     /** 模态框标题 */
     title?: string;
-    /** 最大宽度，支持数字（px）或字符串 */
+    /** 宽度档位，对应 --panel-w-* */
+    size?: 'sm' | 'md' | 'lg' | 'xl';
+    /** 显式最大宽度，优先级高于 size */
     maxWidth?: number | string;
     /** 最大高度，支持数字（px）或字符串 */
     maxHeight?: string;
+    /** 面板位置：center 居中，top-right 从顶栏右下方展开 */
+    placement?: 'center' | 'top-right';
     /** 是否显示右上角关闭按钮 */
     showClose?: boolean;
     /** 点击遮罩层是否关闭 */
     closeOnOverlay?: boolean;
     /** 按 ESC 是否关闭 */
     closeOnEsc?: boolean;
-    /** 遮罩层 z-index */
+    /** 遮罩层 z-index，默认走 --z-panel */
     zIndex?: number;
     /** 是否禁用 body 滚动（打开时） */
     lockScroll?: boolean;
@@ -32,12 +41,12 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-    maxWidth: 520,
+    size: 'md',
     maxHeight: '85vh',
+    placement: 'center',
     showClose: true,
     closeOnOverlay: true,
     closeOnEsc: true,
-    zIndex: 2000,
     lockScroll: true,
     contentClass: '',
     contentStyle: () => ({}),
@@ -53,18 +62,84 @@ const emit = defineEmits<{
 }>();
 
 const isActive = ref(false);
+const contentRef = ref<HTMLElement | null>(null);
 let enterTimer: ReturnType<typeof setTimeout> | null = null;
+let previouslyFocused: HTMLElement | null = null;
 
-function setBodyScroll(blocked: boolean): void {
-    if (!props.lockScroll || typeof document === 'undefined') return;
-    document.body.style.overflow = blocked ? 'hidden' : '';
+const focusableSelector = [
+    'a[href]',
+    'button:not([disabled])',
+    'input:not([disabled]):not([type="hidden"])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+function isTopmost(): boolean {
+    return openStack[openStack.length - 1] === contentRef.value;
+}
+
+function setBodyScroll(): void {
+    if (!props.lockScroll) return;
+    document.body.style.overflow = openStack.length > 0 ? 'hidden' : '';
+}
+
+function focusPanel(): void {
+    const el = contentRef.value;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+}
+
+function restoreFocus(): void {
+    const target = previouslyFocused;
+    previouslyFocused = null;
+    if (target && target.isConnected) {
+        target.focus({ preventScroll: true });
+    }
+}
+
+function trapTab(event: KeyboardEvent): void {
+    const el = contentRef.value;
+    if (!el) return;
+    const nodes = Array.from(el.querySelectorAll<HTMLElement>(focusableSelector)).filter(
+        // position:fixed 的元素 offsetParent 恒为 null，所以用矩形判断可见性
+        (node) => node.getClientRects().length > 0
+    );
+    if (nodes.length === 0) {
+        event.preventDefault();
+        el.focus({ preventScroll: true });
+        return;
+    }
+    const first = nodes[0];
+    const last = nodes[nodes.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+    if (event.shiftKey && (active === first || active === el)) {
+        event.preventDefault();
+        last.focus();
+    } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+    }
+}
+
+function handleKeydown(event: KeyboardEvent): void {
+    if (!isActive.value || !isTopmost()) return;
+    if (event.key === 'Escape') {
+        if (!props.closeOnEsc) return;
+        event.preventDefault();
+        close();
+    } else if (event.key === 'Tab') {
+        if (contentRef.value?.contains(document.activeElement)) trapTab(event);
+    }
 }
 
 function open(): void {
     if (enterTimer) clearTimeout(enterTimer);
+    previouslyFocused = (document.activeElement as HTMLElement) ?? null;
     emit('open');
     enterTimer = setTimeout(() => {
         isActive.value = true;
+        nextTick(focusPanel);
         emit('afterEnter');
     }, 10);
 }
@@ -83,17 +158,9 @@ function handleOverlayClick(event: MouseEvent): void {
     }
 }
 
-function handleKeydown(event: KeyboardEvent): void {
-    if (props.closeOnEsc && event.key === 'Escape' && isActive.value) {
-        event.preventDefault();
-        close();
-    }
-}
-
 watch(
     () => props.modelValue,
     (value) => {
-        setBodyScroll(value);
         if (value) {
             open();
         } else {
@@ -103,22 +170,47 @@ watch(
     { immediate: true }
 );
 
+// 面板真正可见后才入栈：锁滚动、焦点归位与按键拦截都以栈顶为准
+watch(isActive, (active) => {
+    const el = contentRef.value;
+    document.removeEventListener('keydown', handleKeydown, true);
+    if (!active) {
+        const index = el ? openStack.indexOf(el) : -1;
+        if (index !== -1) openStack.splice(index, 1);
+        restoreFocus();
+    } else if (el) {
+        openStack.push(el);
+        document.addEventListener('keydown', handleKeydown, true);
+    }
+    setBodyScroll();
+});
+
 onBeforeUnmount(() => {
     if (enterTimer) clearTimeout(enterTimer);
-    setBodyScroll(false);
+    if (typeof document !== 'undefined') {
+        document.removeEventListener('keydown', handleKeydown, true);
+    }
+    const index = contentRef.value ? openStack.indexOf(contentRef.value) : -1;
+    if (index !== -1) openStack.splice(index, 1);
+    restoreFocus();
+    setBodyScroll();
 });
 
-const baseContentStyle = computed(() => {
-    const width = typeof props.maxWidth === 'number' ? `${props.maxWidth}px` : props.maxWidth;
-    return {
-        maxWidth: width,
-        maxHeight: props.maxHeight,
-    };
+const widthStyle = computed(() => {
+    if (props.maxWidth !== undefined) {
+        return typeof props.maxWidth === 'number' ? `${props.maxWidth}px` : props.maxWidth;
+    }
+    return `var(--panel-w-${props.size})`;
 });
 
-const overlayStyle = computed(() => ({
-    zIndex: props.zIndex,
+const baseContentStyle = computed(() => ({
+    maxWidth: widthStyle.value,
+    maxHeight: props.maxHeight,
 }));
+
+const overlayStyle = computed(() =>
+    props.zIndex !== undefined ? { zIndex: props.zIndex } : undefined
+);
 
 const closeIconPath = 'M18 6L6 18M6 6l12 12';
 </script>
@@ -129,19 +221,22 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
             <div
                 v-show="modelValue"
                 class="mnt-modal-overlay"
-                :class="{ 'mnt-modal-overlay--active': isActive }"
+                :class="[
+                    `mnt-modal-overlay--${placement}`,
+                    { 'mnt-modal-overlay--active': isActive },
+                ]"
                 :style="overlayStyle"
                 role="dialog"
                 aria-modal="true"
                 @click="handleOverlayClick"
-                @keydown="handleKeydown"
             >
                 <div
+                    ref="contentRef"
                     class="mnt-modal-content"
                     :class="contentClass"
                     :style="[baseContentStyle, contentStyle]"
                     role="document"
-                    @keydown.stop="handleKeydown"
+                    tabindex="-1"
                 >
                     <div v-if="$slots.header || title || showClose" class="mnt-modal-header">
                         <div class="mnt-modal-header__left">
@@ -181,21 +276,32 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/variables' as *;
 @use '@/styles/mixins' as *;
 
 .mnt-modal-overlay {
     @include absolute-fill;
     position: fixed;
-    @include flex-center(row, 0);
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(4px);
+    background: var(--scrim);
+    backdrop-filter: blur(var(--glass-blur));
     opacity: 0;
     visibility: hidden;
     transition:
-        opacity 0.3s var(--md-easing),
-        visibility 0.3s var(--md-easing);
-    padding: 24px;
+        opacity var(--md-transition-medium) var(--md-easing),
+        visibility var(--md-transition-medium) var(--md-easing);
+
+    &--center {
+        @include flex-center(row, 0);
+        padding: var(--space-4);
+        z-index: var(--z-panel);
+    }
+
+    &--top-right {
+        display: flex;
+        justify-content: flex-end;
+        align-items: flex-start;
+        padding: calc(var(--header-height) + var(--shell-inset) * 2) var(--shell-inset) var(--shell-inset);
+        z-index: var(--z-panel);
+    }
 
     &--active {
         opacity: 1;
@@ -204,57 +310,64 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
 }
 
 .mnt-modal-content {
-    background: var(--md-sys-color-surface);
-    border-radius: 16px;
-    width: 90%;
-    max-width: 520px;
-    max-height: 85vh;
+    @include glass-surface(var(--glass-bg-strong), var(--radius-xl));
+    box-shadow: var(--elevation-3);
+    width: 100%;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
-    border: 1px solid var(--md-sys-color-outline-variant);
-    transform: scale(0.9) translateY(20px);
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transform: scale(0.96) translateY(12px);
+    opacity: 0;
+    transition:
+        transform var(--md-transition-medium) var(--md-easing),
+        opacity var(--md-transition-fast) var(--md-easing);
+
+    .mnt-modal-overlay--top-right & {
+        width: auto;
+        transform-origin: top right;
+    }
 
     .mnt-modal-overlay--active & {
-        transform: scale(1) translateY(0);
+        transform: none;
+        opacity: 1;
+    }
+
+    &:focus,
+    &:focus-visible {
+        outline: none;
     }
 }
 
 .mnt-modal-header {
-    padding: 20px 24px;
-    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--glass-border);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
+    gap: var(--space-3);
+    flex-shrink: 0;
 
     &__left {
         min-width: 0;
         flex: 1;
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
     }
 }
 
 .mnt-modal-title {
-    font-size: 1.25rem;
-    font-weight: 600;
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
     color: var(--md-sys-color-on-surface);
     margin: 0;
-    line-height: 1.4;
+    line-height: var(--leading-tight);
 }
 
 .mnt-modal-close {
-    @include button-reset;
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--md-sys-color-on-surface-variant);
-    @include flex-center(row, 0);
+    @include icon-button(32px);
     flex-shrink: 0;
-    @include md-transition(all, var(--md-transition-fast));
-    @include focus-ring;
+    color: var(--md-sys-color-on-surface-variant);
 
     &:hover {
         background: var(--md-sys-color-surface-variant);
@@ -263,39 +376,48 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
 }
 
 .mnt-modal-body {
-    padding: 24px;
+    padding: var(--space-5);
     overflow-y: auto;
     flex: 1;
-    @include hide-scrollbar;
+    min-height: 0;
+    @include scrollable;
 }
 
 .mnt-modal-footer {
-    padding: 16px 24px;
-    border-top: 1px solid var(--md-sys-color-outline-variant);
+    padding: var(--space-4) var(--space-5);
+    border-top: 1px solid var(--glass-border);
     display: flex;
-    gap: 12px;
+    gap: var(--space-3);
     justify-content: flex-end;
     align-items: center;
+    flex-shrink: 0;
 }
 
-// 深色模式不需要单独换底色：.mnt-modal-content 用的就是当前主题的 surface
-
-// 移动端适配
+// 移动端：居中面板改为底部抽屉，右上角面板改为全宽
 @include respond-to(mobile) {
-    .mnt-modal-overlay {
-        padding: 16px;
+    .mnt-modal-overlay--center {
+        padding: 0;
         align-items: flex-end;
+    }
+
+    .mnt-modal-overlay--top-right {
+        padding: calc(var(--header-height) + var(--shell-inset)) 0 0;
     }
 
     .mnt-modal-content {
         width: 100%;
-        max-height: 80vh;
-        border-radius: 20px 20px 0 0;
+        max-height: 82vh;
+        border-radius: var(--radius-xl) var(--radius-xl) 0 0;
         transform: translateY(100%);
 
         .mnt-modal-overlay--active & {
             transform: translateY(0);
         }
+    }
+
+    .mnt-modal-overlay--top-right .mnt-modal-content {
+        max-height: calc(100vh - var(--header-height));
+        border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     }
 }
 </style>

@@ -435,7 +435,6 @@ function close(): void {
 </script>
 
 <style scoped lang="scss">
-@use '@/styles/variables.scss' as *;
 @use '@/styles/mixins.scss' as *;
 
 .ui-lib-panel {

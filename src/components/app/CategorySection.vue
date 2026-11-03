@@ -2,7 +2,9 @@
 /**
  * CategorySection - 分类区块
  *
- * 展示分类标题（带图标）与该分类下的应用网格，
+ * 一行分类页头（图标 + 名称 + 站点数 + 内联添加操作）与该分类下的应用网格。
+ * 页头把「这个分类有几个站点」和「往这个分类加站点」放在一起，
+ * 用户不必先点进分类再找添加按钮。
  * 所有事件向上透传，自身不持有业务状态。
  */
 import { computed } from 'vue';
@@ -26,6 +28,8 @@ export interface CategorySectionProps {
     editable?: boolean;
     /** 是否显示删除按钮 */
     deletable?: boolean;
+    /** 是否在页头显示「添加网站」 */
+    showAdd?: boolean;
     /** 入场动画延迟（秒） */
     animationDelay?: number;
 }
@@ -36,6 +40,7 @@ const props = withDefaults(defineProps<CategorySectionProps>(), {
     showHidden: false,
     editable: true,
     deletable: true,
+    showAdd: false,
     animationDelay: 0,
 });
 
@@ -46,6 +51,8 @@ const emit = defineEmits<{
     (e: 'edit-app', app: AppItem): void;
     /** 点击删除按钮 */
     (e: 'delete-app', app: AppItem): void;
+    /** 点击页头的「添加网站」 */
+    (e: 'add-app', categoryId: string): void;
 }>();
 
 const iconIsImage = computed(() => isImageIcon(props.category.icon?.trim() || 'folder'));
@@ -61,6 +68,10 @@ function handleEdit(app: AppItem): void {
 function handleDelete(app: AppItem): void {
     emit('delete-app', app);
 }
+
+function handleAdd(): void {
+    emit('add-app', props.category.id);
+}
 </script>
 
 <template>
@@ -68,18 +79,32 @@ function handleDelete(app: AppItem): void {
         class="category-section"
         :style="animationDelay > 0 ? { animationDelay: `${animationDelay}s` } : undefined"
     >
-        <h3 v-if="showTitle" class="category-section__title">
-            <span class="category-section__icon">
-                <IconSvg
-                    :src="category.icon"
-                    name="folder"
-                    :size="18"
-                    :monochrome="category.monochrome && !iconIsImage"
-                    :alt="category.name"
-                />
-            </span>
-            <span class="category-section__name">{{ category.name }}</span>
-        </h3>
+        <header v-if="showTitle" class="category-section__head">
+            <h3 class="category-section__title">
+                <span class="category-section__icon">
+                    <IconSvg
+                        :src="category.icon"
+                        name="folder"
+                        :size="16"
+                        :monochrome="category.monochrome && !iconIsImage"
+                        :alt="category.name"
+                    />
+                </span>
+                <span class="category-section__name">{{ category.name }}</span>
+            </h3>
+            <span class="category-section__count">{{ apps.length }} 个站点</span>
+
+            <button
+                v-if="showAdd"
+                type="button"
+                class="category-section__add"
+                :title="`添加网站到${category.name}`"
+                @click="handleAdd"
+            >
+                <IconSvg name="plus" :size="14" monochrome alt="" />
+                <span>添加</span>
+            </button>
+        </header>
 
         <AppGrid
             :apps="apps"
@@ -100,11 +125,10 @@ function handleDelete(app: AppItem): void {
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/variables' as *;
 @use '@/styles/mixins' as *;
 
 .category-section {
-    margin-bottom: 24px;
+    margin-bottom: var(--space-8);
     animation: fadeInUp 0.5s ease-out both;
     contain: layout;
 
@@ -120,30 +144,63 @@ function handleDelete(app: AppItem): void {
         }
     }
 
-    &__title {
-        font-size: 0.95rem;
-        color: var(--md-sys-color-on-surface);
-        margin: 0 0 12px;
-        font-weight: 600;
+    &__head {
         display: flex;
         align-items: center;
-        gap: 8px;
-        opacity: 0.85;
+        gap: var(--space-2);
+        margin-bottom: var(--space-3);
+    }
+
+    &__title {
+        font-size: var(--text-md);
+        color: var(--md-sys-color-on-surface);
+        margin: 0;
+        font-weight: var(--weight-semibold);
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        min-width: 0;
     }
 
     &__icon {
-        width: 18px;
-        height: 18px;
+        width: 16px;
+        height: 16px;
         display: flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
+        color: var(--md-sys-color-on-surface-variant);
     }
 
     &__name {
         @include text-ellipsis;
     }
-}
 
-// 分类标题沿用 on-surface + 降透明度即可，深色主题不需要另写一套白
+    &__count {
+        font-size: var(--text-xs);
+        color: var(--md-sys-color-on-surface-variant);
+        font-variant-numeric: tabular-nums;
+        flex-shrink: 0;
+    }
+
+    &__add {
+        @include button-reset;
+        margin-left: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-1);
+        height: 28px;
+        padding: 0 var(--space-3);
+        border-radius: var(--radius-full);
+        font-size: var(--text-sm);
+        font-weight: var(--weight-medium);
+        color: var(--md-sys-color-on-surface-variant);
+        @include md-transition(background color, var(--md-transition-fast));
+
+        &:hover {
+            background: var(--hover-bg);
+            color: var(--md-sys-color-primary);
+        }
+    }
+}
 </style>

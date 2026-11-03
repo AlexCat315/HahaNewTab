@@ -108,20 +108,19 @@ function handleFocus(event: FocusEvent): void {
 </template>
 
 <style scoped lang="scss">
-@use '@/styles/variables' as *;
 @use '@/styles/mixins' as *;
 
 .mnt-base-input {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--space-2);
 
     &__label {
         display: flex;
         align-items: center;
-        gap: 4px;
-        font-size: 13px;
-        font-weight: 600;
+        gap: var(--space-1);
+        font-size: var(--text-base);
+        font-weight: var(--weight-medium);
         color: var(--md-sys-color-on-surface);
     }
 
@@ -132,12 +131,12 @@ function handleFocus(event: FocusEvent): void {
     &__wrapper {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: var(--space-2);
         width: 100%;
-        padding: 10px 14px;
-        border: 1px solid var(--md-sys-color-outline);
-        border-radius: 10px;
-        background: var(--md-sys-color-surface);
+        padding: var(--space-3) var(--space-4);
+        border: 1px solid color-mix(in srgb, var(--md-sys-color-on-surface) 18%, transparent);
+        border-radius: var(--radius-sm);
+        background: color-mix(in srgb, var(--md-sys-color-on-surface) 5%, transparent);
         color: var(--md-sys-color-on-surface);
         @include md-transition(border-color, var(--md-transition-fast));
     }
@@ -148,7 +147,7 @@ function handleFocus(event: FocusEvent): void {
         border: none;
         background: transparent;
         color: inherit;
-        font-size: 14px;
+        font-size: var(--text-base);
         font-family: inherit;
         outline: none;
 
@@ -184,8 +183,8 @@ function handleFocus(event: FocusEvent): void {
     &__hint,
     &__error {
         margin: 0;
-        font-size: 12px;
-        line-height: 1.4;
+        font-size: var(--text-sm);
+        line-height: var(--leading-normal);
     }
 
     &__hint {
@@ -197,9 +196,10 @@ function handleFocus(event: FocusEvent): void {
         color: var(--md-sys-color-error);
     }
 
+    // 焦点环由当前主题色派生：以前写死的玫红阴影在薄荷绿/午夜蔷薇等主题下完全跑色
     &:focus-within &__wrapper {
         border-color: var(--md-sys-color-primary);
-        box-shadow: 0 0 0 3px rgba(177, 74, 107, 0.08);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent);
     }
 
     &--error &__wrapper {
@@ -207,7 +207,7 @@ function handleFocus(event: FocusEvent): void {
     }
 
     &--error:focus-within &__wrapper {
-        box-shadow: 0 0 0 3px rgba(186, 26, 26, 0.08);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-error) 18%, transparent);
     }
 
     &--disabled &__wrapper {
@@ -215,11 +215,5 @@ function handleFocus(event: FocusEvent): void {
         opacity: 0.65;
         cursor: not-allowed;
     }
-}
-
-// 深色模式覆盖（后代选择器直接写在 scoped 里，用 :global() 包裹会被编译丢成 html 自身）
-html.dark-mode .mnt-base-input__wrapper {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.08);
 }
 </style>
