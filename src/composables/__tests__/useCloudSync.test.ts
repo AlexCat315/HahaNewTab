@@ -272,7 +272,7 @@ describe('useCloudSync composable', () => {
         expect(saved).toBe(true);
     });
 
-    it('数据变更事件（source 为 local）触发自动同步', async () => {
+    it('本地数据落盘触发自动同步', async () => {
         vi.useFakeTimers();
 
         mockFetchSequence([
@@ -306,9 +306,9 @@ describe('useCloudSync composable', () => {
         ]);
         const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
 
-        window.dispatchEvent(new CustomEvent('appNavigator:data-changed', {
-            detail: { kind: 'data', source: 'local' }
-        }));
+        await storageManager.setMany({
+            [STORAGE_KEYS.MAIN_DATA]: { categories: [allCategory], apps: [] }
+        });
 
         vi.advanceTimersByTime(3000);
         await flushPromises();
@@ -319,7 +319,7 @@ describe('useCloudSync composable', () => {
         expect(wrapper.vm.cloud.lastSyncTime.value).toBeGreaterThan(0);
     });
 
-    it('source 为 cloud 或 external 的数据变更事件不触发自动同步', async () => {
+    it('个性化设置变更不触发自动同步', async () => {
         vi.useFakeTimers();
 
         mockFetchSequence([
@@ -337,13 +337,9 @@ describe('useCloudSync composable', () => {
         globalThis.fetch = vi.fn();
         const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
 
-        for (const source of ['cloud', 'external']) {
-            window.dispatchEvent(new CustomEvent('appNavigator:data-changed', {
-                detail: { kind: 'data', source }
-            }));
-            vi.advanceTimersByTime(3000);
-            await flushPromises();
-        }
+        await storageManager.setMany({ [STORAGE_KEYS.SELECTED_THEME]: 'material-rose' });
+        vi.advanceTimersByTime(3000);
+        await flushPromises();
 
         expect(fetchMock).not.toHaveBeenCalled();
     });
@@ -398,9 +394,9 @@ describe('useCloudSync composable', () => {
 
         const fetchCount = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
 
-        window.dispatchEvent(new CustomEvent('appNavigator:data-changed', {
-            detail: { kind: 'data', source: 'local' }
-        }));
+        await storageManager.setMany({
+            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [] }
+        });
 
         vi.advanceTimersByTime(3000);
         await flushPromises();
@@ -446,11 +442,11 @@ describe('useCloudSync composable', () => {
 
         await expect(pending).rejects.toThrow('Operation aborted');
 
-        // 卸载后再触发数据变更事件，不应抛出未处理错误或增加 fetch 调用
+        // 卸载后再写入本地数据，不应抛出未处理错误或增加 fetch 调用
         const fetchCount = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
-        window.dispatchEvent(new CustomEvent('appNavigator:data-changed', {
-            detail: { kind: 'data', source: 'local' }
-        }));
+        await storageManager.setMany({
+            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [] }
+        });
         await flushPromises();
         expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(fetchCount);
     });

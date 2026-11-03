@@ -1,19 +1,27 @@
 /**
  * 应用数据 Store
- * 管理应用分类、站点数据以及用户 UI 图标库。
+ * 管理应用分类与站点数据（MAIN_DATA）。
  * 作为 CloudSyncService 的 ICloudSyncDataManager 适配器实现 syncNow / applyStorageSnapshot。
+ *
+ * 持久化走 usePersistentSlice：写穿 + 失败回滚 + DATA_UPDATED_AT 盖章都由它统一做。
+ * 用户图标库（USER_UI_LIB）不归这里存——owner 是 uiLib store，
+ * 导入 / 云端快照涉及图标库时转交 uiLib store 落盘，避免出现第二份内存副本和第二次写。
  */
 
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { storageManager } from '@/services/storage.service';
+import { usePersistentSlice } from '@/composables/usePersistentSlice';
 import { loadDefaultData } from '@/services/config.service';
+import { useUiLibStore } from '@/stores/uiLib.store';
 import { generateAppId, generateCategoryId } from '@/utils/id.util';
 import { normalizeUrl, getUrlKey } from '@/utils/url.util';
 import { normalizeNameKey } from '@/utils/name.util';
 import type { AppNavigatorData, AppItem, Category, AppInput, CategoryInput } from '@/types/app';
+import { isAppNavigatorData } from '@/types/app';
 import type { UserUiLib } from '@/types/ui';
-import type { BackupData, StorageValue } from '@/types/storage';
+import { isUserUiLib } from '@/types/ui';
+import type { BackupData } from '@/types/storage';
 import { STORAGE_KEYS } from '@/types/storage';
 
 /** “全部应用”兜底分类，使用系统 SVG 图标 */
@@ -24,29 +32,6 @@ function createDefaultAllCategory(): Category {
         icon: './image/icons/menu.svg',
         monochrome: true
     };
-}
-
-/** 默认空用户图标库 */
-const DEFAULT_USER_UI_LIB: UserUiLib = { categories: [], items: [] };
-
-/** 判断是否为合法主数据 */
-function isMainData(data: unknown): data is AppNavigatorData {
-    return Boolean(
-        data &&
-        typeof data === 'object' &&
-        Array.isArray((data as AppNavigatorData).categories) &&
-        Array.isArray((data as AppNavigatorData).apps)
-    );
-}
-
-/** 判断是否为合法用户图标库 */
-function isUserUiLib(data: unknown): data is UserUiLib {
-    return Boolean(
-        data &&
-        typeof data === 'object' &&
-        Array.isArray((data as UserUiLib).categories) &&
-        Array.isArray((data as UserUiLib).items)
-    );
 }
 
 /** 深度克隆（使用 JSON 序列化，兼容 Vue reactive proxy） */
@@ -146,13 +131,31 @@ function assertCategoryNameUnique(
 export const useAppDataStore = defineStore('appData', () => {
     // ==================== State ====================
     const data = ref<AppNavigatorData>(normalizeMainData({ categories: [], apps: [] }));
-    const userUiLib = ref<UserUiLib>({ categories: [], items: [] });
     const isLoading = ref(false);
     const error = ref<string | null>(null);
     const initialized = ref(false);
 
+    /** 用户图标库由 uiLib store 持有，这里只读不存 */
+    const uiLibStore = useUiLibStore();
+
     /** 写操作队列（同一 Store 实例内串行化） */
     let writeQueue: Promise<unknown> = Promise.resolve();
+
+    const slice = usePersistentSlice({
+        label: 'AppDataStore',
+        touchKey: STORAGE_KEYS.DATA_UPDATED_AT,
+        keys: [
+            {
+                key: STORAGE_KEYS.MAIN_DATA,
+                apply: raw => {
+                    if (isAppNavigatorData(raw)) {
+                        data.value = normalizeMainData(raw);
+                    }
+                },
+                read: () => data.value
+            }
+        ]
+    });
 
     // ==================== Getters ====================
     const categories = computed(() => data.value.categories);
@@ -200,18 +203,6 @@ export const useAppDataStore = defineStore('appData', () => {
     // ==================== Internal Helpers ====================
 
     /**
-     * 派发数据变更事件
-     */
-    function emitChange(kind: 'data' | 'uiLib', source: 'local' | 'external' | 'cloud') {
-        if (typeof window === 'undefined') return;
-        window.dispatchEvent(
-            new CustomEvent('appNavigator:data-changed', {
-                detail: { kind, source }
-            })
-        );
-    }
-
-    /**
      * 在写锁保护下执行任务
      */
     function withWriteLock<T>(task: () => Promise<T>): Promise<T> {
@@ -227,47 +218,13 @@ export const useAppDataStore = defineStore('appData', () => {
      * 提交主数据变更，失败时回滚内存状态
      */
     async function commitMain(nextData: AppNavigatorData): Promise<void> {
-        if (!isMainData(nextData)) {
+        if (!isAppNavigatorData(nextData)) {
             throw new TypeError('应用数据格式无效');
         }
         const normalized = normalizeMainData(nextData);
-        const snapshot = plainSnapshot(normalized);
-        const previous = data.value;
-
-        data.value = normalized;
-
-        try {
-            await storageManager.setMany({
-                [STORAGE_KEYS.MAIN_DATA]: snapshot,
-                [STORAGE_KEYS.DATA_UPDATED_AT]: Date.now()
-            });
-        } catch (e) {
-            data.value = previous;
-            throw e;
-        }
-    }
-
-    /**
-     * 提交用户图标库变更，失败时回滚内存状态
-     */
-    async function commitUserUiLib(nextUiLib: UserUiLib): Promise<void> {
-        if (!isUserUiLib(nextUiLib)) {
-            throw new TypeError('用户图标库格式无效');
-        }
-        const snapshot = plainSnapshot(nextUiLib);
-        const previous = userUiLib.value;
-
-        userUiLib.value = snapshot;
-
-        try {
-            await storageManager.setMany({
-                [STORAGE_KEYS.USER_UI_LIB]: snapshot,
-                [STORAGE_KEYS.DATA_UPDATED_AT]: Date.now()
-            });
-        } catch (e) {
-            userUiLib.value = previous;
-            throw e;
-        }
+        await slice.mutate(() => {
+            data.value = normalized;
+        });
     }
 
     /**
@@ -277,7 +234,7 @@ export const useAppDataStore = defineStore('appData', () => {
         await init();
         return withWriteLock(async () => {
             const persisted = (await storageManager.get(STORAGE_KEYS.MAIN_DATA)) as AppNavigatorData | null;
-            const draft = isMainData(persisted)
+            const draft = isAppNavigatorData(persisted)
                 ? clone(persisted)
                 : dataSnapshot.value;
             const normalizedDraft = normalizeMainData(draft);
@@ -298,36 +255,24 @@ export const useAppDataStore = defineStore('appData', () => {
         error.value = null;
 
         try {
-            const [savedData, savedUiLib, defaultDataConfig] = await Promise.all([
-                storageManager.get(STORAGE_KEYS.MAIN_DATA),
-                storageManager.get(STORAGE_KEYS.USER_UI_LIB),
+            const [stored, defaultDataConfig] = await Promise.all([
+                slice.load(),
                 loadDefaultData()
             ]);
-
+            const savedData = stored[STORAGE_KEYS.MAIN_DATA];
             const defaultMainData = defaultDataConfig?.appNavigator || { categories: [], apps: [] };
 
-            let nextMain: AppNavigatorData;
-            if (isMainData(savedData)) {
-                nextMain = normalizeMainData(savedData);
-            } else {
-                nextMain = normalizeMainData(defaultMainData);
-            }
-
-            const nextUiLib = isUserUiLib(savedUiLib)
-                ? clone(savedUiLib)
-                : clone(DEFAULT_USER_UI_LIB);
+            const nextMain = isAppNavigatorData(savedData)
+                ? normalizeMainData(savedData)
+                : normalizeMainData(defaultMainData);
 
             data.value = nextMain;
-            userUiLib.value = nextUiLib;
 
-            if (!isMainData(savedData) || !valuesEqual(savedData, nextMain) || !isUserUiLib(savedUiLib)) {
+            if (!isAppNavigatorData(savedData) || !valuesEqual(savedData, nextMain)) {
                 // 首次落盘/补齐属于加载，不算用户改动，所以不打 DATA_UPDATED_AT：
                 // 云同步要靠它分辨「本机真的编辑过」和「出厂默认数据」，
                 // 一装机就把时间戳刷成当前，新设备就会在首次同步时把云端已有数据覆盖掉
-                await storageManager.setMany({
-                    [STORAGE_KEYS.MAIN_DATA]: plainSnapshot(nextMain),
-                    [STORAGE_KEYS.USER_UI_LIB]: plainSnapshot(nextUiLib)
-                });
+                await slice.persist();
             }
 
             initialized.value = true;
@@ -343,10 +288,7 @@ export const useAppDataStore = defineStore('appData', () => {
      * 强制重新加载存储中的最新数据
      */
     async function loadData(): Promise<void> {
-        const saved = (await storageManager.get(STORAGE_KEYS.MAIN_DATA)) as AppNavigatorData | null;
-        if (isMainData(saved)) {
-            data.value = normalizeMainData(saved);
-        }
+        await slice.load();
         initialized.value = true;
     }
 
@@ -357,10 +299,7 @@ export const useAppDataStore = defineStore('appData', () => {
      * 首次同步要靠这个时间戳判断本地到底有没有被编辑过。
      */
     async function syncNow(): Promise<void> {
-        await storageManager.setMany({
-            [STORAGE_KEYS.MAIN_DATA]: plainSnapshot(data.value),
-            [STORAGE_KEYS.USER_UI_LIB]: plainSnapshot(userUiLib.value)
-        });
+        await slice.persist();
     }
 
     /**
@@ -372,7 +311,7 @@ export const useAppDataStore = defineStore('appData', () => {
         const hasMain = Object.prototype.hasOwnProperty.call(snapshot, STORAGE_KEYS.MAIN_DATA);
         const hasUi = Object.prototype.hasOwnProperty.call(snapshot, STORAGE_KEYS.USER_UI_LIB);
 
-        if (hasMain && !isMainData(nextMain)) {
+        if (hasMain && !isAppNavigatorData(nextMain)) {
             throw new TypeError('云端应用数据格式无效');
         }
         if (hasUi && !isUserUiLib(nextUi)) {
@@ -383,23 +322,17 @@ export const useAppDataStore = defineStore('appData', () => {
         }
 
         const previousMain = data.value;
-        const previousUi = userUiLib.value;
-
-        if (hasMain) data.value = normalizeMainData(clone(nextMain) as AppNavigatorData);
-        if (hasUi) userUiLib.value = clone(nextUi) as UserUiLib;
 
         try {
-            const writes: Record<string, StorageValue> = {
-                [STORAGE_KEYS.DATA_UPDATED_AT]: Date.now()
-            };
-            if (hasMain) writes[STORAGE_KEYS.MAIN_DATA] = plainSnapshot(data.value);
-            if (hasUi) writes[STORAGE_KEYS.USER_UI_LIB] = plainSnapshot(userUiLib.value);
-            await storageManager.setMany(writes);
-            emitChange(hasMain ? 'data' : 'uiLib', 'cloud');
+            if (hasMain) {
+                await commitMain(clone(nextMain) as AppNavigatorData);
+            }
+            if (hasUi) {
+                await uiLibStore.saveUserUiLib(clone(nextUi) as UserUiLib);
+            }
             return true;
         } catch (e) {
-            data.value = previousMain;
-            userUiLib.value = previousUi;
+            if (hasMain) data.value = previousMain;
             throw e;
         }
     }
@@ -409,21 +342,7 @@ export const useAppDataStore = defineStore('appData', () => {
      */
     async function saveData(newData: AppNavigatorData): Promise<void> {
         await init();
-        return withWriteLock(async () => {
-            await commitMain(newData);
-            emitChange('data', 'local');
-        });
-    }
-
-    /**
-     * 保存用户 UI 图标库
-     */
-    async function saveUserUiLib(newUserUiLib: UserUiLib): Promise<void> {
-        await init();
-        return withWriteLock(async () => {
-            await commitUserUiLib(newUserUiLib);
-            emitChange('uiLib', 'local');
-        });
+        return withWriteLock(() => commitMain(newData));
     }
 
     /**
@@ -580,13 +499,14 @@ export const useAppDataStore = defineStore('appData', () => {
     }
 
     /**
-     * 导出当前数据
+     * 导出当前数据（站点数据 + 用户图标库）
      */
     async function exportData(): Promise<BackupData> {
         await init();
+        await uiLibStore.init();
         return {
             data: clone(data.value),
-            userUiLib: clone(userUiLib.value),
+            userUiLib: clone(uiLibStore.userUiLib),
             exportTime: new Date().toISOString(),
             version: '2.0'
         };
@@ -600,7 +520,7 @@ export const useAppDataStore = defineStore('appData', () => {
         const importedMain = backup.data || null;
         const importedUi = backup.userUiLib || null;
 
-        if (importedMain && !isMainData(importedMain)) {
+        if (importedMain && !isAppNavigatorData(importedMain)) {
             throw new TypeError('备份中的应用数据格式无效');
         }
         if (importedUi && !isUserUiLib(importedUi)) {
@@ -612,22 +532,17 @@ export const useAppDataStore = defineStore('appData', () => {
 
         await withWriteLock(async () => {
             const previousMain = data.value;
-            const previousUi = userUiLib.value;
-
-            if (importedMain) data.value = normalizeMainData(clone(importedMain));
-            if (importedUi) userUiLib.value = clone(importedUi);
 
             try {
-                const writes: Record<string, StorageValue> = {
-                    [STORAGE_KEYS.DATA_UPDATED_AT]: Date.now()
-                };
-                if (importedMain) writes[STORAGE_KEYS.MAIN_DATA] = plainSnapshot(data.value);
-                if (importedUi) writes[STORAGE_KEYS.USER_UI_LIB] = plainSnapshot(userUiLib.value);
-                await storageManager.setMany(writes);
-                emitChange(importedMain ? 'data' : 'uiLib', 'local');
+                // 两份数据各有各的 owner：站点数据这里写，图标库交回 uiLib store
+                if (importedMain) {
+                    await commitMain(clone(importedMain));
+                }
+                if (importedUi) {
+                    await uiLibStore.saveUserUiLib(clone(importedUi));
+                }
             } catch (e) {
-                data.value = previousMain;
-                userUiLib.value = previousUi;
+                if (importedMain) data.value = previousMain;
                 throw e;
             }
         });
@@ -643,24 +558,14 @@ export const useAppDataStore = defineStore('appData', () => {
     }
 
     /**
-     * 订阅外部存储变更
+     * 订阅外部存储变更（其他标签页 / 云同步）
      */
     function subscribeToExternalChanges(): () => void {
-        return storageManager.subscribe((changes) => {
-            const mainChange = changes[STORAGE_KEYS.MAIN_DATA];
-            if (mainChange && isMainData(mainChange.newValue)) {
-                data.value = normalizeMainData(mainChange.newValue as AppNavigatorData);
-            }
-            const uiChange = changes[STORAGE_KEYS.USER_UI_LIB];
-            if (uiChange && isUserUiLib(uiChange.newValue)) {
-                userUiLib.value = uiChange.newValue as UserUiLib;
-            }
-        });
+        return slice.subscribe();
     }
 
     return {
         data,
-        userUiLib,
         isLoading,
         error,
         initialized,
@@ -680,7 +585,6 @@ export const useAppDataStore = defineStore('appData', () => {
         syncNow,
         applyStorageSnapshot,
         saveData,
-        saveUserUiLib,
         addApp,
         updateApp,
         deleteApp,

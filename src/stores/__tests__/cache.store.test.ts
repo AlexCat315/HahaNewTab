@@ -10,13 +10,14 @@ import { useCacheStore } from '@/stores/cache.store';
 import { storageManager } from '@/services/storage.service';
 import { mediaCacheService } from '@/services/mediaCache.service';
 import { STORAGE_KEYS } from '@/types/storage';
+import { readBootSnapshotValue } from '@/test/bootSnapshot';
 
 describe('cache.store', () => {
     beforeEach(() => {
         setActivePinia(createPinia());
         localStorage.clear();
         vi.spyOn(storageManager, 'get').mockResolvedValue(null);
-        vi.spyOn(storageManager, 'set').mockResolvedValue(undefined);
+        vi.spyOn(storageManager, 'setMany').mockResolvedValue(undefined);
         vi.spyOn(mediaCacheService, 'setEnabled').mockImplementation(() => undefined);
         vi.spyOn(mediaCacheService, 'stats').mockResolvedValue({
             count: 0,
@@ -57,15 +58,13 @@ describe('cache.store', () => {
         expect(mediaCacheService.setEnabled).toHaveBeenLastCalledWith(false);
     });
 
-    it('init 会把开关回填到同步镜像', async () => {
+    it('init 会把开关回填到首帧快照', async () => {
         vi.mocked(storageManager.get).mockResolvedValue({ enabled: false });
 
         const store = useCacheStore();
         await store.init();
 
-        expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.MEDIA_CACHE) ?? 'null')).toEqual({
-            enabled: false,
-        });
+        expect(readBootSnapshotValue(STORAGE_KEYS.MEDIA_CACHE)).toEqual({ enabled: false });
     });
 
     it('setEnabled 持久化并立即作用于缓存服务', async () => {
@@ -76,7 +75,7 @@ describe('cache.store', () => {
 
         expect(store.enabled).toBe(false);
         expect(mediaCacheService.setEnabled).toHaveBeenLastCalledWith(false);
-        expect(storageManager.set).toHaveBeenCalledWith(STORAGE_KEYS.MEDIA_CACHE, { enabled: false });
+        expect(storageManager.setMany).toHaveBeenCalledWith({ [STORAGE_KEYS.MEDIA_CACHE]: { enabled: false } });
     });
 
     it('refreshStats 拉取用量', async () => {

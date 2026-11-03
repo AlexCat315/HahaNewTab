@@ -2,7 +2,9 @@
  * CloudSyncService 测试
  * 覆盖：设置加载、Token 验证、双向合并同步 sync()（下载-合并-应用-上传-base 更新）、
  * 全量上传 upload() 写 base、applyDownloadedData 过滤与 base 更新、
- * 失败策略 Toast 分类（网络错误 / 超时 / 401 清 Token / 频率限制）、自动同步调度。
+ * 按注册表校验拒绝结构非法的数据、写回本地期间的 isApplyingRemoteData 信号、
+ * 失败策略 Toast 分类（网络错误 / 超时 / 401 清 Token / 频率限制）。
+ * 自动同步的触发与防抖已移到 cloudSync store（监听存储内核），不在此文件覆盖。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CloudSyncService } from '@/services/cloudSync.service';
@@ -10,26 +12,31 @@ import { STORAGE_KEYS } from '@/types/storage';
 import type { AppNavigatorData, AppItem } from '@/types/app';
 import type { UserUiLib } from '@/types/ui';
 import type {
-    ICloudSyncStorageAdapter,
+    CloudSyncStorage,
     ICloudSyncDataManager,
     ICloudSyncUIAdapter
 } from '@/types/cloudSync.types';
+import type { StorageValue } from '@/types/storage';
 
 const TEST_TOKEN = 'ghp_test';
 const TEST_GIST_ID = 'gist_1';
 const SYNC_FILE_NAME = 'haha-newtab-sync.json';
 
-function createMockStorage(): ICloudSyncStorageAdapter {
-    const store = new Map<string, unknown>();
+/** 存储内核的内存替身：云同步只按内核接口读写，这里逐一对齐 */
+function createMockStorage(): CloudSyncStorage {
+    const store = new Map<string, StorageValue>();
     return {
-        get: vi.fn((key: string) => Promise.resolve(store.has(key) ? store.get(key) : null)) as unknown as ICloudSyncStorageAdapter['get'],
-        set: vi.fn(async (key: string, value: unknown) => {
+        get: vi.fn(async (key: string): Promise<StorageValue | null> => store.get(key) ?? null),
+        getMany: vi.fn(async (keys: string[]) =>
+            Object.fromEntries(keys.map(key => [key, store.get(key) ?? null]))
+        ),
+        set: vi.fn(async (key: string, value: StorageValue) => {
             store.set(key, value);
         }),
-        setMany: vi.fn(async (items: Record<string, unknown>) => {
-            Object.entries(items).forEach(([key, value]) => {
+        setMany: vi.fn(async (items: Record<string, StorageValue>) => {
+            for (const [key, value] of Object.entries(items)) {
                 store.set(key, value);
-            });
+            }
         })
     };
 }
@@ -100,8 +107,8 @@ function hasPatchCall(fetchMock: { mock: { calls: ReadonlyArray<readonly unknown
 /** 预置已登录状态（token + gistId）并加载到 service */
 async function seedSignedIn(
     service: CloudSyncService,
-    storage: ICloudSyncStorageAdapter,
-    extra: Record<string, unknown> = {}
+    storage: CloudSyncStorage,
+    extra: Record<string, StorageValue> = {}
 ): Promise<void> {
     await storage.set(STORAGE_KEYS.CLOUD_TOKEN, TEST_TOKEN);
     await storage.set(STORAGE_KEYS.CLOUD_GIST_ID, TEST_GIST_ID);
@@ -152,11 +159,18 @@ describe('CloudSyncService', () => {
         expect(service.settings.autoSync).toBe(false);
     });
 
-    it('loadSettings 从存储读取配置', async () => {
+    it('loadSettings 一次批量读取全部配置', async () => {
         const { service, storage } = createService();
-        const store = (storage.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce('ghp_test');
+        await storage.setMany({
+            [STORAGE_KEYS.CLOUD_TOKEN]: 'ghp_test',
+            [STORAGE_KEYS.CLOUD_AUTO_SYNC]: true
+        });
+
         await service.loadSettings();
-        expect(store).toHaveBeenCalledWith('appNavigator_cloudSync_token');
+
+        expect(service.settings.token).toBe('ghp_test');
+        expect(service.settings.autoSync).toBe(true);
+        expect(storage.getMany).toHaveBeenCalledTimes(1);
     });
 
     it('saveToken 拒绝空字符串', async () => {
@@ -252,13 +266,38 @@ describe('CloudSyncService', () => {
         });
     });
 
-    it('scheduleAutoSync 在未开启自动同步时不启动定时器', () => {
-        const { service } = createService();
-        vi.useFakeTimers();
-        service.scheduleAutoSync();
-        vi.advanceTimersByTime(5000);
-        expect(service.isSyncing).toBe(false);
-        vi.useRealTimers();
+    it('应用云端数据到本地期间给出 isApplyingRemoteData 信号（自动同步据此不回调）', async () => {
+        const { service, dataManager } = createService();
+        const mainData: AppNavigatorData = { categories: [], apps: [app('a1', 'A')] };
+        let flagDuringApply = false;
+        (dataManager.applyStorageSnapshot as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+            flagDuringApply = service.isApplyingRemoteData;
+            return true;
+        });
+
+        await service.applyDownloadedData({
+            version: '1.0',
+            lastModified: 1700000000000,
+            device: 'Chrome',
+            data: { [STORAGE_KEYS.MAIN_DATA]: mainData, [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB }
+        });
+
+        expect(flagDuringApply).toBe(true);
+        expect(service.isApplyingRemoteData).toBe(false);
+    });
+
+    it('sync 拒绝结构非法的云端数据：不合并、不应用、不上传', async () => {
+        const { service, storage, dataManager, ui } = createService();
+        await seedSignedIn(service, storage, seedMergeFixture([app('a1', 'A')], [app('a1', 'A')]));
+        const fetchMock = stubSyncFetch({ [STORAGE_KEYS.MAIN_DATA]: { categories: 'broken' } });
+
+        const result = await service.sync();
+
+        expect(result.success).toBe(false);
+        expect(result.message).toBe('云端应用数据格式无效');
+        expect(dataManager.applyStorageSnapshot).not.toHaveBeenCalled();
+        expect(hasPatchCall(fetchMock)).toBe(false);
+        expect(ui.showToast).toHaveBeenCalledWith('同步失败：云端应用数据格式无效', 'error');
     });
 
     it('setAutoSync 更新状态并写入存储', async () => {

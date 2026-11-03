@@ -1,7 +1,7 @@
 /**
  * 搜索状态管理（Pinia Store）
  *
- * 管理当前选中的搜索引擎索引与搜索历史，所有变更持久化到 StorageManager。
+ * 管理当前选中的搜索引擎索引与搜索历史，持久化统一走 usePersistentSlice。
  * 与原项目保持一致的数据结构：
  *   - selectedSearchEngine: number（搜索引擎在配置列表中的索引）
  *   - searchHistory: SearchHistoryItem[]（最多保留 10 条，按时间倒序）
@@ -10,7 +10,8 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { storageManager } from '@/services/storage.service';
-import { STORAGE_KEYS, type StorageValue } from '@/types/storage';
+import { usePersistentSlice } from '@/composables/usePersistentSlice';
+import { STORAGE_KEYS } from '@/types/storage';
 
 /** 搜索历史最大保留条数 */
 const MAX_HISTORY_SIZE = 10;
@@ -78,38 +79,35 @@ export const useSearchStore = defineStore('search', () => {
             .filter((item): item is SearchHistoryItem => item !== null);
     }
 
-    /**
-     * 持久化单个状态值
-     *
-     * 先更新内存状态，再写入 StorageManager；写入失败时将内存状态回滚到旧值，
-     * 保证调用方在 Promise resolve 时数据已持久化，reject 时内存状态不会脏写。
-     */
-    async function persistValue<T extends StorageValue>(
-        key: string,
-        stateRef: { value: T },
-        nextValue: T
-    ): Promise<void> {
-        const previousValue = stateRef.value;
-        stateRef.value = nextValue;
-        try {
-            await storageManager.set(key, nextValue);
-        } catch (error) {
-            stateRef.value = previousValue;
-            throw error;
-        }
-    }
+    const slice = usePersistentSlice({
+        label: 'SearchStore',
+        keys: [
+            {
+                key: STORAGE_KEYS.SELECTED_SEARCH_ENGINE,
+                apply: raw => {
+                    selectedEngineIndex.value = normalizeEngineIndex(raw);
+                },
+                read: () => selectedEngineIndex.value
+            },
+            {
+                key: STORAGE_KEYS.SEARCH_HISTORY,
+                apply: raw => {
+                    history.value = normalizeHistory(raw);
+                },
+                read: () => history.value
+            }
+        ]
+    });
+
+    // 首帧同步读快照：搜索引擎选择与历史都要在首次渲染前就位，
+    // 等异步存储回来再纠正会让选择器先显示默认引擎再跳一下。
+    slice.applyBoot();
 
     /**
-     * 从 StorageManager 加载 persisted 状态到 store
+     * 从持久化存储加载状态到 store
      */
     async function loadFromStorage(): Promise<void> {
-        const [indexValue, historyValue] = await Promise.all([
-            storageManager.get(STORAGE_KEYS.SELECTED_SEARCH_ENGINE),
-            storageManager.get(STORAGE_KEYS.SEARCH_HISTORY),
-        ]);
-
-        selectedEngineIndex.value = normalizeEngineIndex(indexValue);
-        history.value = normalizeHistory(historyValue);
+        await slice.load();
         initialized.value = true;
     }
 
@@ -118,13 +116,15 @@ export const useSearchStore = defineStore('search', () => {
      */
     async function setSelectedEngineIndex(index: number): Promise<void> {
         const nextIndex = normalizeEngineIndex(index);
-        await persistValue(STORAGE_KEYS.SELECTED_SEARCH_ENGINE, selectedEngineIndex, nextIndex);
+        await slice.mutate(() => {
+            selectedEngineIndex.value = nextIndex;
+        });
     }
 
     /**
      * 将搜索关键词加入历史
      *
-     * 写前重读 persisted 历史，避免并发/跨标签页写入互相覆盖；
+     * 写前重读持久化历史，避免旧缓存覆盖并发 / 跨标签页写入；
      * 重复查询会移动到最前并刷新时间戳，历史总量限制为 MAX_HISTORY_SIZE。
      */
     async function addHistory(query: string): Promise<void> {
@@ -141,7 +141,9 @@ export const useSearchStore = defineStore('search', () => {
             MAX_HISTORY_SIZE
         );
 
-        await persistValue(STORAGE_KEYS.SEARCH_HISTORY, history, nextHistory);
+        await slice.mutate(() => {
+            history.value = nextHistory;
+        });
     }
 
     /**
@@ -161,14 +163,18 @@ export const useSearchStore = defineStore('search', () => {
             return;
         }
 
-        await persistValue(STORAGE_KEYS.SEARCH_HISTORY, history, nextHistory);
+        await slice.mutate(() => {
+            history.value = nextHistory;
+        });
     }
 
     /**
      * 清空搜索历史
      */
     async function clearHistory(): Promise<void> {
-        await persistValue(STORAGE_KEYS.SEARCH_HISTORY, history, []);
+        await slice.mutate(() => {
+            history.value = [];
+        });
     }
 
     return {

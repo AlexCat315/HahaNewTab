@@ -14,7 +14,8 @@
  * - 同一 URL 的并发读取会去重，避免首屏几十个图标同时打 IndexedDB。
  */
 
-import { STORAGE_KEYS } from '@/types/storage';
+import { STORAGE_KEYS, type MediaCacheSettings } from '@/types/storage';
+import { storageManager } from '@/services/storage.service';
 
 /** 数据库名称 */
 const DB_NAME = 'haha-media-cache';
@@ -43,26 +44,26 @@ const TTL_BY_KIND: Record<MediaCacheKind, number> = {
 const DEFAULT_KIND: MediaCacheKind = 'icon';
 
 /**
- * 从 localStorage 镜像同步读取开关
+ * 同步读取存储内核首帧快照里的缓存开关
  *
- * 开关值同时写进 STORAGE_KEYS.MEDIA_CACHE 镜像，这里在服务构造时同步读一次：
+ * 开关由注册表标记为首帧键，值同时落在 __boot__ 快照里，这里在服务构造时同步读一次：
  * 否则用户关闭缓存后，要等打开个性化面板（cache store 初始化）才生效，
  * 中间这段时间图标和壁纸仍会被缓存。
  */
-function readEnabledFromMirror(): boolean {
+export function readMediaCacheEnabled(): boolean {
     try {
-        if (typeof localStorage === 'undefined') {
-            return true;
+        const mirrored = storageManager.getSync(STORAGE_KEYS.MEDIA_CACHE);
+        if (mirrored && typeof mirrored === 'object') {
+            const enabled = (mirrored as Partial<MediaCacheSettings>).enabled;
+            if (typeof enabled === 'boolean') {
+                return enabled;
+            }
         }
-        const raw = localStorage.getItem(STORAGE_KEYS.MEDIA_CACHE);
-        if (!raw) {
-            return true;
-        }
-        const parsed = JSON.parse(raw) as { enabled?: unknown };
-        return typeof parsed?.enabled === 'boolean' ? parsed.enabled : true;
-    } catch {
-        return true;
+    } catch (error) {
+        // 隐私模式下 localStorage 可能直接不可用，读不到就按默认「开启」走
+        console.warn('[MediaCache] 读取缓存开关镜像失败:', error);
     }
+    return true;
 }
 
 /** IndexedDB 中存储的缓存条目 */
@@ -127,7 +128,7 @@ class MediaCacheService {
     /** 是否已在本会话执行过期清理 */
     private swept = false;
     /** 开关：关闭后既不读缓存也不写缓存 */
-    private enabled = readEnabledFromMirror();
+    private enabled = readMediaCacheEnabled();
 
     /** 当前环境是否支持 IndexedDB 缓存 */
     isAvailable(): boolean {

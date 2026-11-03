@@ -8,7 +8,6 @@ import { computed, ref, watch } from 'vue';
 import { useDataManager } from '@/composables/useDataManager';
 import { useCurrentTab } from '@/composables/useCurrentTab';
 import { useToast } from '@/composables/useToast';
-import { browserApi } from '@/services/browserApi.service';
 import { getSystemIconUrl } from '@/utils/image.util';
 import { getBrandLogo } from '@/utils/browser.util';
 import { normalizeUrl } from '@/utils/url.util';
@@ -181,7 +180,7 @@ async function handleSubmit(): Promise<void> {
             }
         }
 
-        const saved = await dataManager.addApp({
+        await dataManager.addApp({
             name: form.value.name.trim(),
             url: normalizeUrl(form.value.url),
             category: categoryId,
@@ -194,15 +193,6 @@ async function handleSubmit(): Promise<void> {
         setTimeout(() => {
             window.close();
         }, 1500);
-
-        // 向父页面发送消息，通知添加成功
-        if (browserApi.isExtension) {
-            try {
-                window.parent.postMessage({ type: 'haha-app-added', app: saved }, '*');
-            } catch {
-                // 忽略跨域消息发送失败
-            }
-        }
     } catch (error) {
         toast.error(error instanceof Error ? error.message : '保存失败');
     } finally {

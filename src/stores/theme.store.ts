@@ -6,7 +6,7 @@
  * - 加载并缓存 public/config/themes.json
  * - 将主题 CSS 变量注入 document.documentElement
  * - 监听系统深色偏好变化
- * - 所有变更持久化到 StorageManager（selectedTheme 存具体变体，
+ * - 持久化交给 usePersistentSlice（selectedTheme 存具体变体，
  *   appNavigator_themeSettings 存跟随系统开关与主题族）
  *
  * 与原项目 js/ThemeManager.js 行为保持一致：
@@ -18,7 +18,7 @@
 
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { storageManager } from '@/services/storage.service';
+import { usePersistentSlice } from '@/composables/usePersistentSlice';
 import { loadThemes } from '@/services/config.service';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { StorageValue, ThemeSettings } from '@/types/storage';
@@ -82,10 +82,43 @@ export const useThemeStore = defineStore('theme', () => {
     const selectedThemeId = ref<string | null>(null);
     const systemPrefersDark = ref<boolean>(false);
     const followSystem = ref<boolean>(false);
+    /**
+     * 主题族偏好：跟随系统时决定用哪套色系，只有明暗由系统定。
+     * 与 followSystem 一起存在 appNavigator_themeSettings 里。
+     */
+    const preferredFamilyId = ref<string>('');
     const isReady = ref<boolean>(false);
     const error = ref<string | null>(null);
     /** 旧主题 ID → 新变体 ID 的迁移表（来自 themes.json） */
     const legacyIds = ref<Record<string, string>>({});
+
+    const slice = usePersistentSlice({
+        label: 'ThemeStore',
+        keys: [
+            {
+                key: STORAGE_KEYS.SELECTED_THEME,
+                apply: raw => {
+                    selectedThemeId.value = typeof raw === 'string' && raw ? raw : null;
+                },
+                read: () => selectedThemeId.value
+            },
+            {
+                key: STORAGE_KEYS.THEME_SETTINGS,
+                apply: raw => {
+                    const settings = parseThemeSettings(raw);
+                    followSystem.value = settings?.followSystem ?? false;
+                    preferredFamilyId.value = settings?.familyId ?? '';
+                },
+                read: () => ({
+                    followSystem: followSystem.value,
+                    familyId: preferredFamilyId.value
+                } satisfies ThemeSettings)
+            }
+        ]
+    });
+
+    // 主题直接决定首屏配色，等异步存储回来再上色会闪一下：先从首帧快照同步取值
+    slice.applyBoot();
 
     // Helpers（先于 getter 定义，供 computed 使用）
     /**
@@ -311,7 +344,6 @@ export const useThemeStore = defineStore('theme', () => {
         }
         selectedThemeId.value = theme.id;
 
-        window.dispatchEvent(new CustomEvent('themeChanged', { detail: { themeId: theme.id, theme } }));
         return theme;
     }
 
@@ -336,31 +368,30 @@ export const useThemeStore = defineStore('theme', () => {
                 mediaQuery.addEventListener('change', handleSystemDarkChange);
             }
 
-            const stored = await storageManager.getMany([
-                STORAGE_KEYS.SELECTED_THEME,
-                STORAGE_KEYS.THEME_SETTINGS
-            ]);
-            const savedTheme = stored[STORAGE_KEYS.SELECTED_THEME];
-            const savedSettings = parseThemeSettings(stored[STORAGE_KEYS.THEME_SETTINGS]);
+            await slice.load();
 
-            const normalizedId = typeof savedTheme === 'string'
-                ? normalizeThemeId(savedTheme)
-                : null;
-            const hasSavedTheme = typeof savedTheme === 'string';
+            // load 之后内存里还是存储原值（未迁移的旧 ID、原来的跟随开关与主题族），
+            // 归一化后要拿它判断是否需要写回
+            const savedTheme = selectedThemeId.value;
+            const savedFollowSystem = followSystem.value;
+            const savedFamilyId = preferredFamilyId.value;
+
+            const normalizedId = savedTheme ? normalizeThemeId(savedTheme) : null;
+            const hasSavedTheme = savedTheme !== null;
 
             let initialThemeId: string;
             let shouldFollowSystem = false;
 
-            if (savedSettings?.followSystem) {
+            if (savedFollowSystem) {
                 // 跟随系统：族优先取设置里的 familyId，失效时退回已保存主题的族，再退回默认族
                 shouldFollowSystem = true;
                 const settingsFamilyValid = themeFamilies.value
-                    .some(family => family.id === savedSettings.familyId);
+                    .some(family => family.id === savedFamilyId);
                 const fallbackTheme = normalizedId
                     ? themes.value.find(theme => theme.id === normalizedId)
                     : undefined;
                 const familyId = settingsFamilyValid
-                    ? savedSettings.familyId
+                    ? savedFamilyId
                     : resolveFamilyId(fallbackTheme);
                 initialThemeId = findVariantId(
                     familyId,
@@ -372,27 +403,18 @@ export const useThemeStore = defineStore('theme', () => {
 
             applyThemeToDom(initialThemeId);
             followSystem.value = shouldFollowSystem;
+            preferredFamilyId.value = currentFamilyId.value;
 
             // 首次使用默认主题、旧版主题 ID 被迁移、或主题偏好缺失/不一致时写回，
-            // 保证首屏与 StorageManager 一致（包含跟随系统开关，重启后才能恢复）
-            const writes: Record<string, StorageValue> = {};
-            if (!hasSavedTheme || normalizedId !== savedTheme) {
-                writes[STORAGE_KEYS.SELECTED_THEME] = initialThemeId;
-            }
-            const expectedSettings: ThemeSettings = {
-                followSystem: shouldFollowSystem,
-                familyId: currentFamilyId.value
-            };
-            if (
-                !savedSettings ||
-                savedSettings.followSystem !== expectedSettings.followSystem ||
-                savedSettings.familyId !== expectedSettings.familyId
-            ) {
-                writes[STORAGE_KEYS.THEME_SETTINGS] = expectedSettings;
-            }
-            if (Object.keys(writes).length > 0) {
+            // 保证首屏与存储一致（包含跟随系统开关，重启后才能恢复）
+            const needsWrite = !hasSavedTheme
+                || normalizedId !== savedTheme
+                || savedFollowSystem !== shouldFollowSystem
+                || savedFamilyId !== preferredFamilyId.value;
+            if (needsWrite) {
+                selectedThemeId.value = initialThemeId;
                 try {
-                    await storageManager.setMany(writes);
+                    await slice.persist();
                 } catch (err) {
                     console.warn('ThemeStore: 持久化主题设置失败', err);
                 }
@@ -408,38 +430,39 @@ export const useThemeStore = defineStore('theme', () => {
     }
 
     /**
+     * 把 DOM 退回指定主题
+     * 持久化失败时用：内存状态由 slice 回滚，主题注入的 CSS 变量与 dark-mode 类要自己复原。
+     */
+    function restoreThemeDom(themeId: string | null): void {
+        if (themeId) {
+            applyThemeToDom(themeId);
+        } else {
+            clearInjectedVariables();
+            selectedThemeId.value = themeId;
+        }
+    }
+
+    /**
      * 主动设置并持久化当前主题
      * 写操作返回前已完成持久化；失败时回滚本地状态与 DOM
      */
     async function setTheme(themeId: string): Promise<void> {
         const previousThemeId = selectedThemeId.value;
-        const previousFollowSystem = followSystem.value;
 
         const theme = applyThemeToDom(themeId);
         if (!theme) {
             throw new Error(`ThemeStore: 无法应用未知主题 ${themeId}`);
         }
 
-        followSystem.value = false;
-
         try {
             // 具体变体与主题偏好一起持久化：手动选择意味着关闭跟随系统
-            await storageManager.setMany({
-                [STORAGE_KEYS.SELECTED_THEME]: themeId,
-                [STORAGE_KEYS.THEME_SETTINGS]: {
-                    followSystem: false,
-                    familyId: resolveFamilyId(theme)
-                } satisfies ThemeSettings
+            await slice.mutate(() => {
+                selectedThemeId.value = themeId;
+                followSystem.value = false;
+                preferredFamilyId.value = resolveFamilyId(theme);
             });
         } catch (err) {
-            // 持久化失败：回滚本地状态与 DOM
-            followSystem.value = previousFollowSystem;
-            if (previousThemeId) {
-                applyThemeToDom(previousThemeId);
-            } else {
-                clearInjectedVariables();
-                selectedThemeId.value = previousThemeId;
-            }
+            restoreThemeDom(previousThemeId);
             throw err;
         }
     }
@@ -451,32 +474,21 @@ export const useThemeStore = defineStore('theme', () => {
      */
     async function followSystemTheme(): Promise<void> {
         const previousThemeId = selectedThemeId.value;
-        const previousFollowSystem = followSystem.value;
-
-        followSystem.value = true;
         const familyId = currentFamilyId.value;
         const targetId = findVariantId(familyId, systemPrefersDark.value ? 'dark' : 'light')
             ?? resolveDefaultThemeId();
+
         applyThemeToDom(targetId);
 
         try {
             // 跟随开关与主题族一起落盘；具体变体也同步为当前系统模式下的渲染结果
-            await storageManager.setMany({
-                [STORAGE_KEYS.SELECTED_THEME]: targetId,
-                [STORAGE_KEYS.THEME_SETTINGS]: {
-                    followSystem: true,
-                    familyId
-                } satisfies ThemeSettings
+            await slice.mutate(() => {
+                selectedThemeId.value = targetId;
+                followSystem.value = true;
+                preferredFamilyId.value = familyId;
             });
         } catch (err) {
-            // 持久化失败：回滚
-            followSystem.value = previousFollowSystem;
-            if (previousThemeId) {
-                applyThemeToDom(previousThemeId);
-            } else {
-                clearInjectedVariables();
-                selectedThemeId.value = previousThemeId;
-            }
+            restoreThemeDom(previousThemeId);
             throw err;
         }
     }

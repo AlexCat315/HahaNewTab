@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 import { useCloudSyncStore } from '../cloudSync.store';
 import { useAppDataStore } from '../appData.store';
+import { CloudSyncService } from '@/services/cloudSync.service';
 import { storageManager } from '@/services/storage.service';
 import { browserApi } from '@/services/browserApi.service';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -340,6 +341,100 @@ describe('cloudSync store', () => {
         store.scheduleAutoSync();
         // 自动同步是 3s 防抖，立即检查不应调用 fetch
         expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it('自动同步监听只认同步范围内的数据落盘', async () => {
+        mockFetchSequence([
+            createResponse(TEST_USER_API),
+            createResponse([]),
+            createResponse({ id: TEST_GIST_ID, files: {} })
+        ]);
+        const store = useCloudSyncStore();
+        await store.login(TEST_TOKEN);
+        await store.setAutoSync(true);
+
+        vi.useFakeTimers();
+        const syncSpy = vi.spyOn(CloudSyncService.prototype, 'sync').mockResolvedValue({ success: true });
+        try {
+            store.startAutoSyncWatch();
+
+            // 个性化设置不参与云同步，落盘不该排期同步
+            await storageManager.set(STORAGE_KEYS.SELECTED_THEME, 'material-rose');
+            vi.advanceTimersByTime(5000);
+            expect(syncSpy).not.toHaveBeenCalled();
+
+            await storageManager.set(STORAGE_KEYS.MAIN_DATA, { categories: [], apps: [] });
+            vi.advanceTimersByTime(5000);
+            expect(syncSpy).toHaveBeenCalledTimes(1);
+        } finally {
+            store.stopAutoSyncWatch();
+            syncSpy.mockRestore();
+            vi.useRealTimers();
+        }
+    });
+
+    it('连续的数据变更只触发一次自动同步（防抖）', async () => {
+        mockFetchSequence([
+            createResponse(TEST_USER_API),
+            createResponse([]),
+            createResponse({ id: TEST_GIST_ID, files: {} })
+        ]);
+        const store = useCloudSyncStore();
+        await store.login(TEST_TOKEN);
+        await store.setAutoSync(true);
+
+        vi.useFakeTimers();
+        const syncSpy = vi.spyOn(CloudSyncService.prototype, 'sync').mockResolvedValue({ success: true });
+        try {
+            store.startAutoSyncWatch();
+            for (let i = 0; i < 3; i++) {
+                await storageManager.set(STORAGE_KEYS.MAIN_DATA, {
+                    categories: [],
+                    apps: [{ id: `app_${i}`, name: `站点 ${i}`, url: 'https://example.com' }]
+                });
+                vi.advanceTimersByTime(2000);
+            }
+            expect(syncSpy).not.toHaveBeenCalled();
+            vi.advanceTimersByTime(2000);
+            expect(syncSpy).toHaveBeenCalledTimes(1);
+        } finally {
+            store.stopAutoSyncWatch();
+            syncSpy.mockRestore();
+            vi.useRealTimers();
+        }
+    });
+
+    it('把云端结果写回本地期间的落盘不再触发下一轮自动同步', async () => {
+        await storageManager.setMany({
+            [STORAGE_KEYS.CLOUD_TOKEN]: TEST_TOKEN,
+            [STORAGE_KEYS.CLOUD_GIST_ID]: TEST_GIST_ID,
+            [STORAGE_KEYS.CLOUD_AUTO_SYNC]: true
+        });
+        mockFetchSequence([createResponse(TEST_USER_API)]);
+        const store = useCloudSyncStore();
+        await store.init();
+
+        vi.useFakeTimers();
+        const syncSpy = vi.spyOn(CloudSyncService.prototype, 'sync').mockResolvedValue({ success: true });
+        // 服务层写回本地时给出信号，监听据此分辨「本机改了数据」和「刚落盘云端结果」
+        const applying = vi.spyOn(CloudSyncService.prototype, 'isApplyingRemoteData', 'get').mockReturnValue(true);
+        try {
+            store.startAutoSyncWatch();
+
+            await storageManager.set(STORAGE_KEYS.MAIN_DATA, { categories: [], apps: [] });
+            vi.advanceTimersByTime(5000);
+            expect(syncSpy).not.toHaveBeenCalled();
+
+            applying.mockReturnValue(false);
+            await storageManager.set(STORAGE_KEYS.MAIN_DATA, { categories: [], apps: [] });
+            vi.advanceTimersByTime(5000);
+            expect(syncSpy).toHaveBeenCalledTimes(1);
+        } finally {
+            store.stopAutoSyncWatch();
+            applying.mockRestore();
+            syncSpy.mockRestore();
+            vi.useRealTimers();
+        }
     });
 
     it('sync 双向合并：远端新增应用到本地，base 与 lastSyncTime 更新', async () => {

@@ -7,6 +7,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { storageManager } from '@/services/storage.service';
+import { CLOUD_SYNC_DATA_KEYS } from '@/services/storageSchema.service';
 import { CloudSyncService, createCloudSyncService } from '@/services/cloudSync.service';
 import { getSyncAreaStatus } from '@/services/syncStorage.service';
 import {
@@ -20,7 +21,6 @@ import type { EnableCrossDeviceResult, CrossDeviceRemoteMeta } from '@/services/
 import { useAppDataStore } from './appData.store';
 import type {
     ICloudSyncUIAdapter,
-    ICloudSyncStorageAdapter,
     CloudSyncProviderId,
     GitHubUserInfo,
     UploadResult,
@@ -28,6 +28,10 @@ import type {
     PullResult,
     SyncResult
 } from '@/types/cloudSync.types';
+import type { StorageChanges } from '@/types/storage';
+
+/** 自动同步防抖：连续增删站点时只在停下来后同步一次 */
+const AUTO_SYNC_DEBOUNCE_MS = 3000;
 
 /** 默认 UI 适配器：Store 不直接操作 UI，默认无提示 / 自动确认 */
 const DEFAULT_UI_ADAPTER: ICloudSyncUIAdapter = {
@@ -74,11 +78,17 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
 
     /** CloudSyncService 实例，懒创建 */
     let cloudSyncService: CloudSyncService | null = null;
+    /** 本地数据变更监听是否已挂上（云同步面板/页面挂载期间为 true） */
+    let autoSyncWatchAttached = false;
+    /** 自动同步防抖定时器 */
+    let autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
+    /** 存储内核变更订阅的取消函数 */
+    let unsubscribeDataChanges: (() => void) | null = null;
 
     function getService(): CloudSyncService {
         if (!cloudSyncService) {
             cloudSyncService = createCloudSyncService({
-                storage: storageManager as unknown as ICloudSyncStorageAdapter,
+                storage: storageManager,
                 dataManager: appData,
                 ui: uiAdapter.value
             });
@@ -89,6 +99,68 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     /** 重新创建 CloudSyncService（例如 UI 适配器变更后） */
     function resetService(): void {
         cloudSyncService = null;
+    }
+
+    /**
+     * 挂上「本地数据变更 → 防抖自动同步」监听
+     *
+     * 变更源是存储内核，不是某个 store 自己派发的事件：站点数据与图标库无论经过哪条
+     * 写入路径（增删站点、导入备份、其他标签页改动）都会通知到这里。
+     */
+    function startAutoSyncWatch(): void {
+        if (autoSyncWatchAttached) {
+            return;
+        }
+        autoSyncWatchAttached = true;
+        unsubscribeDataChanges = storageManager.subscribe(handleDataChanges);
+    }
+
+    /** 摘掉监听，并撤销尚未发出的自动同步 */
+    function stopAutoSyncWatch(): void {
+        autoSyncWatchAttached = false;
+        unsubscribeDataChanges?.();
+        unsubscribeDataChanges = null;
+        cancelScheduledAutoSync();
+    }
+
+    /**
+     * 存储变更 → 是否该自动同步
+     *
+     * 只认「本机把同步范围内的数据改了」：个性化设置不参与同步，
+     * 刚把云端结果写回本地的那次写入也不能算本机改动，否则同步完又触发一轮。
+     */
+    function handleDataChanges(changes: StorageChanges): void {
+        if (!CLOUD_SYNC_DATA_KEYS.some(key => key in changes)) {
+            return;
+        }
+        if (getService().isApplyingRemoteData) {
+            return;
+        }
+        scheduleAutoSync();
+    }
+
+    function cancelScheduledAutoSync(): void {
+        if (autoSyncTimer) {
+            clearTimeout(autoSyncTimer);
+            autoSyncTimer = null;
+        }
+    }
+
+    /**
+     * 触发自动同步（防抖）
+     * 未登录或未开启自动同步时什么都不做；走 store.sync 是为了把结果同步回界面状态。
+     */
+    function scheduleAutoSync(): void {
+        if (!autoSync.value || !token.value) {
+            return;
+        }
+        cancelScheduledAutoSync();
+        autoSyncTimer = setTimeout(() => {
+            autoSyncTimer = null;
+            sync({ silent: true }).catch(() => {
+                // 失败提示由服务层 Toast 负责，这里只避免未处理的 Promise 拒绝
+            });
+        }, AUTO_SYNC_DEBOUNCE_MS);
     }
 
     /** 将 CloudSyncService 的内部状态同步回 Store */
@@ -390,13 +462,6 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         syncStateFromService();
     }
 
-    /**
-     * 触发自动同步（防抖）。
-     */
-    function scheduleAutoSync(): void {
-        getService().scheduleAutoSync();
-    }
-
     /** 是否已登录 */
     const isLoggedIn = computed(() => !!token.value);
 
@@ -432,6 +497,8 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         pullAndApply,
         showLoginDialog,
         scheduleAutoSync,
+        startAutoSyncWatch,
+        stopAutoSyncWatch,
         setUIAdapter,
         refreshCrossDevice,
         enableCrossDeviceSync,

@@ -1,3 +1,14 @@
+import type { IStorageManager } from '@/services/storage.service';
+
+/**
+ * 云同步使用的存储能力 = 存储内核的子集
+ * 按内核真实签名取用，不再另立一套并行的存储接口。
+ */
+export type CloudSyncStorage = Pick<
+    IStorageManager,
+    'get' | 'getMany' | 'set' | 'setMany'
+>;
+
 /**
  * GitHub 用户信息
  * GitHub / Gitee 的 GET /user 返回结构一致，两平台通用
@@ -134,18 +145,8 @@ export interface CloudSyncSettings {
 }
 
 /**
- * 云同步存储适配器
- * 由统一的 StorageManager 实现
- */
-export interface ICloudSyncStorageAdapter {
-    get<T = unknown>(key: string): Promise<T | null>;
-    set(key: string, value: unknown): Promise<void>;
-    setMany(items: Record<string, unknown>): Promise<void>;
-}
-
-/**
  * 云同步数据管理器适配器
- * 由 DataManager 实现
+ * 由 appData store 实现
  */
 export interface ICloudSyncDataManager {
     /**
@@ -185,9 +186,13 @@ export interface ICloudSyncUIAdapter {
 
 /**
  * 构造 CloudSyncService 所需的依赖
+ *
+ * storage 直接就是存储内核（services/storage.service.ts）用到的那部分能力，
+ * 云同步不再自带一层「看起来一样但签名不同」的适配器接口——
+ * 那层接口只会让内核改签名时这里悄悄失配，还得靠 as unknown as 蒙过去。
  */
 export interface CloudSyncDependencies {
-    storage: ICloudSyncStorageAdapter;
+    storage: CloudSyncStorage;
     dataManager: ICloudSyncDataManager;
     ui: ICloudSyncUIAdapter;
 }

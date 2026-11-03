@@ -34,6 +34,21 @@ export interface AppNavigatorData {
     apps: AppItem[];
 }
 
+/**
+ * 判断是否为合法的应用导航数据
+ *
+ * 站点数据要经过存储读写、导入备份、云端快照好几条路径，每一步都可能拿到被截断或
+ * 结构过期的值；拿到非法值就当没有数据，比拿它去渲染或合并安全得多。
+ */
+export function isAppNavigatorData(data: unknown): data is AppNavigatorData {
+    return Boolean(
+        data &&
+        typeof data === 'object' &&
+        Array.isArray((data as AppNavigatorData).categories) &&
+        Array.isArray((data as AppNavigatorData).apps)
+    );
+}
+
 /** 创建/更新应用时允许传入的字段（id 由系统自动生成） */
 export interface AppInput extends Partial<Omit<AppItem, 'id' | 'name' | 'url' | 'category'>> {
     name: string;

@@ -1,7 +1,7 @@
 /**
  * 云同步 Composable
  * 封装 cloudSync store，为 Vue 组件提供登录、退出、上传、下载、拉取、自动同步能力。
- * 处理副作用清理：事件监听、防抖定时器、AbortController。
+ * 处理副作用清理：本地数据变更监听、未完成的操作、跨设备凭据监听。
  */
 
 import { computed, onMounted, onUnmounted } from 'vue';
@@ -23,8 +23,6 @@ import type {
 export interface UseCloudSyncOptions {
     /** UI 适配器；未提供时使用 Store 默认适配器 */
     uiAdapter?: ICloudSyncUIAdapter;
-    /** 数据变更后自动同步的防抖间隔（毫秒），默认 3000 */
-    autoSyncDebounceMs?: number;
 }
 
 export interface UseCloudSyncReturn {
@@ -55,7 +53,6 @@ export interface UseCloudSyncReturn {
     download: () => Promise<DownloadResult>;
     pullAndApply: (options?: { force?: boolean; silent?: boolean }) => Promise<PullResult>;
     showLoginDialog: () => Promise<void>;
-    scheduleAutoSync: () => void;
     cancelPending: () => void;
     refreshCrossDevice: () => Promise<void>;
     enableCrossDeviceSync: (passphrase: string) => Promise<EnableCrossDeviceOutcome>;
@@ -63,8 +60,6 @@ export interface UseCloudSyncReturn {
     restoreFromCrossDevice: (passphrase: string) => Promise<boolean>;
     tryRestoreCrossDevice: (passphrase?: string) => Promise<boolean>;
 }
-
-const DEFAULT_AUTO_SYNC_DEBOUNCE_MS = 3000;
 
 /** 平台标识到显示名的映射 */
 const PROVIDER_NAMES: Record<CloudSyncProviderId, string> = {
@@ -113,10 +108,9 @@ function createAbortControllerSet(): {
  */
 export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncReturn {
     const store = useCloudSyncStore();
-    const { uiAdapter, autoSyncDebounceMs = DEFAULT_AUTO_SYNC_DEBOUNCE_MS } = options;
+    const { uiAdapter } = options;
 
     const abortControllers = createAbortControllerSet();
-    let autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
     let unwatchRemoteAuth: (() => void) | null = null;
 
     if (uiAdapter) {
@@ -172,14 +166,10 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
     }
 
     /**
-     * 取消所有未完成的操作，并清理自动同步定时器
+     * 取消所有未完成的操作
      */
     function cancelPending(): void {
         abortControllers.abortAll();
-        if (autoSyncTimer) {
-            clearTimeout(autoSyncTimer);
-            autoSyncTimer = null;
-        }
     }
 
     async function init(): Promise<void> {
@@ -238,39 +228,9 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         return createAbortable(() => store.restoreFromCrossDevice(passphrase));
     }
 
-    /**
-     * 触发自动同步（防抖）
-     * 仅在已登录且开启自动同步时生效；执行双向合并同步，成功静默、失败 Toast 提示。
-     */
-    function scheduleAutoSync(): void {
-        if (!store.autoSync || !store.isLoggedIn) {
-            return;
-        }
-        if (autoSyncTimer) {
-            clearTimeout(autoSyncTimer);
-        }
-        autoSyncTimer = setTimeout(() => {
-            autoSyncTimer = null;
-            sync({ silent: true }).catch(() => {
-                // 静默失败（失败提示由 service 层 Toast 负责），避免未处理的 Promise 拒绝
-            });
-        }, autoSyncDebounceMs);
-    }
-
-    /**
-     * 本地数据变更时触发自动同步
-     * 仅响应本地修改（source === 'local'），云端应用/外部变更不触发，避免回环上传
-     */
-    function handleDataChanged(event: Event): void {
-        const source = (event as CustomEvent<{ source?: string }>).detail?.source;
-        if (source && source !== 'local') {
-            return;
-        }
-        scheduleAutoSync();
-    }
-
     onMounted(() => {
-        window.addEventListener('appNavigator:data-changed', handleDataChanged);
+        // 本地数据一落盘就防抖触发自动同步；变更源是存储内核，覆盖所有写入路径
+        store.startAutoSyncWatch();
         // 其他设备推送浏览器同步凭据后，本机即时感知并尝试免 Token 登录
         unwatchRemoteAuth = watchRemoteCrossDeviceAuth(() => {
             refreshCrossDevice()
@@ -285,7 +245,7 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
     });
 
     onUnmounted(() => {
-        window.removeEventListener('appNavigator:data-changed', handleDataChanged);
+        store.stopAutoSyncWatch();
         unwatchRemoteAuth?.();
         unwatchRemoteAuth = null;
         cancelPending();
@@ -317,7 +277,6 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         download,
         pullAndApply,
         showLoginDialog,
-        scheduleAutoSync,
         cancelPending,
         refreshCrossDevice,
         enableCrossDeviceSync,

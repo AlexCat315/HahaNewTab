@@ -1,14 +1,14 @@
 /**
  * layout.store
- * 页面布局设置（列数 / 分页）的状态管理与持久化。
+ * 页面布局设置（列数 / 分页 / 极简约模式 / 打开方式）的状态管理与持久化。
  *
- * 设置经 storageManager 持久化（键 LAYOUT_SETTINGS，随云同步），
+ * 持久化走 usePersistentSlice（键 LAYOUT_SETTINGS，注册表标记为首帧键）；
  * isMobile 通过 matchMedia 监听视口宽度（<768px 时列数强制自适应）。
  */
 
 import { ref } from 'vue';
 import { defineStore } from 'pinia';
-import { storageManager } from '@/services/storage.service';
+import { usePersistentSlice } from '@/composables/usePersistentSlice';
 import { STORAGE_KEYS, type LayoutSettings, type LinkOpenMode } from '@/types/storage';
 import { DEFAULT_OPEN_MODE, isLinkOpenMode } from '@/utils/navigation.util';
 
@@ -67,27 +67,39 @@ export const useLayoutStore = defineStore('layout', () => {
     }
 
     /**
-     * 同步读取 localStorage 镜像（首屏兜底）。
+     * 当前状态对应的完整设置对象（持久化用）
      *
-     * storage.local / chrome.storage 都是异步的：若等它返回再渲染，首帧会先画出
-     * 默认的「标准三栏布局」，随后才切成极简约模式——用户看到的就是打开新标签页
-     * 时闪一下。这里在 store 创建时同步取镜像，让首次渲染直接是最终形态，
-     * init() 再用真实存储校正一次。
+     * 字段缺失或取值非法时 applySettings 保持原值，因此可以安全地拿
+     * 「首帧快照」和「storage 里的真实值」各调一次，后调的自然覆盖前调的。
      */
-    function readMirroredSettings(): Partial<LayoutSettings> | null {
-        try {
-            const mirrored = storageManager.getSync(STORAGE_KEYS.LAYOUT_SETTINGS);
-            return mirrored && typeof mirrored === 'object'
-                ? (mirrored as Partial<LayoutSettings>)
-                : null;
-        } catch (error) {
-            console.warn('[LayoutStore] 读取布局镜像失败:', error);
-            return null;
-        }
+    function buildSettings(): LayoutSettings {
+        return {
+            columns: columns.value,
+            paginate: paginate.value,
+            pageSize: pageSize.value,
+            showAllCategory: showAllCategory.value,
+            allViewFlat: allViewFlat.value,
+            showIconBackground: showIconBackground.value,
+            minimalMode: minimalMode.value,
+            openMode: openMode.value,
+        };
     }
 
-    // 首屏同步兜底：必须在第一次渲染前完成
-    applySettings(readMirroredSettings());
+    const slice = usePersistentSlice({
+        label: 'LayoutStore',
+        keys: [
+            {
+                key: STORAGE_KEYS.LAYOUT_SETTINGS,
+                apply: raw => applySettings(raw as Partial<LayoutSettings> | null),
+                read: buildSettings
+            }
+        ]
+    });
+
+    // 首屏同步兜底：必须在第一次渲染前完成。
+    // storage.local 是异步的，等它返回再渲染，首帧会先画出默认的「标准三栏布局」
+    // 随后才切成极简约模式——用户看到的就是打开新标签页时闪一下。
+    slice.applyBoot();
 
     let mediaQueryList: MediaQueryList | null = null;
     let mediaListener: ((event: MediaQueryListEvent) => void) | null = null;
@@ -105,41 +117,17 @@ export const useLayoutStore = defineStore('layout', () => {
         mediaQueryList.addEventListener('change', mediaListener);
     }
 
-    /** 当前状态对应的完整设置对象（持久化与镜像回填共用） */
-    function buildSettings(): LayoutSettings {
-        return {
-            columns: columns.value,
-            paginate: paginate.value,
-            pageSize: pageSize.value,
-            showAllCategory: showAllCategory.value,
-            allViewFlat: allViewFlat.value,
-            showIconBackground: showIconBackground.value,
-            minimalMode: minimalMode.value,
-            openMode: openMode.value,
-        };
-    }
-
-    async function persist(): Promise<void> {
-        await storageManager.set(STORAGE_KEYS.LAYOUT_SETTINGS, buildSettings());
-    }
-
     /**
      * 加载布局设置（幂等）
      *
-     * 首屏已经用同步镜像铺过一遍，这里读到真实存储后再校正一次；
+     * 首屏已经用首帧快照铺过一遍，这里读到真实存储后再校正一次；
      * 两者一致时不会触发任何重渲染，因此不会产生二次闪烁。
      */
     async function init(): Promise<void> {
         if (initialized.value) return;
         setupMediaListener();
         try {
-            const saved = (await storageManager.get(STORAGE_KEYS.LAYOUT_SETTINGS)) as Partial<LayoutSettings> | null;
-            applySettings(saved);
-            // 回填同步镜像：老版本没有这份镜像，或镜像被清掉过。
-            // 不回填的话，这类用户每次打开新标签页都会再闪一次（永远等不到同步数据）。
-            if (saved && typeof saved === 'object') {
-                storageManager.writeSyncMirror(STORAGE_KEYS.LAYOUT_SETTINGS, buildSettings());
-            }
+            await slice.load();
             initialized.value = true;
         } catch (error) {
             console.error('[LayoutStore] 加载布局设置失败:', error);
@@ -147,45 +135,53 @@ export const useLayoutStore = defineStore('layout', () => {
     }
 
     async function setColumns(value: number | 'auto'): Promise<void> {
-        columns.value = value;
-        await persist();
+        await slice.mutate(() => {
+            columns.value = value;
+        });
     }
 
     async function setPaginate(value: boolean): Promise<void> {
-        paginate.value = value;
-        await persist();
+        await slice.mutate(() => {
+            paginate.value = value;
+        });
     }
 
     async function setPageSize(value: number): Promise<void> {
         if (value <= 0) return;
-        pageSize.value = value;
-        await persist();
+        await slice.mutate(() => {
+            pageSize.value = value;
+        });
     }
 
     async function setShowAllCategory(value: boolean): Promise<void> {
-        showAllCategory.value = value;
-        await persist();
+        await slice.mutate(() => {
+            showAllCategory.value = value;
+        });
     }
 
     async function setAllViewFlat(value: boolean): Promise<void> {
-        allViewFlat.value = value;
-        await persist();
+        await slice.mutate(() => {
+            allViewFlat.value = value;
+        });
     }
 
     async function setShowIconBackground(value: boolean): Promise<void> {
-        showIconBackground.value = value;
-        await persist();
+        await slice.mutate(() => {
+            showIconBackground.value = value;
+        });
     }
 
     async function setMinimalMode(value: boolean): Promise<void> {
-        minimalMode.value = value;
-        await persist();
+        await slice.mutate(() => {
+            minimalMode.value = value;
+        });
     }
 
     async function setOpenMode(value: LinkOpenMode): Promise<void> {
         if (!isLinkOpenMode(value)) return;
-        openMode.value = value;
-        await persist();
+        await slice.mutate(() => {
+            openMode.value = value;
+        });
     }
 
     return {

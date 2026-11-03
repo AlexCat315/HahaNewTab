@@ -1,7 +1,7 @@
 /**
  * 主题预加载脚本（防 FOUC）
  *
- * 在 Vue 应用挂载前同步执行：读取 localStorage 中的主题选择，
+ * 在 Vue 应用挂载前同步执行：读取首帧快照里的主题选择，
  * 通过同步 XHR 加载 config/themes.json 并提前应用 CSS 变量，
  * 最后移除 data-theme-loading 属性使页面可见。
  *
@@ -9,43 +9,60 @@
  * 老版本存的是不带后缀的 ID（如 material-rose），themes.json 里的 legacyIds
  * 记录了它们原本属于哪一半，这里按表迁移，保证升级后配色不跳变。
  *
- * 注意：扩展环境 CSP（script-src 'self'）禁止内联脚本，
- * 因此本脚本必须以外部文件形式放在 public/ 下，由 index.html 以 <script src> 引入。
+ * 快照键名与结构版本要和 src/services/storageSchema.service.ts 保持一致；
+ * 这里是纯手写 ES5 的外部脚本，扩展环境 CSP（script-src 'self'）禁止内联脚本，
+ * 所以必须以外部文件形式放在 public/ 下，由 index.html 以 <script src> 引入。
  */
 (function () {
     try {
-        // 存储层的镜像值是 JSON.stringify 过的，直接当字符串比较永远匹配不上，
-        // 这里先按 JSON 解析，失败再退回原始字符串（兼容手写/旧版遗留值）。
-        var raw = localStorage.getItem('selectedTheme');
-        var selectedTheme = raw;
-        if (raw) {
-            try {
-                var parsed = JSON.parse(raw);
-                if (typeof parsed === 'string') {
-                    selectedTheme = parsed;
+        // 首帧快照：内核把所有「首帧就要用到」的设置收在 __boot__ 一个键里。
+        // 结构版本对不上就整份作废，退回逐键兜底读，避免拿旧结构画出错乱的首帧。
+        var boot = null;
+        try {
+            var bootRaw = localStorage.getItem('__boot__');
+            if (bootRaw) {
+                var bootParsed = JSON.parse(bootRaw);
+                if (bootParsed && bootParsed.v === 1
+                    && bootParsed.data && typeof bootParsed.data === 'object') {
+                    boot = bootParsed.data;
                 }
+            }
+        } catch (e) {
+            boot = null;
+        }
+
+        /**
+         * 升级首帧兜底：还没有快照时读旧版本的逐键镜像，保证这一帧不闪。
+         * 快照一旦出现就不再走这里，所以旧键里残留的历史值不会被当成当前设置。
+         */
+        function bootValue(key) {
+            if (boot) {
+                return Object.prototype.hasOwnProperty.call(boot, key) ? boot[key] : null;
+            }
+            var raw = localStorage.getItem(key);
+            if (raw === null || raw === undefined) {
+                return null;
+            }
+            try {
+                return JSON.parse(raw);
             } catch (e) {
-                selectedTheme = raw;
+                return raw;
             }
         }
 
-        // 主题偏好镜像（与存储层 appNavigator_themeSettings 同构）：
+        var selectedThemeValue = bootValue('selectedTheme');
+        var selectedTheme = typeof selectedThemeValue === 'string' ? selectedThemeValue : null;
+
+        // 主题偏好（与存储层 appNavigator_themeSettings 同构）：
         // 跟随系统时首屏就要按系统明暗取同族变体，否则会先错画一次明暗再被 Vue 纠正。
         var followSystem = false;
         var settingsFamilyId = null;
-        var settingsRaw = localStorage.getItem('appNavigator_themeSettings');
-        if (settingsRaw) {
-            try {
-                var settingsParsed = JSON.parse(settingsRaw);
-                if (settingsParsed && typeof settingsParsed === 'object') {
-                    followSystem = settingsParsed.followSystem === true;
-                    settingsFamilyId = typeof settingsParsed.familyId === 'string'
-                        ? settingsParsed.familyId
-                        : null;
-                }
-            } catch (e) {
-                followSystem = false;
-            }
+        var settingsValue = bootValue('appNavigator_themeSettings');
+        if (settingsValue && typeof settingsValue === 'object') {
+            followSystem = settingsValue.followSystem === true;
+            settingsFamilyId = typeof settingsValue.familyId === 'string'
+                ? settingsValue.familyId
+                : null;
         }
 
         var request = new XMLHttpRequest();

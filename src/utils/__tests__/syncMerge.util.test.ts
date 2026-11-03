@@ -1,7 +1,7 @@
 /**
  * syncMerge.util 三方合并工具测试
  * 覆盖合并规则表全部分支：仅一端修改、双改冲突（本地优先）、删除 vs 修改、
- * 新增并集、顺序保持，以及忽略键序的深比较。
+ * 新增并集、顺序保持，忽略键序的深比较，以及按注册表策略逐键合并快照。
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -11,8 +11,9 @@ import {
     mergeAppList,
     mergeAppNavigatorData,
     mergeUserUiLib,
-    mergeSyncData
+    mergeSnapshots
 } from '@/utils/syncMerge.util';
+import { CLOUD_SYNC_KEY_STRATEGIES } from '@/services/storageSchema.service';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { AppNavigatorData, AppItem, Category } from '@/types/app';
 import type { UserUiLib } from '@/types/ui';
@@ -347,7 +348,7 @@ describe('mergeUserUiLib', () => {
     });
 });
 
-describe('mergeSyncData', () => {
+describe('mergeSnapshots 按注册表策略逐键合并', () => {
     /** 默认给每个 id 一个独立 URL，避免触发 URL 去重（去重行为另有专门用例） */
     const app = (id: string, name: string, url = `https://example.com/${id}`): AppItem => ({
         id,
@@ -370,7 +371,7 @@ describe('mergeSyncData', () => {
             [STORAGE_KEYS.USER_UI_LIB]: { categories: [], items: [] }
         };
 
-        const merged = mergeSyncData(base, local, remote);
+        const merged = mergeSnapshots(CLOUD_SYNC_KEY_STRATEGIES, base, local, remote);
         const data = merged[STORAGE_KEYS.MAIN_DATA] as AppNavigatorData;
         expect(data.apps.map((a) => a.id)).toEqual(['a1', 'a2']);
         expect(data.apps[0].name).toBe('A-local');
@@ -387,7 +388,7 @@ describe('mergeSyncData', () => {
             [STORAGE_KEYS.USER_UI_LIB]: { categories: [], items: [] }
         };
 
-        const merged = mergeSyncData(null, local, remote);
+        const merged = mergeSnapshots(CLOUD_SYNC_KEY_STRATEGIES, null, local, remote);
         const data = merged[STORAGE_KEYS.MAIN_DATA] as AppNavigatorData;
         expect(data.apps.map((a) => a.id)).toEqual(['l1', 'r1']);
     });
@@ -397,7 +398,7 @@ describe('mergeSyncData', () => {
             [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [app('a1', 'A')] },
             [STORAGE_KEYS.USER_UI_LIB]: { categories: [], items: [] }
         };
-        const merged = mergeSyncData(null, local, {});
+        const merged = mergeSnapshots(CLOUD_SYNC_KEY_STRATEGIES, null, local, {});
         const data = merged[STORAGE_KEYS.MAIN_DATA] as AppNavigatorData;
         expect(data.apps).toHaveLength(1);
         expect(merged[STORAGE_KEYS.USER_UI_LIB]).toEqual({ categories: [], items: [] });

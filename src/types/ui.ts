@@ -32,6 +32,19 @@ export interface UserUiLib {
     items: Array<Omit<UiItem, 'isSystem'>>;
 }
 
+/**
+ * 判断是否为合法的用户图标库结构
+ * 存储、备份文件、云端快照里的数据入库前都先过这一关。
+ */
+export function isUserUiLib(data: unknown): data is UserUiLib {
+    return Boolean(
+        data &&
+        typeof data === 'object' &&
+        Array.isArray((data as UserUiLib).categories) &&
+        Array.isArray((data as UserUiLib).items)
+    );
+}
+
 /** 创建 UI 分类输入 */
 export interface UiCategoryInput {
     name: string;

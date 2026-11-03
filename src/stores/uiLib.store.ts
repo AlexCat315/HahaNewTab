@@ -1,7 +1,11 @@
 /**
  * UI 图标库 Pinia Store
  * 管理系统 UI（来自 public/config/defaultData.json）与用户 UI 的合并，
- * 提供 UI 分类 / 图标的 CRUD，所有变更最终持久化到 StorageManager。
+ * 提供 UI 分类 / 图标的 CRUD。
+ *
+ * 用户图标库（USER_UI_LIB）只有这里能写：持久化走 usePersistentSlice，
+ * 每次写入顺带把 DATA_UPDATED_AT 刷成当前时间，云同步靠它区分「本机编辑过」和「出厂默认」。
+ * appData store 不再持有第二份副本，导入 / 云端快照都转交本 store 落盘。
  */
 
 import { defineStore } from 'pinia';
@@ -14,8 +18,10 @@ import type {
     UiCategoryInput,
     UiItemInput,
 } from '@/types/ui';
+import { isUserUiLib } from '@/types/ui';
 import { STORAGE_KEYS } from '@/types/storage';
 import { storageManager } from '@/services/storage.service';
+import { usePersistentSlice } from '@/composables/usePersistentSlice';
 import { loadDefaultData } from '@/services/config.service';
 import {
     generateUiCategoryId,
@@ -45,11 +51,6 @@ function isValidUiLib(data: unknown): data is UiLib {
         Array.isArray((data as UiLib).categories) &&
         Array.isArray((data as UiLib).items)
     );
-}
-
-/** 校验用户 UI 库数据结构 */
-function isValidUserUiLib(data: unknown): data is UserUiLib {
-    return isValidUiLib(data);
 }
 
 /** 校验图标地址：禁止 emoji / data URL，必须为图片或 SVG 路径 */
@@ -83,6 +84,23 @@ export const useUiLibStore = defineStore('uiLib', () => {
 
     /** 写锁队列，保证并发写操作串行执行 */
     let writeQueue: Promise<unknown> = Promise.resolve();
+
+    const slice = usePersistentSlice({
+        label: 'UiLibStore',
+        touchKey: DATA_UPDATED_AT_KEY,
+        keys: [
+            {
+                key: USER_UI_LIB_KEY,
+                apply: raw => {
+                    // 脏数据（缺字段 / 旧结构）不覆盖内存，读不到就当空库
+                    if (isUserUiLib(raw)) {
+                        userUiLib.value = clone(raw as UserUiLib);
+                    }
+                },
+                read: () => userUiLib.value
+            }
+        ]
+    });
 
     // ==================== Getters ====================
     /** 合并后的全部分类（系统在前，用户在后） */
@@ -124,20 +142,13 @@ export const useUiLibStore = defineStore('uiLib', () => {
      * 写入失败时回滚内存状态。
      */
     async function commitUserUiLib(data: UserUiLib): Promise<void> {
-        if (!isValidUserUiLib(data)) {
+        if (!isUserUiLib(data)) {
             throw new TypeError('用户图标库格式无效');
         }
-        const previous = userUiLib.value;
-        userUiLib.value = clone(data);
-        try {
-            await storageManager.setMany({
-                [USER_UI_LIB_KEY]: toRaw(userUiLib.value),
-                [DATA_UPDATED_AT_KEY]: Date.now(),
-            });
-        } catch (error) {
-            userUiLib.value = previous;
-            throw error;
-        }
+        const next = clone(data);
+        await slice.mutate(() => {
+            userUiLib.value = next;
+        });
     }
 
     /** 加载系统 UI 库 */
@@ -147,16 +158,6 @@ export const useUiLibStore = defineStore('uiLib', () => {
             systemUiLib.value = clone(defaultData.systemUiLib);
         } else {
             systemUiLib.value = { categories: [], items: [] };
-        }
-    }
-
-    /** 加载用户 UI 库 */
-    async function loadUserUiLib(): Promise<void> {
-        const saved = await storageManager.get(USER_UI_LIB_KEY);
-        if (isValidUserUiLib(saved)) {
-            userUiLib.value = clone(saved as UserUiLib);
-        } else {
-            userUiLib.value = { categories: [], items: [] };
         }
     }
 
@@ -176,7 +177,7 @@ export const useUiLibStore = defineStore('uiLib', () => {
         return withWriteLock(async () => {
             const persisted = await storageManager.get(USER_UI_LIB_KEY);
             const draft = clone(
-                isValidUserUiLib(persisted)
+                isUserUiLib(persisted)
                     ? (persisted as UserUiLib)
                     : userUiLib.value
             );
@@ -195,7 +196,7 @@ export const useUiLibStore = defineStore('uiLib', () => {
         isLoading.value = true;
         try {
             await loadSystemUiLib();
-            await loadUserUiLib();
+            await slice.load();
             initialized.value = true;
         } finally {
             isLoading.value = false;
@@ -372,23 +373,8 @@ export const useUiLibStore = defineStore('uiLib', () => {
     }
 
     // ==================== 存储变更订阅 ====================
-    /** 监听外部存储变更并同步到 store */
-    let unsubscribeStorage: (() => void) | null = null;
-    function subscribeStorageChanges(): void {
-        if (unsubscribeStorage) {
-            return;
-        }
-        unsubscribeStorage = storageManager.subscribe(changes => {
-            const uiChange = changes[USER_UI_LIB_KEY];
-            if (uiChange && isValidUserUiLib(uiChange.newValue)) {
-                const next = clone(uiChange.newValue as UserUiLib);
-                if (JSON.stringify(userUiLib.value) !== JSON.stringify(next)) {
-                    userUiLib.value = next;
-                }
-            }
-        });
-    }
-    subscribeStorageChanges();
+    // 其他标签页 / 云同步改过用户图标库时同步内存（slice 负责只覆盖内存、不回写）
+    slice.subscribe();
 
     return {
         // State
@@ -405,7 +391,6 @@ export const useUiLibStore = defineStore('uiLib', () => {
         // Actions
         init,
         loadSystemUiLib,
-        loadUserUiLib,
         saveUserUiLib,
         resetUserUiLib,
         addCategory,

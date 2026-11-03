@@ -1,16 +1,22 @@
-import { CLOUD_SYNC_DATA_KEYS, STORAGE_KEYS } from '@/types/storage';
+import { STORAGE_KEYS } from '@/types/storage';
+import {
+    CLOUD_SYNC_DATA_KEYS,
+    CLOUD_SYNC_KEY_STRATEGIES,
+    findCloudSyncViolation,
+    hasCloudSyncBase
+} from '@/services/storageSchema.service';
 import { pushCrossDeviceAuth, pullCrossDeviceAuth, getCrossDeviceState } from '@/services/crossDeviceSync.service';
-import { deepEqual, mergeSyncData } from '@/utils/syncMerge.util';
+import { deepEqual, mergeSnapshots } from '@/utils/syncMerge.util';
 import type { MergeTieBreak, SyncSnapshot } from '@/utils/syncMerge.util';
 import { createGistProvider, SyncProviderError } from '@/services/gistProvider.service';
 import type {
     CloudSyncDependencies,
     CloudSyncProviderId,
     CloudSyncSettings,
+    CloudSyncStorage,
     DownloadResult,
     GitHubUserInfo,
     ICloudSyncDataManager,
-    ICloudSyncStorageAdapter,
     ICloudSyncUIAdapter,
     ISyncProvider,
     PullResult,
@@ -22,11 +28,6 @@ import type {
 const SYNC_FILE_NAME = 'haha-newtab-sync.json';
 const GIST_DESCRIPTION = 'HahaNewTab 导航数据云同步备份';
 
-/**
- * 需要同步的本地存储键（仅站点数据与用户图标库，个性化设置不同步）
- */
-const SYNC_DATA_KEYS: string[] = CLOUD_SYNC_DATA_KEYS;
-
 /** 默认同步平台（老用户有 token 但无 provider 记录时按 GitHub 处理） */
 const DEFAULT_PROVIDER: CloudSyncProviderId = 'github';
 
@@ -35,10 +36,13 @@ const DEFAULT_PROVIDER: CloudSyncProviderId = 'github';
  * 通过 ISyncProvider 适配 GitHub / Gitee 的 Gist（代码片段）API。
  * 多端同步通过 `sync()` 完成：以本地保存的上次同步快照为 base 做三方合并，
  * 冲突时本地优先，避免全量覆盖丢失其他设备的修改。
+ * 同步哪些键、怎么校验、怎么合并全部由存储键注册表决定，本服务只按表执行；
+ * 「数据变了就自动同步」的触发与防抖在 cloudSync store（它才是要把结果写回界面状态的那一方），
+ * 这里只负责在把云端数据写回本地期间给出 isApplyingRemoteData 信号。
  * 所有平台请求带 10s 超时，失败按网络/401/频率限制分类并 Toast 提示。
  */
 export class CloudSyncService {
-    private readonly storage: ICloudSyncStorageAdapter;
+    private readonly storage: CloudSyncStorage;
     private readonly dataManager: ICloudSyncDataManager;
     private readonly ui: ICloudSyncUIAdapter;
 
@@ -48,8 +52,12 @@ export class CloudSyncService {
     private lastSyncTime = 0;
     private userInfo: GitHubUserInfo | null = null;
     private providerId: CloudSyncProviderId = DEFAULT_PROVIDER;
-    private autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
     private syncInProgress = false;
+    /**
+     * 正在把云端数据写回本地
+     * 内核会把这次写入也当成「本地数据变更」通知回来，不抑制掉就会同步完再自动同步一次。
+     */
+    private applyingRemote = false;
 
     constructor(deps: CloudSyncDependencies) {
         this.storage = deps.storage;
@@ -103,19 +111,21 @@ export class CloudSyncService {
      * 从存储中加载云同步设置
      */
     async loadSettings(): Promise<void> {
-        const token = await this.storage.get<string>(STORAGE_KEYS.CLOUD_TOKEN);
-        const gistId = await this.storage.get<string>(STORAGE_KEYS.CLOUD_GIST_ID);
-        const autoSync = await this.storage.get<boolean>(STORAGE_KEYS.CLOUD_AUTO_SYNC);
-        const lastSyncTime = await this.storage.get<number>(STORAGE_KEYS.CLOUD_LAST_SYNC_TIME);
-        const userInfo = await this.storage.get<GitHubUserInfo>(STORAGE_KEYS.CLOUD_USER_INFO);
-        const providerId = await this.storage.get<CloudSyncProviderId>(STORAGE_KEYS.CLOUD_PROVIDER);
+        const stored = await this.storage.getMany([
+            STORAGE_KEYS.CLOUD_TOKEN,
+            STORAGE_KEYS.CLOUD_GIST_ID,
+            STORAGE_KEYS.CLOUD_AUTO_SYNC,
+            STORAGE_KEYS.CLOUD_LAST_SYNC_TIME,
+            STORAGE_KEYS.CLOUD_USER_INFO,
+            STORAGE_KEYS.CLOUD_PROVIDER
+        ]);
 
-        this.token = token ?? null;
-        this.gistId = gistId ?? null;
-        this.autoSync = autoSync ?? false;
-        this.lastSyncTime = lastSyncTime ?? 0;
-        this.userInfo = userInfo ?? null;
-        this.providerId = providerId ?? DEFAULT_PROVIDER;
+        this.token = (stored[STORAGE_KEYS.CLOUD_TOKEN] as string | null) ?? null;
+        this.gistId = (stored[STORAGE_KEYS.CLOUD_GIST_ID] as string | null) ?? null;
+        this.autoSync = (stored[STORAGE_KEYS.CLOUD_AUTO_SYNC] as boolean | null) ?? false;
+        this.lastSyncTime = (stored[STORAGE_KEYS.CLOUD_LAST_SYNC_TIME] as number | null) ?? 0;
+        this.userInfo = (stored[STORAGE_KEYS.CLOUD_USER_INFO] as GitHubUserInfo | null) ?? null;
+        this.providerId = (stored[STORAGE_KEYS.CLOUD_PROVIDER] as CloudSyncProviderId | null) ?? DEFAULT_PROVIDER;
     }
 
     /**
@@ -210,25 +220,23 @@ export class CloudSyncService {
 
             // 先刷入内存变更，再收集本地数据
             await this.dataManager.syncNow();
-            const localData: SyncSnapshot = {};
-            for (const key of SYNC_DATA_KEYS) {
-                localData[key] = await this.storage.get(key);
-            }
+            const localData = await this.collectLocalSnapshot();
 
-            const base = await this.storage.get<SyncSnapshot>(STORAGE_KEYS.CLOUD_SYNC_BASE);
+            this.assertSyncData(localData, remote.data ?? {});
+
+            const base = (await this.storage.get(STORAGE_KEYS.CLOUD_SYNC_BASE)) as SyncSnapshot | null;
             // 首次同步没有 base，同 id 冲突无法判断哪端改过：改按「最后一次写入更晚」的一方胜出，
             // 否则新装设备那份出厂默认数据会把另一台已经改过的云端覆盖回去
-            const hasBase = Boolean(base?.[STORAGE_KEYS.MAIN_DATA] || base?.[STORAGE_KEYS.USER_UI_LIB]);
-            const localUpdatedAt = (await this.storage.get<number>(STORAGE_KEYS.DATA_UPDATED_AT)) ?? 0;
+            const localUpdatedAt = (await this.storage.get(STORAGE_KEYS.DATA_UPDATED_AT) as number | null) ?? 0;
             const tieBreak: MergeTieBreak =
-                !hasBase && (remote.lastModified ?? 0) > localUpdatedAt ? 'remote' : 'local';
-            const merged = mergeSyncData(base, localData, remote.data ?? {}, tieBreak);
+                !hasCloudSyncBase(base) && (remote.lastModified ?? 0) > localUpdatedAt ? 'remote' : 'local';
+            const merged = mergeSnapshots(CLOUD_SYNC_KEY_STRATEGIES, base, localData, remote.data ?? {}, tieBreak);
 
-            const applied = SYNC_DATA_KEYS.some((key) => !deepEqual(merged[key], localData[key]));
-            const uploaded = SYNC_DATA_KEYS.some((key) => !deepEqual(merged[key], remote.data?.[key]));
+            const applied = CLOUD_SYNC_DATA_KEYS.some((key) => !deepEqual(merged[key], localData[key]));
+            const uploaded = CLOUD_SYNC_DATA_KEYS.some((key) => !deepEqual(merged[key], remote.data?.[key]));
 
             if (applied) {
-                await this.dataManager.applyStorageSnapshot(merged);
+                await this.applyToLocal(merged);
             }
             if (uploaded) {
                 await this.uploadData(gistId, merged);
@@ -325,14 +333,13 @@ export class CloudSyncService {
     async applyDownloadedData(syncData: SyncData): Promise<boolean> {
         if (!syncData?.data) return false;
 
-        const snapshot: Record<string, unknown> = {};
-        for (const key of SYNC_DATA_KEYS) {
-            if (Object.prototype.hasOwnProperty.call(syncData.data, key)) {
-                snapshot[key] = syncData.data[key];
-            }
+        const snapshot = this.pickCloudSyncData(syncData.data);
+        const violation = findCloudSyncViolation(snapshot);
+        if (violation) {
+            throw new Error(`云端${violation}`);
         }
 
-        await this.dataManager.applyStorageSnapshot(snapshot);
+        await this.applyToLocal(snapshot);
 
         this.lastSyncTime = syncData.lastModified ?? Date.now();
         await this.storage.setMany({
@@ -520,22 +527,13 @@ export class CloudSyncService {
     }
 
     /**
-     * 触发自动同步（防抖）
+     * 是否正在把云端数据写回本地
+     *
+     * 写入会经存储内核当成「本地数据变更」再通知一次；自动同步的触发方需要这个信号
+     * 来分辨「本机改了数据」和「刚把云端结果落盘」，否则会同步完又自动同步一次。
      */
-    scheduleAutoSync(): void {
-        if (!this.autoSync || !this.token) return;
-
-        if (this.autoSyncTimer) {
-            clearTimeout(this.autoSyncTimer);
-        }
-
-        this.autoSyncTimer = setTimeout(() => {
-            this.sync({ silent: true }).then((result) => {
-                if (result.success) {
-                    console.log('[CloudSync] auto sync completed');
-                }
-            });
-        }, 3000);
+    get isApplyingRemoteData(): boolean {
+        return this.applyingRemote;
     }
 
     /**
@@ -574,6 +572,47 @@ export class CloudSyncService {
             this.token = null;
             this.userInfo = null;
             await this.saveSettings();
+        }
+    }
+
+    /** 按注册表收集本地需要同步的数据 */
+    private async collectLocalSnapshot(): Promise<SyncSnapshot> {
+        return await this.storage.getMany(CLOUD_SYNC_DATA_KEYS);
+    }
+
+    /**
+     * 从任意数据里挑出注册表登记的同步键
+     * 云端 data 可能带着旧版本、别的分支写过的多余键，收进来前先按表过滤。
+     */
+    private pickCloudSyncData(data: Record<string, unknown>): SyncSnapshot {
+        const snapshot: SyncSnapshot = {};
+        for (const key of CLOUD_SYNC_DATA_KEYS) {
+            if (Object.prototype.hasOwnProperty.call(data, key)) {
+                snapshot[key] = data[key];
+            }
+        }
+        return snapshot;
+    }
+
+    /** 两端数据任一份结构非法就中止同步：坏数据一旦被合并上传，会覆盖掉好那一端 */
+    private assertSyncData(localData: SyncSnapshot, remoteData: SyncSnapshot): void {
+        const localViolation = findCloudSyncViolation(localData);
+        if (localViolation) {
+            throw new Error(`本地${localViolation}`);
+        }
+        const remoteViolation = findCloudSyncViolation(remoteData);
+        if (remoteViolation) {
+            throw new Error(`云端${remoteViolation}`);
+        }
+    }
+
+    /** 把快照写回本地；写入期间抑制自动同步，免得「同步完成 → 触发变更 → 又同步一次」 */
+    private async applyToLocal(snapshot: SyncSnapshot): Promise<void> {
+        this.applyingRemote = true;
+        try {
+            await this.dataManager.applyStorageSnapshot(snapshot);
+        } finally {
+            this.applyingRemote = false;
         }
     }
 
@@ -618,15 +657,11 @@ export class CloudSyncService {
 
     private async collectLocalData(): Promise<SyncData> {
         await this.dataManager.syncNow();
-        const data: Record<string, unknown> = {};
-        for (const key of SYNC_DATA_KEYS) {
-            data[key] = await this.storage.get(key);
-        }
         return {
             version: '1.0',
             lastModified: Date.now(),
             device: this.getDeviceName(),
-            data
+            data: await this.collectLocalSnapshot()
         };
     }
 

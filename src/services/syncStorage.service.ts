@@ -5,40 +5,20 @@
  *   - 扩展环境：走浏览器账号同步区 storage.sync，登录同一账号的其他设备可见；
  *   - 非扩展环境（网页版调试）：降级为 localStorage 加前缀模拟，仅本机可见。
  *
+ * 区域探测、Promise / 回调风格适配、降级读写、变更事件订阅都由 L0
+ * （storageBackends.service.ts）实现，这里只剩同步区的语义外壳：状态上报 + 错误文案。
+ *
  * 注意：storage.sync 有配额限制（单条 8KB / 总计约 100KB），只适合存放加密后的短凭据。
  * 因此这里把「是否真的走了原生同步区」暴露给上层（getSyncAreaStatus），
  * 避免网页预览环境下用户以为凭据已经同步到浏览器账号，实际只写进了本机 localStorage。
  */
 
-/** 非扩展环境的 localStorage 前缀 */
-const LOCAL_PREFIX = '__mnt_sync__:';
-
-interface SyncChangeListener {
-    (changes: Record<string, { newValue?: unknown; oldValue?: unknown }>, areaName: string): void;
-}
-
-interface SyncAreaLike {
-    get: (...args: unknown[]) => unknown;
-    set: (...args: unknown[]) => unknown;
-    remove: (...args: unknown[]) => unknown;
-}
-
-interface SyncStorageNamespace {
-    sync?: SyncAreaLike;
-    onChanged?: {
-        addListener: (listener: SyncChangeListener) => void;
-        removeListener: (listener: SyncChangeListener) => void;
-    };
-}
-
-interface WindowWithSyncStorage {
-    chrome?: {
-        storage?: SyncStorageNamespace;
-        runtime?: { lastError?: { message?: string } };
-    };
-    browser?: { storage?: SyncStorageNamespace };
-    localStorage?: Storage;
-}
+import {
+    getStorageBackend,
+    subscribeStorageArea,
+    translateStorageError
+} from '@/services/storageBackends.service';
+import type { StorageChanges } from '@/types/storage';
 
 /** 同步区形态：native = 浏览器账号同步区；local = localStorage 降级 */
 export type SyncAreaKind = 'native' | 'local';
@@ -51,24 +31,17 @@ export interface SyncAreaStatus {
     kind: SyncAreaKind;
 }
 
-function getWindow(): WindowWithSyncStorage | null {
-    return typeof window === 'undefined' ? null : (window as unknown as WindowWithSyncStorage);
-}
-
-/** 取原生 storage.sync 对象，不存在时返回 null */
-function getNativeSyncArea(): SyncAreaLike | null {
-    const win = getWindow();
-    return win?.browser?.storage?.sync ?? win?.chrome?.storage?.sync ?? null;
-}
-
-/** Firefox 的 browser.* 直接返回 Promise，chrome.* 需要回调 */
-function isPromiseStyle(): boolean {
-    return !!getWindow()?.browser?.storage?.sync;
+/**
+ * 每次调用重新取后端，不做模块级缓存：
+ * 扩展上下文可能在页面存活期间才注入或失效，测试也依赖装好 window.chrome 后立即生效。
+ */
+function syncBackend() {
+    return getStorageBackend('sync');
 }
 
 /** 是否使用浏览器原生同步区（否则是 localStorage 降级） */
 export function isNativeSyncStorage(): boolean {
-    return getNativeSyncArea() !== null;
+    return syncBackend().native;
 }
 
 /** 当前同步区状态（UI 用于提示「仅在扩展中生效」） */
@@ -77,121 +50,35 @@ export function getSyncAreaStatus(): SyncAreaStatus {
     return { native, kind: native ? 'native' : 'local' };
 }
 
-function localKey(key: string): string {
-    return `${LOCAL_PREFIX}${key}`;
-}
-
-/** 把底层错误翻译成用户能看懂的中文提示 */
-function toSyncError(error: unknown, fallback: string): Error {
-    const message = error instanceof Error ? error.message : String(error ?? '');
-    if (/QUOTA_BYTES_PER_ITEM/i.test(message)) {
-        return new Error('浏览器同步区单条数据超限，无法写入同步凭据');
-    }
-    if (/QUOTA_BYTES|quota/i.test(message)) {
-        return new Error('浏览器同步区空间已满，请清理后重试');
-    }
-    if (/MAX_WRITE_OPERATIONS/i.test(message)) {
-        return new Error('浏览器同步写入过于频繁，请稍后再试');
-    }
-    return new Error(message || fallback);
-}
-
 /** 读取单个同步项 */
 export async function syncGet(key: string): Promise<unknown | null> {
-    const area = getNativeSyncArea();
-    if (!area) {
-        const raw = getWindow()?.localStorage?.getItem(localKey(key)) ?? null;
-        if (raw === null) return null;
-        try {
-            return JSON.parse(raw);
-        } catch {
-            return raw;
-        }
-    }
-
-    if (isPromiseStyle()) {
-        const items = (await (area.get as (keys: string) => Promise<Record<string, unknown>>)(key)) ?? {};
+    try {
+        const items = await syncBackend().get(key);
         return items[key] ?? null;
+    } catch (error) {
+        throw translateStorageError(error, '读取浏览器同步区失败');
     }
-
-    return new Promise((resolve, reject) => {
-        (area.get as (keys: string, cb: (items: Record<string, unknown>) => void) => void)(
-            key,
-            (items) => {
-                const lastError = getWindow()?.chrome?.runtime?.lastError;
-                if (lastError) {
-                    reject(toSyncError(new Error(lastError.message || ''), '读取浏览器同步区失败'));
-                    return;
-                }
-                resolve(items?.[key] ?? null);
-            }
-        );
-    });
 }
 
 /** 写入单个同步项 */
 export async function syncSet(key: string, value: unknown): Promise<void> {
-    const area = getNativeSyncArea();
-    if (!area) {
-        try {
-            getWindow()?.localStorage?.setItem(localKey(key), JSON.stringify(value));
-        } catch (error) {
-            throw toSyncError(error, '写入本机模拟同步区失败');
-        }
-        return;
-    }
-
-    if (isPromiseStyle()) {
-        try {
-            await (area.set as (items: Record<string, unknown>) => Promise<void>)({ [key]: value });
-        } catch (error) {
-            throw toSyncError(error, '写入浏览器同步区失败');
-        }
-        return;
-    }
-
-    await new Promise<void>((resolve, reject) => {
-        (area.set as (items: Record<string, unknown>, cb: () => void) => void)(
-            { [key]: value },
-            () => {
-                const lastError = getWindow()?.chrome?.runtime?.lastError;
-                if (lastError) {
-                    reject(toSyncError(new Error(lastError.message || ''), '写入浏览器同步区失败'));
-                    return;
-                }
-                resolve();
-            }
+    try {
+        await syncBackend().set({ [key]: value });
+    } catch (error) {
+        throw translateStorageError(
+            error,
+            isNativeSyncStorage() ? '写入浏览器同步区失败' : '写入本机模拟同步区失败'
         );
-    });
+    }
 }
 
 /** 删除单个同步项 */
 export async function syncRemove(key: string): Promise<void> {
-    const area = getNativeSyncArea();
-    if (!area) {
-        getWindow()?.localStorage?.removeItem(localKey(key));
-        return;
+    try {
+        await syncBackend().remove(key);
+    } catch (error) {
+        throw translateStorageError(error, '清理浏览器同步区失败');
     }
-
-    if (isPromiseStyle()) {
-        try {
-            await (area.remove as (keys: string) => Promise<void>)(key);
-        } catch (error) {
-            throw toSyncError(error, '清理浏览器同步区失败');
-        }
-        return;
-    }
-
-    await new Promise<void>((resolve, reject) => {
-        (area.remove as (keys: string, cb: () => void) => void)(key, () => {
-            const lastError = getWindow()?.chrome?.runtime?.lastError;
-            if (lastError) {
-                reject(toSyncError(new Error(lastError.message || ''), '清理浏览器同步区失败'));
-                return;
-            }
-            resolve();
-        });
-    });
 }
 
 /**
@@ -203,23 +90,6 @@ export async function syncRemove(key: string): Promise<void> {
 export function subscribeSyncAreaChanges(
     listener: (changes: Record<string, { newValue?: unknown }>) => void
 ): () => void {
-    const win = getWindow();
-    const onChanged = win?.browser?.storage?.onChanged ?? win?.chrome?.storage?.onChanged;
-    if (!onChanged || !isNativeSyncStorage()) {
-        return () => {};
-    }
-
-    const handler: SyncChangeListener = (changes, areaName) => {
-        if (areaName !== 'sync') return;
-        listener(changes);
-    };
-
-    onChanged.addListener(handler);
-    return () => {
-        try {
-            onChanged.removeListener(handler);
-        } catch {
-            // 扩展卸载 / 上下文失效时忽略
-        }
-    };
+    return subscribeStorageArea('sync', listener as (changes: StorageChanges) => void);
 }
+

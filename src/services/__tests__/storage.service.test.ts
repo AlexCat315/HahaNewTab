@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BrowserAPI } from '@/services/browserApi.service';
+import { BOOT_SNAPSHOT_KEY } from '@/services/storageSchema.service';
+import { readBootSnapshotValue, writeBootSnapshotValue } from '@/test/bootSnapshot';
 import {
     StorageManager,
     storageManager,
@@ -55,35 +57,50 @@ describe('StorageManager', () => {
         expect(again.list).toEqual([1, 2]);
     });
 
-    it('同步镜像键应写入 localStorage', async () => {
+    it('首帧键应写入 __boot__ 快照', async () => {
         const manager = new StorageManager();
-        await manager.set('selectedTheme', 'material-rose');
-        // browserApi.service.ts 的 localStorage 后端对字符串原样存储，不额外加引号
-        expect(localStorage.getItem('selectedTheme')).toBe('material-rose');
-        expect(SYNC_MIRROR_KEYS).toContain('selectedTheme');
+        await manager.set(STORAGE_KEYS.SELECTED_THEME, 'material-rose');
+
+        expect(readBootSnapshotValue(STORAGE_KEYS.SELECTED_THEME)).toBe('material-rose');
+        expect(SYNC_MIRROR_KEYS).toContain(STORAGE_KEYS.SELECTED_THEME);
     });
 
-    it('布局设置属于同步镜像键（极简约模式首帧不闪的前提）', () => {
+    it('布局设置属于首帧键（极简约模式首帧不闪的前提）', () => {
         expect(SYNC_MIRROR_KEYS).toContain(STORAGE_KEYS.LAYOUT_SETTINGS);
     });
 
-    it('writeSyncMirror 只写 localStorage，不写后端存储', async () => {
+    it('getSync 优先读快照；快照存在时不再看旧版逐键镜像', () => {
+        const manager = new StorageManager();
+        writeBootSnapshotValue(STORAGE_KEYS.SELECTED_THEME, 'from-boot');
+        localStorage.setItem(STORAGE_KEYS.SELECTED_THEME, '"from-legacy"');
+
+        expect(manager.getSync(STORAGE_KEYS.SELECTED_THEME)).toBe('from-boot');
+    });
+
+    it('还没有快照时 getSync 兜底读旧版逐键镜像（升级首帧不闪）', () => {
+        const manager = new StorageManager();
+        localStorage.setItem(STORAGE_KEYS.SELECTED_THEME, '"legacy-theme"');
+
+        expect(manager.getSync(STORAGE_KEYS.SELECTED_THEME)).toBe('legacy-theme');
+    });
+
+    it('writeSyncMirror 只写快照，不写后端存储', () => {
         const manager = new StorageManager();
         const backendSet = vi.spyOn(BrowserAPI.storage.local, 'set');
 
         manager.writeSyncMirror(STORAGE_KEYS.LAYOUT_SETTINGS, { minimalMode: true });
 
-        expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.LAYOUT_SETTINGS) ?? 'null')).toEqual({
-            minimalMode: true,
-        });
+        expect(readBootSnapshotValue(STORAGE_KEYS.LAYOUT_SETTINGS)).toEqual({ minimalMode: true });
         expect(backendSet).not.toHaveBeenCalled();
         backendSet.mockRestore();
     });
 
-    it('writeSyncMirror 对非镜像键静默忽略', () => {
+    it('writeSyncMirror 对非首帧键静默忽略', () => {
         const manager = new StorageManager();
         manager.writeSyncMirror('someRandomKey', { a: 1 });
+
         expect(localStorage.getItem('someRandomKey')).toBeNull();
+        expect(readBootSnapshotValue('someRandomKey')).toBeNull();
     });
 
     it('writeSyncMirror 在 localStorage 抛错时不向外冒泡', () => {
@@ -100,18 +117,17 @@ describe('StorageManager', () => {
         warn.mockRestore();
     });
 
-    it('同步镜像键写入失败时应回滚 localStorage', async () => {
+    it('首帧键写入失败时应回滚快照', async () => {
         const manager = new StorageManager();
-        localStorage.setItem('selectedTheme', '"old-theme"');
+        writeBootSnapshotValue(STORAGE_KEYS.SELECTED_THEME, 'old-theme');
 
-        // 模拟写入失败：第二次及以后的 setItem 调用抛出异常
+        // 第一次 setItem 写快照，第二次是后端持久化（网页环境落在 localStorage）→ 让它失败
         const originalSetItem = localStorage.setItem.bind(localStorage);
         let callCount = 0;
         const setItemSpy = vi
             .spyOn(Storage.prototype, 'setItem')
             .mockImplementation(function (this: Storage, key: string, value: string) {
                 callCount++;
-                // 第二次调用为后端持久化，模拟失败；其余调用放行
                 if (callCount === 2) {
                     throw new Error('QuotaExceededError');
                 }
@@ -119,8 +135,31 @@ describe('StorageManager', () => {
             });
 
         try {
-            await expect(manager.set('selectedTheme', 'new-theme')).rejects.toThrow();
-            expect(localStorage.getItem('selectedTheme')).toBe('"old-theme"');
+            await expect(manager.set(STORAGE_KEYS.SELECTED_THEME, 'new-theme')).rejects.toThrow();
+            expect(readBootSnapshotValue(STORAGE_KEYS.SELECTED_THEME)).toBe('old-theme');
+        } finally {
+            setItemSpy.mockRestore();
+        }
+    });
+
+    it('快照写入失败后应整体撤掉快照', async () => {
+        const manager = new StorageManager();
+
+        const originalSetItem = localStorage.setItem.bind(localStorage);
+        let callCount = 0;
+        const setItemSpy = vi
+            .spyOn(Storage.prototype, 'setItem')
+            .mockImplementation(function (this: Storage, key: string, value: string) {
+                callCount++;
+                if (callCount === 2) {
+                    throw new Error('QuotaExceededError');
+                }
+                return originalSetItem.call(this, key, value);
+            });
+
+        try {
+            await expect(manager.set(STORAGE_KEYS.SELECTED_THEME, 'new-theme')).rejects.toThrow();
+            expect(localStorage.getItem(BOOT_SNAPSHOT_KEY)).toBeNull();
         } finally {
             setItemSpy.mockRestore();
         }

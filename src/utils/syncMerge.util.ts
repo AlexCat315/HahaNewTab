@@ -9,9 +9,10 @@
  * 只处理「远端 vs 本地」的重复，本地自身已有的重复保持原样，避免擅自改动用户数据。
  */
 
+import { isAppNavigatorData } from '@/types/app';
+import { isUserUiLib } from '@/types/ui';
 import type { AppNavigatorData, AppItem, Category } from '@/types/app';
 import type { UiCategory, UserUiLib } from '@/types/ui';
-import { STORAGE_KEYS } from '@/types/storage';
 import { getUrlKey } from '@/utils/url.util';
 import { normalizeNameKey } from '@/utils/name.util';
 
@@ -263,29 +264,60 @@ export function mergeUserUiLib(
     };
 }
 
+/** 快照里的值可能来自云端或旧版本，未经校验，合并前先按类型收窄 */
+function asMainData(value: unknown): AppNavigatorData | null {
+    return isAppNavigatorData(value) ? value : null;
+}
+
+function asUserUiLib(value: unknown): UserUiLib | null {
+    return isUserUiLib(value) ? value : null;
+}
+
 /**
- * 合并整个同步快照（站点数据 + 用户图标库）
- * base/local/remote 均为以存储键名为键的快照；base 为空（null）时视为空快照，做并集合并。
- * `tieBreak` 只在 base 缺失时用于决定同 id 冲突的胜方，常规合并保持本地优先。
+ * 主数据键的快照级合并入口
+ * 供存储键注册表登记：注册表只说「这个键怎么合」，具体规则仍然在这里。
  */
-export function mergeSyncData(
+export function mergeMainDataSnapshot(
+    base: unknown,
+    local: unknown,
+    remote: unknown,
+    tieBreak: MergeTieBreak = 'local'
+): AppNavigatorData {
+    return mergeAppNavigatorData(asMainData(base), asMainData(local), asMainData(remote), tieBreak);
+}
+
+/** 用户图标库键的快照级合并入口，同 mergeMainDataSnapshot */
+export function mergeUserUiLibSnapshot(
+    base: unknown,
+    local: unknown,
+    remote: unknown,
+    tieBreak: MergeTieBreak = 'local'
+): UserUiLib {
+    return mergeUserUiLib(asUserUiLib(base), asUserUiLib(local), asUserUiLib(remote), tieBreak);
+}
+
+/** 单个同步键的合并策略（由存储键注册表提供） */
+export interface CloudSyncKeyStrategy {
+    /** 存储键名 */
+    key: string;
+    /** 三方合并该键的值 */
+    merge: (base: unknown, local: unknown, remote: unknown, tieBreak?: MergeTieBreak) => unknown;
+}
+
+/**
+ * 按策略逐键合并整个同步快照
+ * base 为 null（首次同步，没有共同祖先）时各键退化为本地 / 远端并集合并。
+ */
+export function mergeSnapshots(
+    strategies: readonly CloudSyncKeyStrategy[],
     base: SyncSnapshot | null,
     local: SyncSnapshot,
     remote: SyncSnapshot,
     tieBreak: MergeTieBreak = 'local'
 ): SyncSnapshot {
-    return {
-        [STORAGE_KEYS.MAIN_DATA]: mergeAppNavigatorData(
-            base?.[STORAGE_KEYS.MAIN_DATA] as AppNavigatorData | null | undefined,
-            local[STORAGE_KEYS.MAIN_DATA] as AppNavigatorData | null | undefined,
-            remote[STORAGE_KEYS.MAIN_DATA] as AppNavigatorData | null | undefined,
-            tieBreak
-        ),
-        [STORAGE_KEYS.USER_UI_LIB]: mergeUserUiLib(
-            base?.[STORAGE_KEYS.USER_UI_LIB] as UserUiLib | null | undefined,
-            local[STORAGE_KEYS.USER_UI_LIB] as UserUiLib | null | undefined,
-            remote[STORAGE_KEYS.USER_UI_LIB] as UserUiLib | null | undefined,
-            tieBreak
-        )
-    };
+    const merged: SyncSnapshot = {};
+    for (const { key, merge } of strategies) {
+        merged[key] = merge(base?.[key], local[key], remote?.[key], tieBreak);
+    }
+    return merged;
 }

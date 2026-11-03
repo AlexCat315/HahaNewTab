@@ -28,7 +28,7 @@ export const STORAGE_KEYS = {
     SELECTED_SEARCH_ENGINE: 'selectedSearchEngine',
     /**
      * 历史遗留键：揭示模式已改为仅当前会话有效，不再读写该键。
-     * 保留定义用于识别并兼容旧版本残留的数据。
+     * 保留定义只为让 LEGACY_STORAGE_KEYS 能按名清理旧版本残留的数据。
      */
     SHOW_HIDDEN_APPS: 'appNavigator_showHiddenApps',
     HIDDEN_TIP_DISMISSED: 'appNavigator_hiddenTipDismissed',
@@ -38,38 +38,35 @@ export const STORAGE_KEYS = {
     /** 用户已忽略的版本号，同一版本不再重复提示 */
     UPDATE_DISMISSED_VERSION: 'appNavigator_updateDismissedVersion',
     /** 媒体缓存开关（站点图标 / 网络壁纸的本地缓存） */
-    MEDIA_CACHE: 'appNavigator_mediaCache'
+    MEDIA_CACHE: 'appNavigator_mediaCache',
+    /** 跨设备同步开关（本机，不上传） */
+    CROSS_DEVICE_ENABLED: 'appNavigator_crossDevice_enabled',
+    /** 跨设备同步口令（本机，不上传） */
+    CROSS_DEVICE_PASSPHRASE: 'appNavigator_crossDevice_passphrase',
+    /** 同步区：加密后的云同步登录凭据 */
+    CROSS_DEVICE_REMOTE_AUTH: 'haha_cross_device_auth',
+    /** 同步区：凭据元信息（明文，只含设备名与时间） */
+    CROSS_DEVICE_REMOTE_META: 'haha_cross_device_auth_meta'
 } as const;
 
-/** 需要同步镜像到 localStorage 的首屏设置键（防止 FOUC 闪烁） */
-export const SYNC_MIRROR_KEYS = new Set<string>([
-    STORAGE_KEYS.SELECTED_THEME,
-    /**
-     * 主题偏好（含跟随系统开关与主题族）必须同步镜像：
-     * 跟随系统时首屏要按系统明暗取同族变体，等异步 storage.local 回来再纠正
-     * 会先错画一次明暗，肉眼就是「闪一下」。
-     */
-    STORAGE_KEYS.THEME_SETTINGS,
-    STORAGE_KEYS.SELECTED_SEARCH_ENGINE,
-    STORAGE_KEYS.SEARCH_HISTORY,
-    STORAGE_KEYS.SIDEBAR_COLLAPSED,
-    /**
-     * 布局设置（含极简约模式）必须同步镜像：
-     * storage.local 是异步的，等它回来再渲染会先画标准布局再切成极简约，肉眼就是「闪一下」。
-     */
-    STORAGE_KEYS.LAYOUT_SETTINGS,
-    /**
-     * 缓存开关也走同步镜像：图标组件在首帧就要决定「读缓存还是走网络」，
-     * 等异步存储回来再判断会让关闭状态失效一次。
-     */
-    STORAGE_KEYS.MEDIA_CACHE
-]);
-
-/** 云同步需要收集的本地数据键（仅站点数据与用户图标库，个性化设置不同步） */
-export const CLOUD_SYNC_DATA_KEYS: string[] = [
-    STORAGE_KEYS.MAIN_DATA,
-    STORAGE_KEYS.USER_UI_LIB
+/**
+ * 已废弃、只用于识别与清理的历史键。
+ * 新版本不再读写，残留值只会白占配额并误导排查，启动时一次性删除。
+ */
+export const LEGACY_STORAGE_KEYS: string[] = [
+    STORAGE_KEYS.SHOW_HIDDEN_APPS
 ];
+
+/**
+ * 非扩展环境下模拟浏览器账号同步区时使用的 localStorage 键前缀。
+ * 沿用历史取值，避免升级后读不到旧版本写入的凭据。
+ */
+export const SYNC_AREA_LOCAL_PREFIX = '__mnt_sync__:';
+
+/**
+ * 首帧快照键（SYNC_MIRROR_KEYS）与云同步收集键（CLOUD_SYNC_DATA_KEYS）
+ * 已改由存储键注册表派生，见 services/storageSchema.service.ts。
+ */
 
 /** 存储项值类型 */
 export type StorageValue = string | number | boolean | object | null | undefined;

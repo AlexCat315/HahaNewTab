@@ -9,6 +9,7 @@ import { setActivePinia, createPinia } from 'pinia';
 import { useLayoutStore } from '@/stores/layout.store';
 import { storageManager } from '@/services/storage.service';
 import { STORAGE_KEYS } from '@/types/storage';
+import { readBootSnapshotValue } from '@/test/bootSnapshot';
 
 describe('layout.store', () => {
     beforeEach(() => {
@@ -16,6 +17,7 @@ describe('layout.store', () => {
         localStorage.clear();
         vi.spyOn(storageManager, 'get').mockResolvedValue(null);
         vi.spyOn(storageManager, 'set').mockResolvedValue(undefined);
+        vi.spyOn(storageManager, 'setMany').mockResolvedValue(undefined);
     });
 
     afterEach(() => {
@@ -68,7 +70,7 @@ describe('layout.store', () => {
         expect(store.columns).toBe('auto');
     });
 
-    it('init 从真实存储读到设置后回填同步镜像（老用户下次不再闪）', async () => {
+    it('init 从真实存储读到设置后回填首帧快照（老用户下次不再闪）', async () => {
         vi.mocked(storageManager.get).mockResolvedValue({ minimalMode: true, columns: 3 });
 
         const store = useLayoutStore();
@@ -76,8 +78,11 @@ describe('layout.store', () => {
 
         await store.init();
 
-        const mirrored = JSON.parse(localStorage.getItem(STORAGE_KEYS.LAYOUT_SETTINGS) ?? 'null');
-        expect(mirrored).toMatchObject({ minimalMode: true, columns: 3, openMode: 'new-tab' });
+        expect(readBootSnapshotValue(STORAGE_KEYS.LAYOUT_SETTINGS)).toMatchObject({
+            minimalMode: true,
+            columns: 3,
+            openMode: 'new-tab',
+        });
     });
 
     it('镜像已存在时 init 不会把状态改回默认值', async () => {
@@ -118,15 +123,17 @@ describe('layout.store', () => {
         await store.setAllViewFlat(true);
         await store.setShowIconBackground(false);
 
-        expect(storageManager.set).toHaveBeenCalledWith(STORAGE_KEYS.LAYOUT_SETTINGS, {
-            columns: 3,
-            paginate: true,
-            pageSize: 12,
-            showAllCategory: false,
-            allViewFlat: true,
-            showIconBackground: false,
-            minimalMode: false,
-            openMode: 'new-tab',
+        expect(storageManager.setMany).toHaveBeenCalledWith({
+            [STORAGE_KEYS.LAYOUT_SETTINGS]: {
+                columns: 3,
+                paginate: true,
+                pageSize: 12,
+                showAllCategory: false,
+                allViewFlat: true,
+                showIconBackground: false,
+                minimalMode: false,
+                openMode: 'new-tab',
+            },
         });
     });
 
@@ -152,10 +159,9 @@ describe('layout.store', () => {
         await store.setOpenMode('current-tab');
 
         expect(store.openMode).toBe('current-tab');
-        expect(storageManager.set).toHaveBeenLastCalledWith(
-            STORAGE_KEYS.LAYOUT_SETTINGS,
-            expect.objectContaining({ openMode: 'current-tab' })
-        );
+        expect(storageManager.setMany).toHaveBeenLastCalledWith({
+            [STORAGE_KEYS.LAYOUT_SETTINGS]: expect.objectContaining({ openMode: 'current-tab' })
+        });
     });
 
     it('非法的打开方式被忽略，保持原值', async () => {

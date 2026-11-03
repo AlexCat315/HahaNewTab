@@ -1,14 +1,15 @@
 /**
  * 壁纸设置 Pinia Store
- * 管理壁纸 URL、本地 Base64 图片、透明度、模糊度、遮罩层透明度，并持久化到 StorageManager。
+ * 管理壁纸 URL、本地 Base64 图片、透明度、模糊度、遮罩层透明度。
  *
- * 与原项目 js/app.js 中 WallpaperManager 保持一致的数据结构，
- * 存储键名为 STORAGE_KEYS.WALLPAPER 与 STORAGE_KEYS.WALLPAPER_IMAGE。
+ * 持久化全部交给 usePersistentSlice（写穿 + 失败回滚 + 外部变更订阅）：
+ * 本地图片是几 MB 的 Base64，只有它自己变化时才会落盘，改透明度不重写成片图片。
+ * 存储键为 STORAGE_KEYS.WALLPAPER 与 STORAGE_KEYS.WALLPAPER_IMAGE。
  */
 
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { storageManager } from '@/services/storage.service';
+import { usePersistentSlice } from '@/composables/usePersistentSlice';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { WallpaperSettings, WallpaperImageData } from '@/types/storage';
 import { fileToBase64, validateFileSize, DEFAULT_MAX_FILE_SIZE } from '@/utils/file.util';
@@ -112,75 +113,32 @@ export const useWallpaperStore = defineStore('wallpaper', () => {
 
     // Internal helpers
 
-    /** 从持久化存储读取壁纸设置与本地图片 */
-    async function loadPersisted(): Promise<{
-        settings: WallpaperSettings;
-        imageData: WallpaperImageData | null;
-    }> {
-        const persisted = await storageManager.getMany([
-            STORAGE_KEYS.WALLPAPER,
-            STORAGE_KEYS.WALLPAPER_IMAGE
-        ]);
+    const slice = usePersistentSlice({
+        label: 'WallpaperStore',
+        keys: [
+            {
+                key: STORAGE_KEYS.WALLPAPER,
+                apply: raw => {
+                    settings.value = normalizeSettings(raw);
+                },
+                read: () => settings.value
+            },
+            {
+                key: STORAGE_KEYS.WALLPAPER_IMAGE,
+                apply: raw => {
+                    imageData.value = isValidImageData(raw) ? clone(raw) : null;
+                },
+                read: () => imageData.value
+            }
+        ]
+    });
 
-        return {
-            settings: normalizeSettings(persisted[STORAGE_KEYS.WALLPAPER]),
-            imageData: isValidImageData(persisted[STORAGE_KEYS.WALLPAPER_IMAGE])
-                ? clone(persisted[STORAGE_KEYS.WALLPAPER_IMAGE] as WallpaperImageData)
-                : null
-        };
-    }
-
-    /** 仅持久化壁纸设置 */
-    async function persistSettings(): Promise<void> {
-        await storageManager.set(STORAGE_KEYS.WALLPAPER, clone(settings.value));
-    }
-
-    /** 持久化壁纸设置与本地图片（含删除） */
-    async function persistImageAndSettings(): Promise<void> {
-        const items: Record<string, import('@/types/storage').StorageValue> = {
-            [STORAGE_KEYS.WALLPAPER]: clone(settings.value),
-            [STORAGE_KEYS.WALLPAPER_IMAGE]: imageData.value ? clone(imageData.value) : null
-        };
-        await storageManager.setMany(items);
-    }
-
-    /**
-     * 带失败回滚的批量写入
-     * 先更新内存状态，再持久化；持久化失败时恢复先前状态。
-     */
-    async function commitWithRollback(mutator: () => void): Promise<void> {
-        const previousSettings = clone(settings.value);
-        const previousImage = clone(imageData.value);
-
-        mutator();
-
-        try {
-            await persistImageAndSettings();
-        } catch (error) {
-            settings.value = previousSettings;
-            imageData.value = previousImage;
-            throw error;
-        }
-    }
-
-    /** 响应外部存储变更（如云同步、其他标签页） */
-    function handleStorageChanges(changes: Record<string, { oldValue?: unknown; newValue?: unknown }>): void {
-        const wallpaperChange = changes[STORAGE_KEYS.WALLPAPER];
-        if (wallpaperChange && 'newValue' in wallpaperChange) {
-            settings.value = normalizeSettings(wallpaperChange.newValue);
-        }
-
-        const imageChange = changes[STORAGE_KEYS.WALLPAPER_IMAGE];
-        if (imageChange && 'newValue' in imageChange) {
-            imageData.value = isValidImageData(imageChange.newValue)
-                ? clone(imageChange.newValue as WallpaperImageData)
-                : null;
-        }
-    }
+    /** 只写壁纸设置（视觉参数变化时不必重写本地图片） */
+    const SETTINGS_ONLY = [STORAGE_KEYS.WALLPAPER];
 
     // Actions
 
-    /** 初始化：从持久化存储加载壁纸数据 */
+    /** 初始化：从持久化存储加载壁纸数据，并开始响应外部变更 */
     async function init(): Promise<void> {
         if (initialized.value) {
             return;
@@ -189,14 +147,12 @@ export const useWallpaperStore = defineStore('wallpaper', () => {
             return initPromise;
         }
 
-        initPromise = loadPersisted()
-            .then(persisted => {
-                settings.value = persisted.settings;
-                imageData.value = persisted.imageData;
+        initPromise = slice.load()
+            .then(() => {
                 initialized.value = true;
 
                 if (!unsubscribeStorage) {
-                    unsubscribeStorage = storageManager.subscribe(handleStorageChanges);
+                    unsubscribeStorage = slice.subscribe();
                 }
             })
             .catch(error => {
@@ -210,7 +166,7 @@ export const useWallpaperStore = defineStore('wallpaper', () => {
     /** 设置网络壁纸 URL，同时清除本地图片标记与数据 */
     async function setUrl(url: string): Promise<void> {
         await init();
-        await commitWithRollback(() => {
+        await slice.mutate(() => {
             settings.value.url = url;
             settings.value.isLocalImage = false;
             imageData.value = null;
@@ -230,7 +186,7 @@ export const useWallpaperStore = defineStore('wallpaper', () => {
 
         const data = await fileToBase64(file);
 
-        await commitWithRollback(() => {
+        await slice.mutate(() => {
             imageData.value = {
                 data,
                 name: file.name,
@@ -246,7 +202,7 @@ export const useWallpaperStore = defineStore('wallpaper', () => {
     /** 直接设置本地图片数据（用于导入/云同步恢复等场景） */
     async function setLocalImageData(data: WallpaperImageData): Promise<void> {
         await init();
-        await commitWithRollback(() => {
+        await slice.mutate(() => {
             imageData.value = clone(data);
             settings.value.isLocalImage = true;
             settings.value.url = '';
@@ -256,36 +212,39 @@ export const useWallpaperStore = defineStore('wallpaper', () => {
     /** 设置壁纸透明度 */
     async function setOpacity(opacity: number): Promise<void> {
         await init();
-        settings.value.opacity = opacity;
-        await persistSettings();
+        await slice.mutate(() => {
+            settings.value.opacity = opacity;
+        }, SETTINGS_ONLY);
     }
 
     /** 设置壁纸模糊度 */
     async function setBlur(blur: number): Promise<void> {
         await init();
-        settings.value.blur = blur;
-        await persistSettings();
+        await slice.mutate(() => {
+            settings.value.blur = blur;
+        }, SETTINGS_ONLY);
     }
 
     /** 设置遮罩层透明度 */
     async function setOverlayOpacity(overlayOpacity: number): Promise<void> {
         await init();
-        settings.value.overlayOpacity = overlayOpacity;
-        await persistSettings();
+        await slice.mutate(() => {
+            settings.value.overlayOpacity = overlayOpacity;
+        }, SETTINGS_ONLY);
     }
 
     /** 批量应用壁纸设置 */
     async function applySettings(partial: Partial<WallpaperSettings>): Promise<void> {
         await init();
-        await commitWithRollback(() => {
+        await slice.mutate(() => {
             settings.value = normalizeSettings(applyPartial(settings.value, partial));
-        });
+        }, SETTINGS_ONLY);
     }
 
     /** 移除当前壁纸（清空 URL 与本地图片），保留透明度等视觉参数 */
     async function removeWallpaper(): Promise<void> {
         await init();
-        await commitWithRollback(() => {
+        await slice.mutate(() => {
             settings.value.url = '';
             settings.value.isLocalImage = false;
             imageData.value = null;
@@ -295,7 +254,7 @@ export const useWallpaperStore = defineStore('wallpaper', () => {
     /** 重置为默认壁纸设置 */
     async function reset(): Promise<void> {
         await init();
-        await commitWithRollback(() => {
+        await slice.mutate(() => {
             settings.value = clone(DEFAULT_WALLPAPER_SETTINGS);
             imageData.value = null;
         });

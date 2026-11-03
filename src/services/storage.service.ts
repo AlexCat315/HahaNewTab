@@ -2,11 +2,16 @@
  * 统一存储与数据管理层
  * 主页面、popup 和云同步必须共用本服务，避免缓存与持久化语义分叉。
  *
- * 底层存储后端复用 browserApi.service.ts 提供的 BrowserAPI.storage.local，
- * 仅在订阅扩展原生变更事件时直接访问 window.chrome/browser.storage.onChanged。
+ * 底层读写复用 L0（storageBackends.service.ts）的 local 区后端；
+ * 本层负责业务语义：同步镜像、深拷贝隔离、变更通知、遗留键清理。
  */
 
-import { BrowserAPI } from '@/services/browserApi.service';
+import { getStorageBackend, subscribeStorageArea } from '@/services/storageBackends.service';
+import {
+    BOOT_SNAPSHOT_KEY,
+    BOOT_SNAPSHOT_VERSION,
+    isBootKey
+} from '@/services/storageSchema.service';
 import type {
     StorageValue,
     StorageChanges,
@@ -14,14 +19,14 @@ import type {
 } from '@/types/storage';
 import {
     STORAGE_KEYS,
-    SYNC_MIRROR_KEYS,
+    LEGACY_STORAGE_KEYS,
 } from '@/types/storage';
 
 /** 本地存储变更事件名 */
 export const STORAGE_EVENT = 'haha-storage-change';
 
-/** 同步镜像键集合（从 types/storage.ts 重新导出，便于 service 内部使用） */
-export { SYNC_MIRROR_KEYS };
+/** 首帧快照键集合（注册表派生，保留此处导出便于上层引用） */
+export { SYNC_MIRROR_KEYS } from '@/services/storageSchema.service';
 
 /** 常用存储键集合（从 types/storage.ts 重新导出） */
 export { STORAGE_KEYS };
@@ -71,41 +76,71 @@ function parseStoredValue(value: string | null): StorageValue {
 }
 
 /**
- * 同步镜像键类型
+ * L0 local 区后端
+ * 扩展环境走 storage.local，网页预览沿用 browserApi 的 localStorage 实现。
  */
-export type SyncMirrorKey = 'selectedTheme' | 'selectedSearchEngine' | 'searchHistory' | 'sidebarCollapsed';
-
-const SYNC_MIRROR_KEY_SET = SYNC_MIRROR_KEYS;
-
-/**
- * 原生扩展 storage.onChanged 监听器类型
- */
-type NativeChangeListener = (changes: StorageChanges, areaName: string) => void;
+const localBackend = getStorageBackend('local');
 
 /**
- * 原生扩展 API 命名空间（仅用于订阅 onChanged）
+ * 读首帧快照（localStorage 的 __boot__）
+ *
+ * 所有「首帧渲染就要用到」的设置集中存在这一份里，预加载脚本和 getSync 都读它。
+ * 结构版本对不上时整体作废返回 null，调用方退回异步读取，
+ * 避免拿旧结构画出错乱的首帧。
  */
-interface NativeExtensionNamespace {
-    storage?: {
-        onChanged?: {
-            addListener(listener: NativeChangeListener): void;
-            removeListener(listener: NativeChangeListener): void;
-        };
-    };
+function readBootSnapshot(): Record<string, StorageValue> | null {
+    try {
+        const raw = localStorage.getItem(BOOT_SNAPSHOT_KEY);
+        if (!raw) {
+            return null;
+        }
+        const parsed = JSON.parse(raw) as { v?: unknown; data?: unknown };
+        if (parsed?.v !== BOOT_SNAPSHOT_VERSION || typeof parsed.data !== 'object' || parsed.data === null) {
+            return null;
+        }
+        return parsed.data as Record<string, StorageValue>;
+    } catch {
+        return null;
+    }
 }
 
-interface WindowWithNativeExtension {
-    chrome?: NativeExtensionNamespace;
-    browser?: NativeExtensionNamespace;
+/**
+ * 合并写入首帧快照
+ * 隐私模式 / 配额满时 localStorage 会抛错，快照只是加速手段，失败不影响主流程。
+ */
+function writeBootSnapshot(entries: Record<string, StorageValue>): void {
+    try {
+        const data = { ...(readBootSnapshot() ?? {}), ...entries };
+        localStorage.setItem(
+            BOOT_SNAPSHOT_KEY,
+            JSON.stringify({ v: BOOT_SNAPSHOT_VERSION, data })
+        );
+    } catch (error) {
+        console.warn('[StorageManager] 写入首帧快照失败:', error);
+    }
 }
 
-/**
- * 获取原生扩展 storage.onChanged 对象
- */
-function getNativeOnChanged() {
-    const globalWindow = window as unknown as WindowWithNativeExtension;
-    const apiRoot = globalWindow.chrome || globalWindow.browser;
-    return apiRoot?.storage?.onChanged ?? null;
+/** 从首帧快照中移除一个键 */
+function removeBootSnapshotEntry(key: string): void {
+    const data = readBootSnapshot();
+    if (!data || !(key in data)) {
+        return;
+    }
+    delete data[key];
+    writeBootSnapshot(data);
+}
+
+/** 回滚首帧快照到写入前的原始内容 */
+function restoreBootSnapshot(previousRaw: string | null): void {
+    try {
+        if (previousRaw === null) {
+            localStorage.removeItem(BOOT_SNAPSHOT_KEY);
+        } else {
+            localStorage.setItem(BOOT_SNAPSHOT_KEY, previousRaw);
+        }
+    } catch (error) {
+        console.warn('[StorageManager] 回滚首帧快照失败:', error);
+    }
 }
 
 export interface IStorageManager {
@@ -123,62 +158,63 @@ export interface IStorageManager {
 /**
  * 统一存储管理器
  * 自动检测扩展环境并选择 storage.local 或 localStorage 作为后端。
- * 对主题、搜索引擎等首屏设置保留 localStorage 同步镜像，避免 FOUC 闪烁。
+ * 首帧就要用到的设置（由存储键注册表标记）统一收进 localStorage 的 __boot__ 快照，避免 FOUC 闪烁。
  */
 export class StorageManager implements IStorageManager {
     /**
      * 是否运行在浏览器扩展环境中
      */
     get isExtension(): boolean {
-        return BrowserAPI.isExtension;
+        return localBackend.native;
     }
 
     /**
-     * 同步读取 localStorage（主要用于同步镜像键的首屏回退）
+     * 同步读取首帧设置（主要用于首帧渲染前的回退读取）
+     *
+     * 优先读 __boot__ 快照；快照还不存在时（刚升级上来、还没写过任何设置）
+     * 兜底读一次旧版本的逐键镜像，保证升级后的第一帧也不闪。
      */
     getSync(key: string): StorageValue {
+        const snapshot = readBootSnapshot();
+        if (snapshot) {
+            return snapshot[key] === undefined ? null : snapshot[key];
+        }
         return parseStoredValue(localStorage.getItem(key));
     }
 
     /**
-     * 只写 localStorage 同步镜像，不触碰 storage.local。
+     * 只更新首帧快照，不触碰 storage.local。
      *
-     * 用途：老版本没有镜像，或镜像被清掉后，把异步存储里读到的值回填成同步镜像，
+     * 用途：老版本没有快照，或快照被清掉后，把异步存储里读到的值回填进快照，
      * 这样下次打开新标签页时首帧就能直接用上，不必等异步读取回来再渲染。
      * 这里刻意不走 setMany——写 storage.local 会触发跨标签页的 onChanged，
      * 每次开新标签页都写一遍属于无意义噪音。
      */
     writeSyncMirror(key: string, value: StorageValue): void {
-        if (!SYNC_MIRROR_KEY_SET.has(key)) {
+        if (!isBootKey(key)) {
             return;
         }
-        try {
-            localStorage.setItem(key, JSON.stringify(value));
-        } catch (error) {
-            // 隐私模式 / 配额满时 localStorage 可能抛错，镜像只是加速手段，失败不影响主流程
-            console.warn(`[StorageManager] 写入同步镜像 ${key} 失败:`, error);
-        }
+        writeBootSnapshot({ [key]: clone(value) });
     }
 
     /**
      * 异步读取单个存储项
-     * 扩展环境中缺失且为同步镜像键时，自动回退读取 localStorage 并回填。
+     * 扩展环境中缺失且属于首帧键时，自动回退读快照并回填两份存储。
      */
     async get(key: string): Promise<StorageValue | null> {
         try {
-            const result = await BrowserAPI.storage.local.get(key);
-            let value: StorageValue = result && typeof result === 'object'
-                ? (result as Record<string, StorageValue>)[key]
-                : (result as StorageValue);
+            const items = await localBackend.get(key);
+            let value: StorageValue = items[key] as StorageValue;
 
             if (
                 (value === undefined || value === null) &&
                 this.isExtension &&
-                SYNC_MIRROR_KEY_SET.has(key)
+                isBootKey(key)
             ) {
                 value = this.getSync(key);
                 if (value !== null) {
-                    await BrowserAPI.storage.local.set({ [key]: value });
+                    await localBackend.set({ [key]: value });
+                    this.writeSyncMirror(key, value);
                 }
             }
             return value === undefined ? null : clone(value);
@@ -206,28 +242,28 @@ export class StorageManager implements IStorageManager {
 
     /**
      * 异步批量写入存储项
-     * 同步镜像键会先写入 localStorage，持久化失败时回滚 localStorage 镜像。
+     * 首帧键先合并进 __boot__ 快照，持久化失败时把快照回滚到写入前的内容。
      */
     async setMany(items: Record<string, StorageValue>): Promise<void> {
         const storedItems = clone(items);
-        const previousMirrors = new Map<string, string | null>();
-
+        const bootEntries: Record<string, StorageValue> = {};
         for (const key of Object.keys(storedItems)) {
-            if (SYNC_MIRROR_KEY_SET.has(key)) {
-                previousMirrors.set(key, localStorage.getItem(key));
-                localStorage.setItem(key, JSON.stringify(storedItems[key]));
+            if (isBootKey(key)) {
+                bootEntries[key] = storedItems[key];
             }
         }
 
+        const hasBootEntries = Object.keys(bootEntries).length > 0;
+        const previousSnapshot = hasBootEntries ? localStorage.getItem(BOOT_SNAPSHOT_KEY) : null;
+        if (hasBootEntries) {
+            writeBootSnapshot(bootEntries);
+        }
+
         try {
-            await BrowserAPI.storage.local.set(storedItems);
+            await localBackend.set(storedItems);
         } catch (error) {
-            for (const [key, previous] of previousMirrors) {
-                if (previous === null) {
-                    localStorage.removeItem(key);
-                } else {
-                    localStorage.setItem(key, previous);
-                }
+            if (hasBootEntries) {
+                restoreBootSnapshot(previousSnapshot);
             }
             throw createError('写入浏览器存储失败，数据未保存', error);
         }
@@ -249,9 +285,9 @@ export class StorageManager implements IStorageManager {
      */
     async remove(key: string): Promise<void> {
         try {
-            await BrowserAPI.storage.local.remove(key);
-            if (SYNC_MIRROR_KEY_SET.has(key)) {
-                localStorage.removeItem(key);
+            await localBackend.remove(key);
+            if (isBootKey(key)) {
+                removeBootSnapshotEntry(key);
             }
         } catch (error) {
             throw createError(`删除存储项 ${key} 失败`, error);
@@ -285,25 +321,32 @@ export class StorageManager implements IStorageManager {
             window.addEventListener('storage', storageHandler);
         }
 
-        const onChanged = getNativeOnChanged();
-        const nativeHandler: NativeChangeListener = (changes, areaName) => {
-            if (areaName === 'local') {
-                listener(changes);
-            }
-        };
-        if (this.isExtension && onChanged) {
-            onChanged.addListener(nativeHandler);
-        }
+        const unsubscribeNative = subscribeStorageArea('local', listener);
 
         return () => {
             window.removeEventListener(STORAGE_EVENT, localHandler);
             window.removeEventListener('storage', storageHandler);
-            if (this.isExtension && onChanged) {
-                onChanged.removeListener(nativeHandler);
-            }
+            unsubscribeNative();
         };
     }
 }
 
 /** 全局单例存储管理器 */
 export const storageManager = new StorageManager();
+
+/**
+ * 清理历史遗留键
+ *
+ * 对应的功能已经改成只在当前会话生效，旧版本留下的值再也不会被读到，
+ * 留着只是白占配额，还会让排查时误判「用户仍有这份状态」。
+ * 键不存在时跳过，避免每次开新标签页都空写一次。
+ */
+export async function cleanupLegacyStorageKeys(): Promise<void> {
+    for (const key of LEGACY_STORAGE_KEYS) {
+        const value = await storageManager.get(key);
+        if (value === null || value === undefined) {
+            continue;
+        }
+        await storageManager.remove(key);
+    }
+}

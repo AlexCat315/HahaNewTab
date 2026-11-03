@@ -141,12 +141,12 @@ describe('useSearchStore', () => {
 
     it('写入失败时回滚内存状态', async () => {
         const store = useSearchStore();
-        const setSpy = vi.spyOn(storageManager, 'set').mockRejectedValueOnce(new Error('storage error'));
+        const setManySpy = vi.spyOn(storageManager, 'setMany').mockRejectedValueOnce(new Error('storage error'));
 
         await expect(store.addHistory('vue')).rejects.toThrow('storage error');
         expect(store.history).toEqual([]);
 
-        setSpy.mockRestore();
+        setManySpy.mockRestore();
     });
 
     it('写前重读，避免覆盖并发/外部更新', async () => {

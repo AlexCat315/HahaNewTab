@@ -488,20 +488,4 @@ describe('useThemeStore', () => {
         expect(store.isDark).toBe(true);
         expect(store.currentMode).toBe('dark');
     });
-
-    it('主题切换应触发 themeChanged 自定义事件', async () => {
-        const store = useThemeStore();
-        await store.initialize();
-
-        const listener = vi.fn();
-        window.addEventListener('themeChanged', listener);
-
-        await store.setTheme('midnight-rose-dark');
-
-        expect(listener).toHaveBeenCalled();
-        const event = listener.mock.calls[0][0] as CustomEvent;
-        expect(event.detail.themeId).toBe('midnight-rose-dark');
-
-        window.removeEventListener('themeChanged', listener);
-    });
 });
