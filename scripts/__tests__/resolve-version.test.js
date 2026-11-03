@@ -5,6 +5,7 @@
  * 显式版本不得低于已发布版本、自动递增保持前缀、跨段比较正确。
  */
 import { describe, it, expect } from 'vitest';
+import { execSync } from 'node:child_process';
 import {
     parse,
     compare,
@@ -56,23 +57,33 @@ describe('resolve-version 纯函数', () => {
 });
 
 describe('resolve-version 仓库集成', () => {
+    // 每发一版就多一个 tag，latestVersion() 随仓库状态前进；
+    // 断言写死具体版本号会在下一次发布后失败，所以一律由当前状态推导
+    const latest = latestVersion();
+    const highestTag = execSync('git tag -l "v*"', { encoding: 'utf8' })
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(tag => tag.replace(/^v/, ''))
+        .reduce((a, b) => (compare(b, a) > 0 ? b : a), '0');
+
     it('latestVersion 取本地 tag 与 manifest 中的最大版本', () => {
-        // 仓库当前 tag 含 v1.0.1.0（高于 manifest 里的 1.0.0.1）
-        expect(latestVersion()).toBe('1.0.1.0');
+        expect(valid(latest)).toBe(true);
+        expect(compare(latest, highestTag)).toBeGreaterThanOrEqual(0);
+        expect(compare(latest, '1.0.0.1')).toBeGreaterThan(0);
     });
 
-    it('自动解析在最新版本上末段 +1（1.0.1.0 → 1.0.1.1）', () => {
-        expect(resolve(null)).toBe('1.0.1.1');
+    it('自动解析在最新版本上末段 +1', () => {
+        expect(resolve(null)).toBe(nextAfter(latest));
         expect(FIRST_VERSION).toBe('1.0.0.100');
     });
 
     it('显式版本大于最新版本时通过', () => {
-        expect(resolve('1.0.2.0')).toBe('1.0.2.0');
-        expect(resolve('1.0.1.1')).toBe('1.0.1.1');
+        const newer = nextAfter(latest);
+        expect(resolve(newer)).toBe(newer);
     });
 
     it('显式版本等于最新版本时拒绝', () => {
-        expect(() => resolve('1.0.1.0')).toThrow(/必须大于/);
+        expect(() => resolve(latest)).toThrow(/必须大于/);
     });
 
     it('显式版本低于最新版本（降级事故路径）时拒绝', () => {
