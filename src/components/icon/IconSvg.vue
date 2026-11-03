@@ -2,14 +2,17 @@
   IconSvg - 统一 SVG 图标渲染组件
   支持系统图标 name、外部 src、错误回退、尺寸与颜色控制。
   禁止使用 emoji 作为图标，缺失或无效时渲染系统 SVG 占位。
+  透明底品牌图标与所在背景撞色时，自动垫一层中性底板。
 -->
 <template>
     <component
         :is="tag"
+        ref="rootRef"
         class="icon-svg"
         :class="{
             'is-monochrome': isMonochromeIcon,
             'is-inline': isInlineSvg,
+            'is-plated': plateTone !== null,
         }"
         :style="rootStyle"
         :aria-label="safeAlt"
@@ -48,10 +51,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
     getSystemIconUrl,
     createPlaceholderSvg,
+    analyzeIconInk,
+    resolveBackdropLuminance,
+    shouldPlateIcon,
+    iconPlateColor,
+    type IconInkProfile,
+    type IconPlateTone,
 } from '@/utils/image.util';
 import { mediaCacheService } from '@/services/mediaCache.service';
 
@@ -253,6 +262,15 @@ const resolvedSource = ref('');
 /** 当前源的图片加载失败次数（需在 watch 之前声明：watch immediate 会立即访问） */
 const imageErrorCount = ref(0);
 
+/** 组件根元素，用于向上找图标真正落在哪层背景上 */
+const rootRef = ref<HTMLElement | null>(null);
+
+/** 已加载图片的墨色采样结果；null = 没采到（内置图标、读不到像素、还没加载完） */
+const inkProfile = ref<IconInkProfile | null>(null);
+
+/** 当前生效的中性底板；null = 不干预 */
+const plateTone = ref<IconPlateTone | null>(null);
+
 // 远程图标：先查缓存，未命中再抓一次并缓存（只发一次请求），失败才回退网络地址
 watch(
     effectiveSource,
@@ -260,6 +278,9 @@ watch(
         resolvedSource.value = '';
         // 源变化时重置错误计数，让新地址有机会正常加载（否则会一直停留在回退图）
         imageErrorCount.value = 0;
+        // 上一张图的墨色采样和底板结论都不作数了
+        inkProfile.value = null;
+        plateTone.value = null;
 
         if (!mediaCacheService.isCacheableUrl(source)) {
             resolvedSource.value = source;
@@ -333,10 +354,52 @@ const rootStyle = computed(() => {
         style.color = props.color;
         style['--icon-fill'] = props.color;
     }
+    if (plateTone.value) {
+        style['--icon-plate'] = iconPlateColor(plateTone.value);
+    }
     return style;
 });
 
+/**
+ * 按当前背景重算要不要垫底板
+ *
+ * 背景是从父级往上找的（根元素自己可能就是上一轮垫出来的底板，不能自证），
+ * 采样失败或找不到不透明背景时保持不干预。
+ */
+function evaluatePlate(): void {
+    if (!inkProfile.value || props.monochrome) {
+        plateTone.value = null;
+        return;
+    }
+    plateTone.value = shouldPlateIcon(
+        inkProfile.value,
+        resolveBackdropLuminance(rootRef.value?.parentElement ?? null)
+    );
+}
+
+/** 主题切换改的是 html 上的 class 与内联变量，背景亮度跟着变，底板要重算 */
+let themeObserver: MutationObserver | null = null;
+
+onMounted(() => {
+    if (typeof MutationObserver === 'undefined' || typeof document === 'undefined') {
+        return;
+    }
+    themeObserver = new MutationObserver(() => evaluatePlate());
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style'],
+    });
+});
+
+onBeforeUnmount(() => {
+    themeObserver?.disconnect();
+    themeObserver = null;
+});
+
 function onImageError(event: Event) {
+    inkProfile.value = null;
+    plateTone.value = null;
+
     const img = event.target as HTMLImageElement | null;
     if (img && resolvedSource.value.startsWith('blob:')) {
         // 缓存内容损坏：移除缓存并回退到原始网络地址重新加载
@@ -356,7 +419,10 @@ function onImageError(event: Event) {
 }
 
 function onImageLoad(event: Event) {
-    // 缓存写入已在 fetchAndCache 里完成，这里只负责向上抛事件
+    const img = event.target as HTMLImageElement | null;
+    // 缓存写入已在 fetchAndCache 里完成；这里先采样，再决定要不要垫底板
+    inkProfile.value = analyzeIconInk(img);
+    evaluatePlate();
     emit('load', event);
 }
 </script>
@@ -383,6 +449,18 @@ function onImageLoad(event: Event) {
         object-fit: contain;
         display: block;
         pointer-events: none;
+    }
+
+    /*
+      中性底板：透明底 logo 的墨色和所在背景糊在一起时才加（深色模式的黑章鱼猫、
+      浅色模式的白 logo）。反色会毁掉品牌配色，所以不改图标颜色，只在下面垫一层
+      和墨色对比度更高的底 —— 内边距把图标缩小一点，底板才不会盖住外层图标盘。
+    */
+    &.is-plated {
+        box-sizing: border-box;
+        background: var(--icon-plate, transparent);
+        border-radius: 25%;
+        padding: 10%;
     }
 
     /*

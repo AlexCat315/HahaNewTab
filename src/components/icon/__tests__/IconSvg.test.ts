@@ -73,6 +73,60 @@ describe('IconSvg', () => {
         expect(wrapper.find('img').attributes('src')).toBe('https://example.com/icon.png');
     });
 
+    it('读不到像素时不加底板（分析失败宁可原样显示）', async () => {
+        const wrapper = mount(IconSvg, {
+            props: { src: 'https://example.com/favicon.png' },
+        });
+        await flushPromises();
+        // jsdom 没有 2d 画布，采样返回 null，此时必须完全不改图标外观
+        await wrapper.find('img').trigger('load');
+        expect(wrapper.classes()).not.toContain('is-plated');
+        expect(wrapper.attributes('style') ?? '').not.toContain('--icon-plate');
+    });
+
+    it('透明底深色 logo 撞上深色背景时垫浅色底', async () => {
+        // 伪造采样结果：约 600 个近黑像素 + 其余全透明（≈41% 透明），即章鱼猫这类剪影 logo
+        const data = new Uint8ClampedArray(32 * 32 * 4);
+        for (let i = 0; i < data.length; i += 4) {
+            const inked = i < 4 * 600;
+            data[i] = 12;
+            data[i + 1] = 12;
+            data[i + 2] = 14;
+            data[i + 3] = inked ? 255 : 0;
+        }
+        const getContextSpy = vi
+            .spyOn(HTMLCanvasElement.prototype, 'getContext')
+            .mockReturnValue({
+                clearRect: vi.fn(),
+                drawImage: vi.fn(),
+                getImageData: () => ({ data }),
+            } as unknown as CanvasRenderingContext2D);
+
+        // 背景要挂在真实 DOM 上，getComputedStyle 才认它
+        const host = document.createElement('div');
+        host.style.backgroundColor = 'rgb(71, 73, 82)'; // 深色主题的 primary-container
+        document.body.appendChild(host);
+
+        try {
+            const wrapper = mount(IconSvg, {
+                props: { src: 'https://github.com/favicon.ico' },
+                attachTo: host,
+            });
+            await flushPromises();
+            const img = wrapper.find('img');
+            // jsdom 里 naturalWidth 恒为 0，先让它像一张真图
+            Object.defineProperty(img.element, 'naturalWidth', { value: 64, configurable: true });
+            Object.defineProperty(img.element, 'naturalHeight', { value: 64, configurable: true });
+            await img.trigger('load');
+            expect(wrapper.classes()).toContain('is-plated');
+            expect(wrapper.attributes('style')).toContain('--icon-plate: #ffffff');
+            wrapper.unmount();
+        } finally {
+            getContextSpy.mockRestore();
+            host.remove();
+        }
+    });
+
     it('无 name/src 时使用占位 SVG', () => {
         const wrapper = mount(IconSvg);
         expect(wrapper.find('img').attributes('src')).toMatch(PLACEHOLDER_PATTERN);
