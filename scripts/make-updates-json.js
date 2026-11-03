@@ -21,7 +21,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const DEFAULT_ADDON_ID = 'cyke0315@163.com';
+const DEFAULT_ADDON_ID = '{8f0e09af-c367-46bf-bab8-fc88cbc885c1}';
 
 function getArg(name, fallback) {
     const prefix = `--${name}=`;

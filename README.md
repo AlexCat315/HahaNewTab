@@ -286,7 +286,7 @@ dist-firefox/  # Firefox
 ```json
 "browser_specific_settings": {
   "gecko": {
-    "id": "xxxx@xxx.com",
+    "id": "{8f0e09af-c367-46bf-bab8-fc88cbc885c1}",
     "update_url": "https://github.com/AlexCat315/HahaNewTab/releases/latest/download/updates.json"
   }
 }
@@ -313,7 +313,11 @@ Firefox 是唯一支持「自托管 + 自动更新」的浏览器。
 
 几个必须遵守的约束：
 
-- **扩展 ID 必须固定**（`cyke0315@163.com`）。改 ID 等于换了一个扩展，老用户收不到更新。
+- **扩展 ID 必须固定**（`{8f0e09af-c367-46bf-bab8-fc88cbc885c1}`）。改 ID 等于换了一个扩展，老用户收不到更新。
+  早先用的是 `cyke0315@163.com`，那个 AMO 条目被删除后 ID 永久占坑、再也签不出名，
+  所以换成了上面这个 UUID；**AMO 上删除扩展是不可逆的，不要删**。
+  同一份 ID 还写在 [scripts/make-updates-json.js](scripts/make-updates-json.js) 的 `DEFAULT_ADDON_ID`，
+  改 ID 必须两处一起改，否则 `updates.json` 的键和 manifest 对不上，自动更新直接失效。
 - **版本号不能重复提交**。AMO 对同一版本只接受一次上传，重复会报
   `This upload has already been submitted`，必须升版本号重试。
 - **`update_url` 一旦发布就尽量不要改**。已安装的扩展只会用自己 manifest 里写死的

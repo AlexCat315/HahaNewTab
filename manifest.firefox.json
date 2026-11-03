@@ -61,7 +61,7 @@
     },
     "browser_specific_settings": {
         "gecko": {
-            "id": "cyke0315@163.com",
+            "id": "{8f0e09af-c367-46bf-bab8-fc88cbc885c1}",
             "strict_min_version": "115.0",
             "update_url": "https://github.com/AlexCat315/HahaNewTab/releases/latest/download/updates.json",
             "data_collection_permissions": {
