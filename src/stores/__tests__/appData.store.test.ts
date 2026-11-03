@@ -103,6 +103,25 @@ describe('useAppDataStore', () => {
             expect(saved.categories[0].id).toBe('all');
         });
 
+        it('引用了不存在分类的站点应重指到“全部应用”，不能在分类视图里隐身', async () => {
+            const existing: AppNavigatorData = {
+                categories: [defaultAllCategory, { id: 'custom', name: '自定义', icon: './image/icons/folder.svg' }],
+                apps: [
+                    { id: 'app_orphan', name: 'Orphan', url: 'https://orphan.test', category: 'gone' },
+                    { id: 'app_ok', name: 'Ok', url: 'https://ok.test', category: 'custom' },
+                ],
+            };
+            await storageManager.set(STORAGE_KEYS.MAIN_DATA, existing);
+
+            const store = createStore();
+            await store.init();
+
+            expect(store.apps.find(a => a.id === 'app_orphan')?.category).toBe('all');
+            expect(store.apps.find(a => a.id === 'app_ok')?.category).toBe('custom');
+            const saved = await storageManager.get(STORAGE_KEYS.MAIN_DATA) as AppNavigatorData;
+            expect(saved.apps.find(a => a.id === 'app_orphan')?.category).toBe('all');
+        });
+
         it('初始化后再次调用应直接返回', async () => {
             const store = createStore();
             await store.init();
@@ -205,15 +224,20 @@ describe('useAppDataStore', () => {
             expect(store.getCategoryById(category.id)?.name).toBe('娱乐');
         });
 
-        it('deleteCategory 应删除分类及其应用', async () => {
+        it('deleteCategory 应删除分类并把其中的站点归入「全部应用」', async () => {
             const store = createStore();
             await store.init();
             const category = store.userCategories.find(c => c.id === 'media')!;
+            const appsInCategory = store.apps.filter(a => a.category === category.id).length;
+            const totalBefore = store.apps.length;
+            expect(appsInCategory).toBeGreaterThan(0);
+
             const deleted = await store.deleteCategory(category.id);
 
             expect(deleted).toBe(true);
             expect(store.categories.map(c => c.id)).not.toContain('media');
-            expect(store.apps.map(a => a.category)).not.toContain('media');
+            expect(store.apps).toHaveLength(totalBefore);
+            expect(store.apps.filter(a => a.category === 'all')).toHaveLength(appsInCategory);
         });
 
         it('禁止删除“全部应用”分类', async () => {
@@ -336,6 +360,9 @@ describe('useAppDataStore', () => {
                     }),
                 })
             );
+            // 刷盘不算用户改动：首次同步靠这个时间戳区分「本地编辑过」和「出厂默认数据」
+            const lastWrite = setManySpy.mock.calls[setManySpy.mock.calls.length - 1]?.[0];
+            expect(lastWrite).not.toHaveProperty(STORAGE_KEYS.DATA_UPDATED_AT);
         });
 
         it('applyStorageSnapshot 应应用云端快照', async () => {

@@ -124,18 +124,35 @@ const displayedApps = computed<AppItem[]>(() => {
 
 const hasApps = computed(() => displayedApps.value.length > 0);
 
-const categoriesWithVisibleApps = computed(() =>
-    dataManager.userCategories.value.filter(
-        (category) => getDisplayApps(category.id).length > 0
-    )
-);
-
 /** 传给侧栏的分类列表（关闭「显示全部应用」时只按分类显示） */
-const visibleCategories = computed(() => {
+const visibleCategories = computed<Category[]>(() => {
     if (layoutStore.showAllCategory) {
         return dataManager.categories.value;
     }
     return dataManager.categories.value.filter((category) => category.id !== 'all');
+});
+
+/**
+ * 「未分类」分组：分类字段指向「全部应用」的站点，即不属于任何用户分类的站点。
+ * 删分类后归回、或历史数据里的孤儿引用，都落在这里，保证站点在任何视图都不会看不见。
+ */
+const UNCATEGORIZED_SECTION: Category = {
+    id: 'all',
+    name: '未分类',
+    icon: './image/icons/folder.svg',
+    monochrome: true
+};
+
+/**
+ * 首页「全部应用」分组用的分类列表，与侧栏同源。
+ * 空分类照样渲染：刚建的分类如果看不到，用户会以为被吞了。
+ */
+const homeCategories = computed<Category[]>(() => {
+    const sections = visibleCategories.value.filter((category) => category.id !== 'all');
+    if (getDisplayApps('all').length > 0) {
+        sections.push(UNCATEGORIZED_SECTION);
+    }
+    return sections;
 });
 
 /**
@@ -297,7 +314,7 @@ async function handleCardDragCommit(payload: AppCardDragCommit): Promise<void> {
             }
         }
 
-        if (targetCategoryId === 'all') {
+        if (targetCategoryId === 'all' && layoutStore.allViewFlat) {
             // 「全部应用」平铺视图：直接按可见顺序全局重排，
             // 未出现的应用（如隐藏站点）保持相对顺序跟在后面
             const currentIds = dataManager.apps.value.map((app) => app.id);
@@ -570,7 +587,7 @@ const fabItems = [
 
             <template v-else-if="activeCategoryId === 'all'">
                 <CategorySection
-                    v-for="(category, index) in categoriesWithVisibleApps"
+                    v-for="(category, index) in homeCategories"
                     :key="category.id"
                     :category="category"
                     :apps="getDisplayApps(category.id)"
@@ -579,7 +596,11 @@ const fabItems = [
                     @app-click="handleAppClick"
                     @edit-app="openEditApp"
                     @delete-app="handleDeleteApp"
-                />
+                >
+                    <template #empty>
+                        <p class="section-empty-hint">该分类下暂无应用</p>
+                    </template>
+                </CategorySection>
             </template>
 
             <template v-else>
@@ -697,6 +718,13 @@ const fabItems = [
     padding: 80px 20px;
     color: var(--md-sys-color-on-surface-variant);
     text-align: center;
+}
+
+// 分组视图里的空分类只需一行提示，不要一块大图标
+.section-empty-hint {
+    padding: 12px 0;
+    font-size: 0.85rem;
+    color: var(--md-sys-color-on-surface-variant);
 }
 
 .app-loading :deep(.icon-svg) {

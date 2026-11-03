@@ -70,11 +70,23 @@ function valuesEqual(left: unknown, right: unknown): boolean {
     }
 }
 
-/** 补齐“全部应用”分类 */
+/**
+ * 补齐“全部应用”分类，并修复孤儿站点
+ *
+ * 站点引用的分类可能已经不存在（删分类、同步合并、导入旧备份都会造成），
+ * 那样它在任何分类视图里都渲染不出来，用户眼里就是“站点凭空丢了”。
+ * 一律重指到“全部应用”，至少保证站点始终可见。
+ */
 function normalizeMainData(data: AppNavigatorData): AppNavigatorData {
     const normalized = clone(data);
     if (!normalized.categories.some((category) => category.id === 'all')) {
         normalized.categories.unshift(clone(createDefaultAllCategory()));
+    }
+    const categoryIds = new Set(normalized.categories.map((category) => category.id));
+    for (const app of normalized.apps) {
+        if (!categoryIds.has(app.category)) {
+            app.category = 'all';
+        }
     }
     return normalized;
 }
@@ -309,10 +321,12 @@ export const useAppDataStore = defineStore('appData', () => {
             userUiLib.value = nextUiLib;
 
             if (!isMainData(savedData) || !valuesEqual(savedData, nextMain) || !isUserUiLib(savedUiLib)) {
+                // 首次落盘/补齐属于加载，不算用户改动，所以不打 DATA_UPDATED_AT：
+                // 云同步要靠它分辨「本机真的编辑过」和「出厂默认数据」，
+                // 一装机就把时间戳刷成当前，新设备就会在首次同步时把云端已有数据覆盖掉
                 await storageManager.setMany({
                     [STORAGE_KEYS.MAIN_DATA]: plainSnapshot(nextMain),
-                    [STORAGE_KEYS.USER_UI_LIB]: plainSnapshot(nextUiLib),
-                    [STORAGE_KEYS.DATA_UPDATED_AT]: Date.now()
+                    [STORAGE_KEYS.USER_UI_LIB]: plainSnapshot(nextUiLib)
                 });
             }
 
@@ -338,12 +352,14 @@ export const useAppDataStore = defineStore('appData', () => {
 
     /**
      * 将当前内存数据立即持久化
+     *
+     * 只是给云同步刷一遍盘，不算用户改动，所以不打 DATA_UPDATED_AT：
+     * 首次同步要靠这个时间戳判断本地到底有没有被编辑过。
      */
     async function syncNow(): Promise<void> {
         await storageManager.setMany({
             [STORAGE_KEYS.MAIN_DATA]: plainSnapshot(data.value),
-            [STORAGE_KEYS.USER_UI_LIB]: plainSnapshot(userUiLib.value),
-            [STORAGE_KEYS.DATA_UPDATED_AT]: Date.now()
+            [STORAGE_KEYS.USER_UI_LIB]: plainSnapshot(userUiLib.value)
         });
     }
 
@@ -524,13 +540,19 @@ export const useAppDataStore = defineStore('appData', () => {
 
     /**
      * 删除分类（禁止删除“全部应用”）
+     *
+     * 只删分类，不删站点：分类下的站点归回“全部应用”。
      */
     async function deleteCategory(id: string): Promise<boolean> {
         if (id === 'all') return false;
         return mutateMain((draft) => {
             const before = draft.categories.length;
             draft.categories = draft.categories.filter((category) => category.id !== id);
-            draft.apps = draft.apps.filter((app) => app.category !== id);
+            for (const app of draft.apps) {
+                if (app.category === id) {
+                    app.category = 'all';
+                }
+            }
             return draft.categories.length !== before;
         });
     }

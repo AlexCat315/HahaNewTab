@@ -70,7 +70,7 @@ function handleEdit(category: Category): void {
 
 async function handleDelete(category: Category): Promise<void> {
     const count = appCounts.value[category.id] || 0;
-    const countText = count > 0 ? `该分类下的 ${count} 个网站也会被删除。` : '';
+    const countText = count > 0 ? `该分类下的 ${count} 个网站会归入「全部应用」，不会丢失。` : '';
 
     const confirmed = await confirmManager.confirm(
         `确定要删除分类"${category.name}"吗？${countText}`,

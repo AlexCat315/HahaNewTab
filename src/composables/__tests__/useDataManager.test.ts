@@ -205,16 +205,18 @@ describe('useDataManager', () => {
             wrapper.unmount();
         });
 
-        it('deleteCategory 应删除分类及其应用', async () => {
+        it('deleteCategory 应删除分类并保留其中的站点', async () => {
             const { getDm, wrapper } = mountUseDataManager({ autoInit: false });
             await getDm().init();
 
             const category = getDm().userCategories.value.find((c) => c.id === 'media')!;
+            const totalBefore = getDm().apps.value.length;
             const deleted = await getDm().deleteCategory(category.id);
 
             expect(deleted).toBe(true);
             expect(getDm().categories.value.map((c) => c.id)).not.toContain('media');
             expect(getDm().apps.value.map((a) => a.category)).not.toContain('media');
+            expect(getDm().apps.value).toHaveLength(totalBefore);
             wrapper.unmount();
         });
     });

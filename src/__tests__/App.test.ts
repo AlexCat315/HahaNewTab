@@ -403,6 +403,43 @@ describe('App.vue', () => {
         expect(wrapper.findAll('.app-card')).toHaveLength(2);
     });
 
+    it('空分类在「全部应用」分组视图里依然渲染，不会因移动走站点就消失', async () => {
+        const dm = createMockDataManager();
+        dm.categories.value = [
+            ...mockCategories,
+            { id: 'ent', name: '娱乐工具', icon: './image/icons/folder.svg', monochrome: true },
+        ];
+        vi.mocked(useDataManager).mockReturnValue(dm as unknown as ReturnType<typeof useDataManager>);
+
+        const wrapper = mountApp();
+        await flushPromises();
+
+        const sectionNames = wrapper.findAll('.category-section__name').map((node) => node.text());
+        expect(sectionNames).toEqual(expect.arrayContaining(['开发工具', '娱乐媒体', '娱乐工具']));
+
+        // 侧栏与首页分组用的是同一份分类
+        const sidebarIds = (wrapper.findComponent(Sidebar).props('categories') as Array<{ id: string }>)
+            .map((c) => c.id);
+        expect(sidebarIds).toContain('ent');
+    });
+
+    it('不属于任何用户分类的站点渲染在「未分类」区块', async () => {
+        const dm = createMockDataManager();
+        dm.apps.value = [
+            ...mockApps,
+            { id: 'app_loose', name: '未归类', url: 'https://loose.test', category: 'all', hidden: false },
+        ];
+        vi.mocked(useDataManager).mockReturnValue(dm as unknown as ReturnType<typeof useDataManager>);
+
+        const wrapper = mountApp();
+        await flushPromises();
+
+        const sections = wrapper.findAll('.category-section');
+        const loose = sections.find((section) => section.find('.category-section__name').text() === '未分类');
+        expect(loose).toBeDefined();
+        expect(loose!.findAll('.app-card')).toHaveLength(1);
+    });
+
     it('点击应用卡片在新标签页打开链接', async () => {
         const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
         const wrapper = mountApp();

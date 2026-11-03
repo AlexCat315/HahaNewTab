@@ -153,7 +153,7 @@ describe('CategoryManager', () => {
         expect(wrapper.emitted('add')).toHaveLength(1);
     });
 
-    it('点击删除按钮并从存储中移除分类及其应用', async () => {
+    it('点击删除按钮移除分类但保留其中的站点', async () => {
         mount(CategoryManager, {
             props: { modelValue: true },
             attachTo: document.body,
@@ -167,6 +167,7 @@ describe('CategoryManager', () => {
 
         const saved = (await storageManager.get(STORAGE_KEYS.MAIN_DATA)) as AppNavigatorData;
         expect(saved.categories.map((c) => c.id)).not.toContain('media');
-        expect(saved.apps.map((a) => a.id)).not.toContain('app_1');
+        expect(saved.apps.map((a) => a.id)).toContain('app_1');
+        expect(saved.apps.find((a) => a.id === 'app_1')?.category).toBe('all');
     });
 });
