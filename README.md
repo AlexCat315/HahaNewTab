@@ -1,7 +1,6 @@
 # HahaNewTab - 新标签页导航
 
 一个基于 **Material Design 3** 设计的纯前端新标签页导航应用，同时也是一个 **Chrome / Firefox 浏览器扩展（Manifest V3）**。它提供统一的应用导航中心，用于管理和快速访问各类开发者工具、外部链接和自定义网站。
-![HahaNewTab](./public/image/logo/mugen.png)
 ![HahaNewTab](./public/image/logo/logo_girl-256.png)
 
 ---

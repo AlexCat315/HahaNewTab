@@ -54,7 +54,7 @@ import {
     clearRemoteCrossDeviceAuth
 } from '../crossDeviceSync.service';
 
-const REMOTE_AUTH_KEY = 'mugen_cross_device_auth';
+const REMOTE_AUTH_KEY = 'haha_cross_device_auth';
 const LOCAL_PASSPHRASE_KEY = 'appNavigator_crossDevice_passphrase';
 
 const AUTH = { token: 'ghp_cross_device_token_123', provider: 'github' };
@@ -218,10 +218,10 @@ describe('crossDeviceSync.service', () => {
 
     it('推送时写入元信息，关闭时一并清除', async () => {
         await enableCrossDevice(PASSPHRASE, AUTH);
-        expect(syncStore.has('mugen_cross_device_auth_meta')).toBe(true);
+        expect(syncStore.has('haha_cross_device_auth_meta')).toBe(true);
 
         await disableCrossDevice();
-        expect(syncStore.has('mugen_cross_device_auth_meta')).toBe(false);
+        expect(syncStore.has('haha_cross_device_auth_meta')).toBe(false);
     });
 
     it('clearRemoteCrossDeviceAuth 只清远端密文，保留本机开关', async () => {

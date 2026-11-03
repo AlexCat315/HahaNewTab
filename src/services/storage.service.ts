@@ -18,7 +18,7 @@ import {
 } from '@/types/storage';
 
 /** 本地存储变更事件名 */
-export const STORAGE_EVENT = 'mugen-storage-change';
+export const STORAGE_EVENT = 'haha-storage-change';
 
 /** 同步镜像键集合（从 types/storage.ts 重新导出，便于 service 内部使用） */
 export { SYNC_MIRROR_KEYS };

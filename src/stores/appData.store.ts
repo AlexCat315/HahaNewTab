@@ -80,7 +80,7 @@ function normalizeMainData(data: AppNavigatorData): AppNavigatorData {
 }
 
 /** 写锁名称 */
-const WRITE_LOCK = 'mugen-newtab-data-write';
+const WRITE_LOCK = 'haha-newtab-data-write';
 
 /**
  * 校验站点 URL 是否与已有站点重复

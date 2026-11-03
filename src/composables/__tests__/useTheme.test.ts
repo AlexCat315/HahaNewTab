@@ -56,7 +56,7 @@ const mockThemes: ThemeConfig = {
             isDark: false,
             name: 'Material Rose',
             description: '默认浅色主题',
-            logo: 'image/logo/mugen.png',
+            logo: 'image/logo/logo_girl-256.png',
             colors: makeColors('#B14A6B', '#FFF8F9', '#201A1A'),
         },
         {
@@ -66,7 +66,7 @@ const mockThemes: ThemeConfig = {
             isDark: true,
             name: 'Material Rose',
             description: '默认深色主题',
-            logo: 'image/logo/mugen.png',
+            logo: 'image/logo/logo_girl-256.png',
             colors: makeColors('#E8A2B4', '#1D191A', '#EEECED'),
         },
         {
@@ -76,7 +76,7 @@ const mockThemes: ThemeConfig = {
             isDark: false,
             name: 'Azure Sky',
             description: '蓝色主题',
-            logo: 'image/logo/mugen.png',
+            logo: 'image/logo/logo_girl-256.png',
             colors: makeColors('#409EFF', '#FFFFFF', '#303133'),
         },
         {
@@ -86,7 +86,7 @@ const mockThemes: ThemeConfig = {
             isDark: true,
             name: 'Azure Sky',
             description: '蓝色深色主题',
-            logo: 'image/logo/mugen.png',
+            logo: 'image/logo/logo_girl-256.png',
             colors: makeColors('#8AB4F8', '#101418', '#E3E3E3'),
         },
     ],

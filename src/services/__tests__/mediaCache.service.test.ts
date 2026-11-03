@@ -16,7 +16,7 @@ const ICON_URL = 'https://example.com/favicon.ico';
 const ICON_URL_B = 'https://other.com/icon.png';
 const WALLPAPER_URL = 'https://images.example.com/wide.jpg';
 
-const DB_NAME = 'mugen-media-cache';
+const DB_NAME = 'haha-media-cache';
 const STORE_NAME = 'entries';
 
 /** 构造一个带内容的图片 Blob */

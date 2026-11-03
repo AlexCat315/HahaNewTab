@@ -31,7 +31,7 @@ vi.mock('@/services/storage.service', () => ({
 function makeRelease(version: string): LatestRelease {
     return {
         version,
-        downloadUrl: `https://example.com/mugen-${version}.xpi`,
+        downloadUrl: `https://example.com/haha-${version}.xpi`,
         releaseUrl: `https://example.com/releases/${version}`,
     };
 }
@@ -70,8 +70,8 @@ describe('compareVersions', () => {
 
 describe('pickDownloadUrl', () => {
     const assets = [
-        { name: 'mugennewtab-1.0.0.109.xpi', browser_download_url: 'https://example.com/a.xpi' },
-        { name: 'mugen_newtab-chromium.zip', browser_download_url: 'https://example.com/a.zip' },
+        { name: 'hahanewtab-1.0.0.109.xpi', browser_download_url: 'https://example.com/a.xpi' },
+        { name: 'haha_newtab-chromium.zip', browser_download_url: 'https://example.com/a.zip' },
     ];
 
     it('Firefox 优先取 xpi', () => {
@@ -123,8 +123,8 @@ describe('parseReleaseApi', () => {
         tag_name: 'v1.0.0.109',
         html_url: 'https://github.com/x/y/releases/tag/v1.0.0.109',
         assets: [
-            { name: 'mugennewtab-1.0.0.109.xpi', browser_download_url: 'https://example.com/a.xpi' },
-            { name: 'mugen_newtab-chromium.zip', browser_download_url: 'https://example.com/a.zip' },
+            { name: 'hahanewtab-1.0.0.109.xpi', browser_download_url: 'https://example.com/a.xpi' },
+            { name: 'haha_newtab-chromium.zip', browser_download_url: 'https://example.com/a.zip' },
         ],
     };
 
@@ -298,7 +298,7 @@ describe('useUpdateCheck', () => {
         check.openDownload();
 
         expect(openSpy).toHaveBeenCalledWith(
-            'https://example.com/mugen-1.0.0.109.xpi',
+            'https://example.com/haha-1.0.0.109.xpi',
             '_blank'
         );
     });

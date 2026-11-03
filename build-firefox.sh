@@ -9,10 +9,14 @@ echo "=========================================="
 echo ""
 
 # 清理旧的构建目录
-if [ -d "build-firefox" ]; then
-    echo "🧹 清理旧构建目录..."
-    rm -rf build-firefox
-fi
+# dist-firefox 是增量输出（--emptyOutDir=false），不清空会把已删除的旧资源
+# 一并复制进发布包，所以每次构建前必须重建
+for d in build-firefox dist-firefox; do
+    if [ -d "$d" ]; then
+        echo "🧹 清理旧构建目录 $d/..."
+        rm -rf "$d"
+    fi
+done
 
 echo "📦 构建 Firefox 版本..."
 npm run build:firefox

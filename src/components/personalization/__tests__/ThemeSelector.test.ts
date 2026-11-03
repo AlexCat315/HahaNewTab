@@ -12,7 +12,7 @@ const themesConfig = {
             family: 'material-rose',
             mode: 'light',
             isDark: false,
-            name: 'Mugen娘经典',
+            name: 'Haha娘经典',
             description: '温柔玫粉',
             logo: '',
             colors: {
@@ -32,7 +32,7 @@ const themesConfig = {
             family: 'material-rose',
             mode: 'dark',
             isDark: true,
-            name: 'Mugen娘经典',
+            name: 'Haha娘经典',
             description: '温柔玫粉',
             logo: '',
             colors: {
@@ -116,7 +116,7 @@ describe('ThemeSelector', () => {
         expect(wrapper.text()).toContain('主题配色');
         const options = wrapper.findAll('.theme-option');
         expect(options).toHaveLength(2);
-        expect(options[0].text()).toContain('Mugen娘经典');
+        expect(options[0].text()).toContain('Haha娘经典');
         expect(options[1].text()).toContain('午夜蔷薇');
     });
 
@@ -150,7 +150,7 @@ describe('ThemeSelector', () => {
         // 切模式不换族，列表里的 active 仍停在同一个主题族
         const active = wrapper.findAll('.theme-option.active');
         expect(active).toHaveLength(1);
-        expect(active[0].text()).toContain('Mugen娘经典');
+        expect(active[0].text()).toContain('Haha娘经典');
     });
 
     it('点击主题族切换并触发事件（沿用当前明暗模式）', async () => {
@@ -187,7 +187,7 @@ describe('ThemeSelector', () => {
 
         const active = wrapper.findAll('.theme-option.active');
         expect(active).toHaveLength(1);
-        expect(active[0].text()).toContain('Mugen娘经典');
+        expect(active[0].text()).toContain('Haha娘经典');
     });
 
     it('预览圆点同时体现明暗表面与主色', async () => {

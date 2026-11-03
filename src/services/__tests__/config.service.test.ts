@@ -24,9 +24,9 @@ describe('ConfigService', () => {
             themes: [
                 {
                     id: 'material-rose',
-                    name: 'Mugen娘经典',
+                    name: 'Haha娘经典',
                     description: '温柔玫粉',
-                    logo: 'image/logo/mugen.png',
+                    logo: 'image/logo/logo_girl-256.png',
                     colors: { '--md-sys-color-primary': '#B14A6B' },
                 },
             ],

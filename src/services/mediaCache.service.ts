@@ -17,13 +17,13 @@
 import { STORAGE_KEYS } from '@/types/storage';
 
 /** 数据库名称 */
-const DB_NAME = 'mugen-media-cache';
+const DB_NAME = 'haha-media-cache';
 /** 数据库版本 */
 const DB_VERSION = 1;
 /** 对象仓库名称 */
 const STORE_NAME = 'entries';
-/** 旧版本（仅图标缓存）使用的数据库名，打开新库时顺手清掉，回收空间 */
-const LEGACY_DB_NAME = 'mugen-icon-cache';
+/** 旧品牌时期用过的数据库名，打开新库时顺手清掉，回收空间 */
+const LEGACY_DB_NAMES = ['mugen-icon-cache', 'mugen-media-cache'];
 
 /** 图标缓存有效期：7 天（毫秒） */
 export const ICON_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -370,14 +370,15 @@ class MediaCacheService {
         return this.dbPromise;
     }
 
-    /** 尽力删除旧版本遗留的纯图标缓存库（失败无副作用） */
+    /** 尽力删除旧品牌遗留的缓存库（失败无副作用） */
     private dropLegacyDb(): void {
         try {
             if (typeof indexedDB.deleteDatabase !== 'function') {
                 return;
             }
-            const request = indexedDB.deleteDatabase(LEGACY_DB_NAME);
-            request.onerror = () => undefined;
+            for (const name of LEGACY_DB_NAMES) {
+                indexedDB.deleteDatabase(name).onerror = () => undefined;
+            }
         } catch {
             // 忽略：旧库删不掉只是占一点空间
         }

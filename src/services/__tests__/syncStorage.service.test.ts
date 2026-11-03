@@ -97,17 +97,17 @@ describe('syncStorage.service', () => {
         const received: boolean[] = [];
 
         const unsubscribe = subscribeSyncAreaChanges((changes) => {
-            received.push('mugen_cross_device_auth' in changes);
+            received.push('haha_cross_device_auth' in changes);
         });
 
         // local 区域的变更不应触发
         for (const listener of mock.listeners) {
-            listener({ mugen_cross_device_auth: { newValue: 1 } }, 'local');
+            listener({ haha_cross_device_auth: { newValue: 1 } }, 'local');
         }
         expect(received).toHaveLength(0);
 
         for (const listener of mock.listeners) {
-            listener({ mugen_cross_device_auth: { newValue: { v: 1 } } }, 'sync');
+            listener({ haha_cross_device_auth: { newValue: { v: 1 } } }, 'sync');
         }
         expect(received).toEqual([true]);
 

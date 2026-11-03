@@ -198,7 +198,7 @@ async function handleSubmit(): Promise<void> {
         // 向父页面发送消息，通知添加成功
         if (browserApi.isExtension) {
             try {
-                window.parent.postMessage({ type: 'mugen-app-added', app: saved }, '*');
+                window.parent.postMessage({ type: 'haha-app-added', app: saved }, '*');
             } catch {
                 // 忽略跨域消息发送失败
             }

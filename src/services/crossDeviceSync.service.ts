@@ -37,9 +37,9 @@ const LOCAL_ENABLED_KEY = 'appNavigator_crossDevice_enabled';
 /** 本机：加密口令（不上传） */
 const LOCAL_PASSPHRASE_KEY = 'appNavigator_crossDevice_passphrase';
 /** 同步区：加密后的登录凭据 */
-export const REMOTE_AUTH_KEY = 'mugen_cross_device_auth';
+export const REMOTE_AUTH_KEY = 'haha_cross_device_auth';
 /** 同步区：凭据元信息（明文，只含设备名与时间，不含 Token） */
-export const REMOTE_META_KEY = 'mugen_cross_device_auth_meta';
+export const REMOTE_META_KEY = 'haha_cross_device_auth_meta';
 
 /** 需要跨设备同步的登录凭据 */
 export interface CrossDeviceAuth {

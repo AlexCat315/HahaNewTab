@@ -20,9 +20,9 @@
             "family": "material-rose",
             "mode": "light",
             "isDark": false,
-            "name": "Mugen娘经典",
+            "name": "Haha娘经典",
             "description": "温柔玫粉，如初春樱花",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#B14A6B",
                 "--md-sys-color-on-primary": "#FFFFFF",
@@ -54,9 +54,9 @@
             "family": "material-rose",
             "mode": "dark",
             "isDark": true,
-            "name": "Mugen娘经典",
+            "name": "Haha娘经典",
             "description": "温柔玫粉，如初春樱花",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#D5A4B4",
                 "--md-sys-color-on-primary": "#3A2229",
@@ -90,7 +90,7 @@
             "isDark": false,
             "name": "午夜蔷薇",
             "description": "深邃红与黑，神秘优雅",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#C70505",
                 "--md-sys-color-on-primary": "#FFFFFF",
@@ -124,7 +124,7 @@
             "isDark": true,
             "name": "午夜蔷薇",
             "description": "深邃红与黑，神秘优雅",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#D70000",
                 "--md-sys-color-on-primary": "#FFFFFF",
@@ -158,7 +158,7 @@
             "isDark": false,
             "name": "薰衣草雾",
             "description": "淡紫氤氲，如梦似幻",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#8B5CF6",
                 "--md-sys-color-on-primary": "#FFFFFF",
@@ -192,7 +192,7 @@
             "isDark": true,
             "name": "薰衣草雾",
             "description": "淡紫氤氲，如梦似幻",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#AA8CED",
                 "--md-sys-color-on-primary": "#241547",
@@ -226,7 +226,7 @@
             "isDark": false,
             "name": "森之语",
             "description": "清新自然，生机盎然",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#239A8E",
                 "--md-sys-color-on-primary": "#0C312E",
@@ -260,7 +260,7 @@
             "isDark": true,
             "name": "森之语",
             "description": "清新自然，生机盎然",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#9BDFD8",
                 "--md-sys-color-on-primary": "#1D3F3C",
@@ -294,7 +294,7 @@
             "isDark": false,
             "name": "静谧书馆",
             "description": "紫灰静谧，知性优雅",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#413B91",
                 "--md-sys-color-on-primary": "#FFFFFF",
@@ -328,7 +328,7 @@
             "isDark": true,
             "name": "静谧书馆",
             "description": "紫灰静谧，知性优雅",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#A5A3C0",
                 "--md-sys-color-on-primary": "#1A1A1F",
@@ -362,7 +362,7 @@
             "isDark": false,
             "name": "碧空如洗",
             "description": "澄澈天蓝，心旷神怡",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#218EFF",
                 "--md-sys-color-on-primary": "#0C1E31",
@@ -396,7 +396,7 @@
             "isDark": true,
             "name": "碧空如洗",
             "description": "澄澈天蓝，心旷神怡",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#89BCF0",
                 "--md-sys-color-on-primary": "#142D48",
@@ -430,7 +430,7 @@
             "isDark": false,
             "name": "琥珀微光",
             "description": "暖橙如夕，温馨舒适",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#C07C08",
                 "--md-sys-color-on-primary": "#31230C",
@@ -464,7 +464,7 @@
             "isDark": true,
             "name": "琥珀微光",
             "description": "暖橙如夕，温馨舒适",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#EFCA8B",
                 "--md-sys-color-on-primary": "#473415",
@@ -498,7 +498,7 @@
             "isDark": false,
             "name": "桃之夭夭",
             "description": "粉嫩蜜桃，甜美可人",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#c93756",
                 "--md-sys-color-on-primary": "#FFFFFF",
@@ -532,7 +532,7 @@
             "isDark": true,
             "name": "桃之夭夭",
             "description": "粉嫩蜜桃，甜美可人",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#DC9DAB",
                 "--md-sys-color-on-primary": "#3E1E25",
@@ -566,7 +566,7 @@
             "isDark": false,
             "name": "薄荷清风",
             "description": "清凉薄荷，提神醒脑",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#119C8D",
                 "--md-sys-color-on-primary": "#0C312D",
@@ -600,7 +600,7 @@
             "isDark": true,
             "name": "薄荷清风",
             "description": "清凉薄荷，提神醒脑",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#91E8DF",
                 "--md-sys-color-on-primary": "#18443F",
@@ -634,7 +634,7 @@
             "isDark": false,
             "name": "深海幽蓝",
             "description": "深邃海蓝，宁静致远",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#065CC6",
                 "--md-sys-color-on-primary": "#FFFFFF",
@@ -668,7 +668,7 @@
             "isDark": true,
             "name": "深海幽蓝",
             "description": "深邃海蓝，宁静致远",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#60A5FA",
                 "--md-sys-color-on-primary": "#1E3A5F",
@@ -702,7 +702,7 @@
             "isDark": false,
             "name": "秋叶绯红",
             "description": "暖棕枫叶，秋意浓浓",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#C2410C",
                 "--md-sys-color-on-primary": "#FFFFFF",
@@ -736,7 +736,7 @@
             "isDark": true,
             "name": "秋叶绯红",
             "description": "暖棕枫叶，秋意浓浓",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#EDA98D",
                 "--md-sys-color-on-primary": "#462416",
@@ -770,7 +770,7 @@
             "isDark": false,
             "name": "霓虹赛博",
             "description": "高对比霓虹，未来科技",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#A510BC",
                 "--md-sys-color-on-primary": "#FFFFFF",
@@ -804,7 +804,7 @@
             "isDark": true,
             "name": "霓虹赛博",
             "description": "高对比霓虹，未来科技",
-            "logo": "image/logo/mugen.png",
+            "logo": "image/logo/logo_girl-256.png",
             "colors": {
                 "--md-sys-color-primary": "#D946EF",
                 "--md-sys-color-on-primary": "#FFFFFF",

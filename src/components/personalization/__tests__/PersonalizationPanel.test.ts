@@ -8,7 +8,7 @@ const themesConfig = {
     themes: [
         {
             id: 'material-rose',
-            name: 'Mugen娘经典',
+            name: 'Haha娘经典',
             description: '',
             logo: '',
             isDark: false,

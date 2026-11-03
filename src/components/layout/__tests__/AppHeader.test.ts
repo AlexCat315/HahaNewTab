@@ -11,10 +11,10 @@ describe('AppHeader', () => {
     it('渲染品牌标题', () => {
         const wrapper = mount(AppHeader, {
             props: {
-                title: 'Mugen'
+                title: 'Haha'
             }
         });
-        expect(wrapper.text()).toContain('Mugen');
+        expect(wrapper.text()).toContain('Haha');
     });
 
     it('折叠按钮位于品牌区右侧', () => {

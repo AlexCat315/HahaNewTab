@@ -66,7 +66,7 @@ function makeTheme(
         isDark: mode === 'dark',
         name,
         description: `${name}描述`,
-        logo: 'image/logo/mugen.png',
+        logo: 'image/logo/logo_girl-256.png',
         colors: makeColors(primary, surface, onSurface),
     };
 }
@@ -78,8 +78,8 @@ const mockThemes: ThemeConfig = {
         'midnight-rose': 'midnight-rose-dark',
     },
     themes: [
-        makeTheme('material-rose-light', 'material-rose', 'light', 'Mugen娘经典', '#B14A6B', '#FFF8F9', '#201A1A'),
-        makeTheme('material-rose-dark', 'material-rose', 'dark', 'Mugen娘经典', '#E8A2B4', '#1D191A', '#EEECED'),
+        makeTheme('material-rose-light', 'material-rose', 'light', 'Haha娘经典', '#B14A6B', '#FFF8F9', '#201A1A'),
+        makeTheme('material-rose-dark', 'material-rose', 'dark', 'Haha娘经典', '#E8A2B4', '#1D191A', '#EEECED'),
         makeTheme('midnight-rose-light', 'midnight-rose', 'light', '午夜蔷薇', '#B3261E', '#FFF8F8', '#1A1110'),
         makeTheme('midnight-rose-dark', 'midnight-rose', 'dark', '午夜蔷薇', '#8B0000', '#1A1A1A', '#E8E8E8'),
     ],
@@ -216,7 +216,7 @@ describe('useThemeStore', () => {
         expect(store.themeFamilies).toHaveLength(2);
         const rose = store.themeFamilies[0];
         expect(rose.id).toBe('material-rose');
-        expect(rose.name).toBe('Mugen娘经典');
+        expect(rose.name).toBe('Haha娘经典');
         expect(rose.light?.id).toBe('material-rose-light');
         expect(rose.dark?.id).toBe('material-rose-dark');
         expect(store.currentFamilyId).toBe('material-rose');
@@ -461,14 +461,14 @@ describe('useThemeStore', () => {
                     id: 'legacy-light',
                     name: '旧亮色',
                     description: '旧配置',
-                    logo: 'image/logo/mugen.png',
+                    logo: 'image/logo/logo_girl-256.png',
                     colors: makeColors('#B14A6B', '#FFF8F9', '#201A1A'),
                 },
                 {
                     id: 'legacy-dark',
                     name: '旧深色',
                     description: '旧配置',
-                    logo: 'image/logo/mugen.png',
+                    logo: 'image/logo/logo_girl-256.png',
                     isDark: true,
                     colors: makeColors('#E8A2B4', '#1D191A', '#EEECED'),
                 },

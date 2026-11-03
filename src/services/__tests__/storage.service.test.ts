@@ -171,11 +171,11 @@ describe('StorageManager', () => {
         unsubscribe();
     });
 
-    it('导出常量应符合原项目键名', () => {
+    it('导出常量应符合约定键名', () => {
         expect(STORAGE_KEYS.MAIN_DATA).toBe('appNavigator_data');
         expect(STORAGE_KEYS.USER_UI_LIB).toBe('appNavigator_user_uiLib');
         expect(STORAGE_KEYS.DATA_UPDATED_AT).toBe('appNavigator_dataUpdatedAt');
-        expect(STORAGE_EVENT).toBe('mugen-storage-change');
+        expect(STORAGE_EVENT).toBe('haha-storage-change');
     });
 
     it('单例应可正常使用', async () => {
