@@ -238,12 +238,12 @@ watch(
 
         <main class="popup-body">
             <div v-if="isLoading" class="popup-state">
-                <IconSvg name="refresh" :size="24" />
+                <IconSvg name="refresh" size="var(--icon-md)" />
                 <p>读取当前标签页…</p>
             </div>
 
             <div v-else-if="!isValid" class="popup-state popup-state--error">
-                <IconSvg name="warning" :size="24" />
+                <IconSvg name="warning" size="var(--icon-md)" />
                 <p>当前页面无法添加</p>
                 <span class="popup-state-hint">不支持 chrome://、about: 等浏览器内部页面</span>
             </div>
@@ -268,7 +268,7 @@ watch(
                 />
 
                 <p v-if="duplicateApp && !errors.url" class="popup-warning">
-                    <IconSvg name="warning" :size="14" />
+                    <IconSvg name="warning" size="var(--icon-xs)" />
                     <span>
                         该网站已存在：{{ duplicateApp.name }}（分类：{{ duplicateCategoryName }}），无需重复添加
                     </span>
@@ -319,7 +319,7 @@ watch(
                         <div class="icon-preview">
                             <IconSvg
                                 :src="effectiveIcon"
-                                :size="32"
+                                size="var(--icon-lg)"
                                 :fallback="DEFAULT_ICON"
                                 alt="图标预览"
                             />
@@ -339,7 +339,7 @@ watch(
                             @click="autoFetchIcon"
                         >
                             <template #icon>
-                                <IconSvg name="refresh" :size="14" />
+                                <IconSvg name="refresh" size="var(--icon-xs)" />
                             </template>
                             自动获取
                         </BaseButton>
@@ -383,19 +383,21 @@ watch(
 @use '@/styles/mixins' as *;
 
 .popup-root {
-    width: 360px;
-    min-height: 240px;
+    // popup 与 Toast 是同一列轻浮层，宽度取同一档
+    width: var(--pop-w-toast);
+    // 读取标签页期间的状态块很短，没有下限的话 popup 会在「加载 → 表单」之间跳高
+    min-height: var(--panel-body-min-h);
     background: var(--md-sys-color-surface);
     color: var(--md-sys-color-on-surface);
     display: flex;
     flex-direction: column;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     overflow: hidden;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+    box-shadow: var(--elevation-2);
 }
 
 .popup-header {
-    padding: 14px 16px;
+    padding: var(--space-4);
     background: linear-gradient(
         135deg,
         var(--md-sys-color-primary) 0%,
@@ -406,28 +408,28 @@ watch(
 .popup-brand {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-3);
     cursor: pointer;
 }
 
 // 品牌图自带白底：原图直出，只做圆角，不加内边距/边框/投影
 .popup-logo {
-    width: 32px;
-    height: 32px;
+    width: var(--icon-lg);
+    height: var(--icon-lg);
     object-fit: contain;
-    border-radius: 9px;
+    border-radius: var(--radius-sm);
     flex-shrink: 0;
 }
 
 .popup-title {
-    font-size: 15px;
-    font-weight: 600;
-    color: #fff;
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--md-sys-color-on-primary);
 }
 
 .popup-body {
     flex: 1;
-    padding: 16px;
+    padding: var(--space-4);
     display: flex;
     flex-direction: column;
 }
@@ -435,7 +437,7 @@ watch(
 .popup-form {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: var(--space-4);
 }
 
 .popup-state {
@@ -444,48 +446,48 @@ watch(
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 10px;
-    padding: 32px 16px;
+    gap: var(--space-3);
+    padding: var(--space-8) var(--space-4);
     color: var(--md-sys-color-on-surface-variant);
     text-align: center;
 
     &--error {
-        color: var(--md-sys-color-error);
+        color: var(--color-error);
     }
 }
 
 .popup-state-hint {
-    font-size: 12px;
+    font-size: var(--text-xs);
     color: var(--md-sys-color-on-surface-variant);
 }
 
 .form-group {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--space-2);
 }
 
 .form-label {
     display: flex;
     align-items: center;
-    gap: 4px;
-    font-size: 13px;
-    font-weight: 600;
+    gap: var(--space-1);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
     color: var(--md-sys-color-on-surface);
 }
 
 .form-required {
-    color: var(--md-sys-color-error);
+    color: var(--color-error);
 }
 
 .form-select {
     width: 100%;
-    padding: 10px 14px;
+    padding: var(--space-3) var(--space-4);
     border: 1px solid var(--md-sys-color-outline);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: var(--md-sys-color-surface);
     color: var(--md-sys-color-on-surface);
-    font-size: 14px;
+    font-size: var(--text-base);
     font-family: inherit;
     outline: none;
     cursor: pointer;
@@ -493,32 +495,32 @@ watch(
 
     &:focus {
         border-color: var(--md-sys-color-primary);
-        box-shadow: 0 0 0 3px rgba(177, 74, 107, 0.08);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent);
     }
 
     &--error {
-        border-color: var(--md-sys-color-error);
+        border-color: var(--color-error);
     }
 }
 
 .form-error {
     margin: 0;
-    font-size: 12px;
-    color: var(--md-sys-color-error);
-    line-height: 1.4;
+    font-size: var(--text-xs);
+    color: var(--color-error);
+    line-height: var(--leading-normal);
 }
 
 .popup-warning {
     display: flex;
     align-items: flex-start;
-    gap: 6px;
+    gap: var(--space-2);
     margin: 0;
-    padding: 8px 10px;
-    border-radius: 8px;
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--md-sys-color-on-tertiary-container, #4a3200);
-    background: var(--md-sys-color-tertiary-container, rgba(255, 179, 0, 0.16));
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-xs);
+    line-height: var(--leading-normal);
+    color: var(--on-warning);
+    background: var(--tint-warning);
 
     :deep(.icon-svg) {
         margin-top: 1px;
@@ -530,14 +532,15 @@ watch(
 .icon-selector {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-3);
 }
 
 .icon-preview {
-    width: 40px;
-    height: 40px;
+    // 底板边长取图标 xl 档，预览图标（lg）在里面正好留出一圈内衬
+    width: var(--icon-xl);
+    height: var(--icon-xl);
     flex-shrink: 0;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: var(--md-sys-color-surface-variant);
     border: 1px solid var(--md-sys-color-outline);
     @include flex-center(row, 0);
@@ -549,16 +552,16 @@ watch(
 
 .icon-actions {
     display: flex;
-    gap: 8px;
-    margin-top: 2px;
+    gap: var(--space-2);
+    margin-top: var(--space-1);
     align-items: center;
 }
 
 .icon-larger-toggle {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 13px;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
     color: var(--md-sys-color-on-surface);
     cursor: pointer;
     margin-left: auto;
@@ -572,18 +575,11 @@ watch(
 }
 
 .popup-footer {
-    padding: 12px 16px;
+    padding: var(--space-3) var(--space-4);
     border-top: 1px solid var(--md-sys-color-outline-variant);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 12px;
-}
-
-// 深色模式：表面色/输入框底色都来自主题 token，这里只补一个悬停层
-// （后代选择器直接写在 scoped 里，用 :global() 包裹会被编译丢成 html 自身）
-html.dark-mode .form-select {
-    background: var(--hover-bg);
-    border-color: var(--md-sys-color-outline-variant);
+    gap: var(--space-3);
 }
 </style>

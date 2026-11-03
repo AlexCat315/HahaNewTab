@@ -112,7 +112,7 @@ onUnmounted(() => {
                     @click="handleItemClick(item)"
                 >
                     <span v-if="item.icon" class="fab-item-icon">
-                        <IconSvg :name="item.icon" :size="20" monochrome />
+                        <IconSvg :name="item.icon" size="var(--icon-sm)" monochrome />
                     </span>
                     <span class="fab-item-label">{{ item.label }}</span>
                 </li>
@@ -128,7 +128,7 @@ onUnmounted(() => {
             :aria-expanded="isOpen"
             @click.stop="toggle"
         >
-            <IconSvg :name="mainIcon" :size="24" />
+            <IconSvg :name="mainIcon" size="var(--icon-md)" />
         </button>
     </div>
 </template>
@@ -151,7 +151,7 @@ onUnmounted(() => {
     @include button-reset;
     width: var(--fab-size);
     height: var(--fab-size);
-    border-radius: 50%;
+    border-radius: var(--radius-full);
     background: var(--md-sys-color-primary);
     color: var(--md-sys-color-on-primary);
     box-shadow: var(--elevation-2);
@@ -160,7 +160,8 @@ onUnmounted(() => {
     justify-content: center;
     @include md-transition(all, var(--md-transition-medium));
     position: relative;
-    z-index: 2;
+    // .fab-container 已自成层叠上下文，这里只在容器内压过自己的菜单
+    z-index: var(--z-fab);
 
     &:hover {
         transform: scale(1.08);
@@ -186,13 +187,15 @@ onUnmounted(() => {
     list-style: none;
     @include glass-surface(var(--glass-bg-strong), var(--radius-lg));
     box-shadow: var(--elevation-3);
-    min-width: 200px;
+    // 轻浮层档：菜单宽度不各写各的，与站点菜单 / 引擎下拉同一来源
+    min-width: var(--pop-w-min);
+    max-width: var(--pop-w-max);
     opacity: 0;
     visibility: hidden;
     transform: translateY(10px) scale(0.9);
     transform-origin: bottom right;
     @include md-transition(all, var(--md-transition-medium));
-    z-index: 1;
+    z-index: var(--z-dropdown);
 
     &.show {
         opacity: 1;
@@ -205,7 +208,7 @@ onUnmounted(() => {
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    height: 36px;
+    height: var(--control-h-md);
     padding: 0 var(--space-3);
     border-radius: var(--radius-md);
     cursor: pointer;
@@ -221,8 +224,8 @@ onUnmounted(() => {
 }
 
 .fab-item-icon {
-    width: 20px;
-    height: 20px;
+    width: var(--icon-sm);
+    height: var(--icon-sm);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -241,12 +244,9 @@ onUnmounted(() => {
 }
 
 .fab-section-title {
-    font-size: var(--text-xs);
-    color: var(--md-sys-color-on-surface-variant);
+    // 分组标题走统一的 eyebrow 混入，字号/字重/字距不再各写一遍
+    @include section-label;
     padding: var(--space-1) var(--space-3);
-    font-weight: var(--weight-semibold);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
     list-style: none;
 }
 

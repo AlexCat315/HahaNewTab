@@ -121,7 +121,7 @@ const deleteIconPath = 'M18 6L6 18M6 6l12 12';
             >
                 <slot name="item" :query="item.query" :index="index" :time="item.time">
                     <span class="search-history__item-icon">
-                        <IconSvg name="history" :size="14" alt="" monochrome />
+                        <IconSvg name="history" size="var(--icon-xs)" alt="" monochrome />
                     </span>
                     <span class="search-history__item-text">{{ item.query }}</span>
                     <span class="search-history__item-time">{{ formatRelativeTime(item.time) }}</span>
@@ -133,7 +133,7 @@ const deleteIconPath = 'M18 6L6 18M6 6l12 12';
                         @click="handleRemove(item.query, $event)"
                         @keydown.enter.stop="handleRemove(item.query, $event)"
                     >
-                        <IconSvg :path="deleteIconPath" :size="14" alt="" />
+                        <IconSvg :path="deleteIconPath" size="var(--icon-xs)" alt="" />
                     </span>
                 </slot>
             </button>
@@ -147,38 +147,34 @@ const deleteIconPath = 'M18 6L6 18M6 6l12 12';
 .search-history {
     overflow-y: auto;
     background: transparent;
-    @include hide-scrollbar;
+    @include scrollable;
 
     &__header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 10px 14px 6px;
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--md-sys-color-on-surface-variant);
-        letter-spacing: 0.3px;
+        padding: var(--space-2) var(--space-3);
     }
 
     &__title {
-        opacity: 0.85;
+        @include section-label;
     }
 
     &__clear {
         @include button-reset;
         color: var(--md-sys-color-on-surface-variant);
-        font-size: 12px;
-        font-weight: 600;
+        font-size: var(--text-xs);
+        font-weight: var(--weight-semibold);
         @include md-transition(color, var(--md-transition-fast));
         @include focus-ring;
 
         &:hover {
-            color: var(--md-sys-color-error);
+            color: var(--color-error);
         }
     }
 
     &__list {
-        padding: 4px 8px 10px;
+        padding: var(--space-1) var(--space-2);
     }
 
     &__item {
@@ -187,23 +183,25 @@ const deleteIconPath = 'M18 6L6 18M6 6l12 12';
         width: 100%;
         display: flex;
         align-items: center;
-        gap: 12px;
-        padding: 9px 10px;
-        border-radius: 12px;
+        gap: var(--space-3);
+        padding: var(--space-2);
+        border-radius: var(--radius-md);
         color: var(--md-sys-color-on-surface);
-        font-size: 14px;
-        font-weight: 500;
+        font-size: var(--text-base);
+        font-weight: var(--weight-medium);
         text-align: left;
         @include md-transition(all, var(--md-transition-fast));
         @include focus-ring;
 
+        // 历史行没有「当前选中项」这一层（键盘导航走建议列表），所以只到中性悬停档，
+        // 不上主色底——上主色会让「鼠标扫过」看起来像已经选中过这条搜索。
+        // 图标底板跟着往上一档（--pressed-bg），否则和行底同色就直接消失了。
         &:hover,
         &:focus-visible {
-            background: var(--md-sys-color-primary-container);
-            color: var(--md-sys-color-on-primary-container);
+            background: var(--hover-bg);
 
             .search-history__item-icon {
-                background: color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent);
+                background: var(--pressed-bg);
             }
 
             .search-history__item-time {
@@ -218,14 +216,14 @@ const deleteIconPath = 'M18 6L6 18M6 6l12 12';
     }
 
     &__item-icon {
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
+        width: var(--icon-md);
+        height: var(--icon-md);
+        border-radius: var(--radius-full);
         display: flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
-        background: color-mix(in srgb, var(--md-sys-color-on-surface) 6%, transparent);
+        background: var(--hover-bg);
         @include md-transition(all, var(--md-transition-fast));
     }
 
@@ -237,7 +235,7 @@ const deleteIconPath = 'M18 6L6 18M6 6l12 12';
 
     &__item-time {
         flex-shrink: 0;
-        font-size: 11px;
+        font-size: var(--text-xs);
         color: var(--md-sys-color-on-surface-variant);
         opacity: 0.7;
         @include md-transition(opacity, var(--md-transition-fast));
@@ -245,38 +243,33 @@ const deleteIconPath = 'M18 6L6 18M6 6l12 12';
 
     &__item-remove {
         position: absolute;
-        right: 10px;
+        right: var(--space-2);
         top: 50%;
         transform: translateY(-50%);
-        width: 22px;
-        height: 22px;
-        border-radius: 6px;
+        width: var(--control-h-xs);
+        height: var(--control-h-xs);
+        border-radius: var(--radius-xs);
         display: flex;
         align-items: center;
         justify-content: center;
         opacity: 0;
         pointer-events: none;
         color: var(--md-sys-color-on-surface-variant);
-        background: var(--md-sys-color-surface);
+        background: var(--glass-bg-opaque);
         @include md-transition(all, var(--md-transition-fast));
 
         &:hover {
-            background: var(--md-sys-color-error-container);
-            color: var(--md-sys-color-error);
+            background: var(--tint-error);
+            color: var(--color-error);
         }
 
         &:focus-visible {
             opacity: 1;
             pointer-events: auto;
-            background: var(--md-sys-color-error-container);
-            color: var(--md-sys-color-error);
+            background: var(--tint-error);
+            color: var(--color-error);
         }
     }
-}
-
-// 深色模式（后代选择器直接写在 scoped 里，用 :global() 包裹会被编译丢成 html 自身）
-html.dark-mode .search-history__item-remove {
-    background: var(--md-sys-color-surface-variant);
 }
 
 @include respond-to(mobile) {

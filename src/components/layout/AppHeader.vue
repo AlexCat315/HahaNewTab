@@ -71,7 +71,7 @@ function handleBrandDblclick(): void {
                 :aria-label="sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'"
                 @click="handleCollapseClick"
             >
-                <IconSvg :name="collapseIconName" :size="18" monochrome />
+                <IconSvg :name="collapseIconName" size="var(--icon-sm)" monochrome />
             </button>
 
             <button
@@ -81,7 +81,7 @@ function handleBrandDblclick(): void {
                 aria-label="打开分类菜单"
                 @click="handleMenuClick"
             >
-                <IconSvg name="menu" :size="18" monochrome />
+                <IconSvg name="menu" size="var(--icon-sm)" monochrome />
             </button>
 
             <!-- 不加 title 提示：隐藏站点的入口刻意保持隐蔽，提示由 HiddenTipModal 负责 -->
@@ -125,7 +125,8 @@ function handleBrandDblclick(): void {
 }
 
 .header-icon-btn {
-    @include icon-button(34px);
+    // 顶栏 56 高，图标按钮取控件默认档（md），留得上下一圈呼吸
+    @include icon-button;
     border-radius: var(--radius-sm);
 }
 
@@ -140,8 +141,8 @@ function handleBrandDblclick(): void {
 
 // 品牌图自带白底，按原图显示只做圆角裁切，不加内边距/边框/投影
 .brand-logo {
-    width: 32px;
-    height: 32px;
+    width: var(--icon-lg);
+    height: var(--icon-lg);
     border-radius: var(--radius-sm);
     object-fit: contain;
     flex-shrink: 0;
@@ -186,8 +187,9 @@ function handleBrandDblclick(): void {
     }
 
     .brand-logo {
-        width: 28px;
-        height: 28px;
+        // 移动端顶栏矮一档，logo 底板按间距阶收一格
+        width: calc(var(--icon-lg) - var(--space-1));
+        height: calc(var(--icon-lg) - var(--space-1));
     }
 
     .brand-title {

@@ -164,13 +164,13 @@ const searchIconPath = 'M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z';
                         v-if="currentEngine"
                         :src="currentEngine.icon"
                         :fallback="searchIconPath"
-                        :size="18"
+                        size="var(--icon-sm)"
                         alt=""
                     />
                     <IconSvg
                         v-else
                         :path="searchIconPath"
-                        :size="18"
+                        size="var(--icon-sm)"
                         alt=""
                     />
                 </span>
@@ -206,7 +206,7 @@ const searchIconPath = 'M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z';
                             <IconSvg
                                 :src="engine.icon"
                                 :fallback="searchIconPath"
-                                :size="16"
+                                size="var(--icon-xs)"
                                 alt=""
                             />
                         </span>
@@ -234,20 +234,20 @@ const searchIconPath = 'M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z';
         @include button-reset;
         display: flex;
         align-items: center;
-        gap: 6px;
-        padding: 6px 8px;
-        border-radius: 10px;
+        gap: var(--space-2);
+        padding: var(--space-1) var(--space-2);
+        border-radius: var(--radius-sm);
         background: transparent;
         color: var(--md-sys-color-on-surface);
-        font-size: 14px;
-        font-weight: 600;
+        font-size: var(--text-base);
+        font-weight: var(--weight-semibold);
         border: none;
         min-width: auto;
         @include md-transition(all, var(--md-transition-fast));
         @include focus-ring;
 
         &:hover:not(:disabled) {
-            background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+            background: var(--hover-bg);
             color: var(--md-sys-color-primary);
         }
 
@@ -258,8 +258,8 @@ const searchIconPath = 'M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z';
     }
 
     &__icon {
-        width: 18px;
-        height: 18px;
+        width: var(--icon-sm);
+        height: var(--icon-sm);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -289,21 +289,19 @@ const searchIconPath = 'M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z';
 
     &__dropdown {
         position: absolute;
-        top: calc(100% + 6px);
+        top: calc(100% + var(--space-2));
         left: 0;
-        min-width: 180px;
-        max-width: 260px;
+        min-width: var(--pop-w-min);
+        max-width: var(--pop-w-max);
         max-height: 320px;
         overflow-y: auto;
-        // 完全不透明 + 背景模糊双保险：极简模式下磁贴紧贴搜索框下方，
+        // 几乎实心 + 背景模糊双保险：极简模式下磁贴紧贴搜索框下方，
         // 下拉展开时盖住磁贴是预期行为，但不能让磁贴「穿透」面板显示出来
-        background: var(--md-sys-color-surface);
-        border-radius: 14px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-        padding: 6px;
-        z-index: 3000;
-        backdrop-filter: blur(16px);
-        @include hide-scrollbar;
+        @include glass-surface(var(--glass-bg-opaque), var(--radius-lg));
+        box-shadow: var(--elevation-2);
+        padding: var(--space-1);
+        z-index: var(--z-dropdown-raised);
+        @include scrollable;
     }
 
     &__option {
@@ -311,30 +309,34 @@ const searchIconPath = 'M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z';
         width: 100%;
         display: flex;
         align-items: center;
-        gap: 10px;
-        padding: 8px 10px;
-        border-radius: 10px;
+        gap: var(--space-2);
+        padding: var(--space-2);
+        border-radius: var(--radius-sm);
         color: var(--md-sys-color-on-surface);
-        font-size: 13px;
-        font-weight: 500;
+        font-size: var(--text-sm);
+        font-weight: var(--weight-medium);
         text-align: left;
         @include md-transition(all, var(--md-transition-fast));
         @include focus-ring;
 
-        &:hover,
+        // 与搜索建议列表同一套行语言：悬停中性底，高亮项才上主色 tint + 主色文字
+        &:hover {
+            background: var(--hover-bg);
+        }
+
         &.is-active {
-            background: var(--md-sys-color-primary-container);
-            color: var(--md-sys-color-on-primary-container);
+            background: var(--tint-primary);
+            color: var(--md-sys-color-primary);
         }
 
         &.is-selected {
-            font-weight: 600;
+            font-weight: var(--weight-semibold);
         }
     }
 
     &__option-icon {
-        width: 16px;
-        height: 16px;
+        width: var(--icon-xs);
+        height: var(--icon-xs);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -363,7 +365,7 @@ const searchIconPath = 'M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z';
 @include respond-to(mobile) {
     .engine-selector__trigger {
         min-width: auto;
-        padding: 8px;
+        padding: var(--space-2);
     }
 
     .engine-selector__name {
@@ -373,7 +375,7 @@ const searchIconPath = 'M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z';
     .engine-selector__dropdown {
         left: 0;
         right: auto;
-        min-width: 160px;
+        min-width: var(--pop-w-min);
     }
 }
 </style>

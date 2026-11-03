@@ -123,8 +123,8 @@ function renderSvgIcon(paths: string[], colorClass: string): ReturnType<typeof h
             strokeWidth: 2,
             strokeLinecap: 'round',
             strokeLinejoin: 'round',
-            width: 28,
-            height: 28,
+            width: 24,
+            height: 24,
             style: { display: 'block' },
         },
         paths.map((d, i) => h('path', { key: i, d }))
@@ -132,108 +132,115 @@ function renderSvgIcon(paths: string[], colorClass: string): ReturnType<typeof h
 }
 
 // ==================== 样式（内联，避免额外 CSS 文件） ====================
+//
+// 这里只用 token，不写具体值：确认框是「打断当前操作」的浮层，它必须和 ModalOverlay
+// 出自同一套表面/遮罩/圆角语言，否则切主题时对话框会留着一块与卡片不同步的白底。
+// 内联 style 里 var() 一样能在计算值阶段展开，所以不需要为了用 token 而拆成 SFC。
 
 const overlayStyle: CSSProperties = {
     position: 'fixed',
     inset: '0',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'var(--scrim)',
+    backdropFilter: 'blur(var(--glass-blur))',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 9999,
+    zIndex: 'var(--z-alert)',
 };
 
 const dialogStyle: CSSProperties = {
-    backgroundColor: 'var(--md-sys-color-surface, #fff)',
-    color: 'var(--md-sys-color-on-surface, #1d1b20)',
-    borderRadius: '28px',
-    padding: '24px',
-    minWidth: '280px',
-    maxWidth: '560px',
-    width: '90vw',
-    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.2)',
+    backgroundColor: 'var(--glass-bg-strong)',
+    color: 'var(--md-sys-color-on-surface)',
+    border: '1px solid var(--glass-border)',
+    borderRadius: 'var(--radius-xl)',
+    padding: 'var(--space-6)',
+    minWidth: '240px',
+    width: 'min(90vw, var(--panel-w-sm))',
+    boxShadow: 'var(--elevation-3)',
 };
 
 const iconWrapStyle: CSSProperties = {
-    width: '48px',
-    height: '48px',
-    borderRadius: '50%',
+    width: 'var(--icon-xl)',
+    height: 'var(--icon-xl)',
+    borderRadius: 'var(--radius-full)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: '16px',
+    marginBottom: 'var(--space-4)',
 };
 
 const iconInfoStyle: CSSProperties = {
-    backgroundColor: 'var(--md-sys-color-primary-container, rgba(177, 74, 107, 0.12))',
-    color: 'var(--md-sys-color-primary, #B14A6B)',
+    backgroundColor: 'var(--tint-primary)',
+    color: 'var(--md-sys-color-primary)',
 };
 
 const iconDangerStyle: CSSProperties = {
-    backgroundColor: 'var(--md-sys-color-error-container, rgba(186, 26, 26, 0.12))',
-    color: 'var(--md-sys-color-error, #BA1A1A)',
+    backgroundColor: 'var(--tint-error)',
+    color: 'var(--color-error)',
 };
 
 const titleStyle: CSSProperties = {
-    margin: '0 0 8px',
-    fontSize: '20px',
-    fontWeight: 500,
-    lineHeight: 1.4,
+    margin: '0 0 var(--space-2)',
+    fontSize: 'var(--text-xl)',
+    fontWeight: 'var(--weight-medium)',
+    lineHeight: 'var(--leading-tight)',
 };
 
 const messageStyle: CSSProperties = {
     margin: 0,
-    fontSize: '14px',
-    lineHeight: 1.5,
-    opacity: 0.85,
+    fontSize: 'var(--text-base)',
+    lineHeight: 'var(--leading-normal)',
+    color: 'var(--md-sys-color-on-surface-variant)',
 };
 
 const inputStyle: CSSProperties = {
     width: '100%',
     boxSizing: 'border-box',
-    padding: '12px 16px',
-    borderRadius: '12px',
-    border: '1px solid var(--md-sys-color-outline, rgba(0, 0, 0, 0.2))',
-    marginTop: '16px',
-    background: 'transparent',
+    padding: 'var(--space-3) var(--space-4)',
+    borderRadius: 'var(--radius-md)',
+    border: '1px solid var(--card-border)',
+    marginTop: 'var(--space-4)',
+    background: 'var(--hover-bg)',
     color: 'inherit',
-    fontSize: '14px',
+    fontSize: 'var(--text-base)',
     outline: 'none',
 };
 
 const actionsStyle: CSSProperties = {
     display: 'flex',
     justifyContent: 'flex-end',
-    gap: '8px',
-    marginTop: '24px',
+    gap: 'var(--space-2)',
+    marginTop: 'var(--space-6)',
 };
 
 const baseBtnStyle: CSSProperties = {
     border: 'none',
-    borderRadius: '20px',
-    padding: '10px 20px',
+    borderRadius: 'var(--radius-full)',
+    padding: 'var(--space-2) var(--space-5)',
     cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: 500,
-    lineHeight: 1.5,
+    fontSize: 'var(--text-base)',
+    fontWeight: 'var(--weight-medium)',
+    lineHeight: 'var(--leading-normal)',
 };
 
+// 与 BaseButton 同一套：主色实底 + on-primary 用于确认，危险操作用 error 淡底 + error 文字
+// （深色主题的 error 是提亮的珊瑚色，实底压白字读不出对比）
 const primaryBtnStyle: CSSProperties = {
     ...baseBtnStyle,
-    backgroundColor: 'var(--md-sys-color-primary, #B14A6B)',
-    color: 'var(--md-sys-color-on-primary, #fff)',
+    backgroundColor: 'var(--md-sys-color-primary)',
+    color: 'var(--md-sys-color-on-primary)',
 };
 
 const dangerBtnStyle: CSSProperties = {
     ...baseBtnStyle,
-    backgroundColor: 'var(--md-sys-color-error, #BA1A1A)',
-    color: '#fff',
+    backgroundColor: 'var(--tint-error)',
+    color: 'var(--color-error)',
 };
 
 const secondaryBtnStyle: CSSProperties = {
     ...baseBtnStyle,
     backgroundColor: 'transparent',
-    color: 'var(--md-sys-color-primary, #B14A6B)',
+    color: 'var(--md-sys-color-primary)',
 };
 
 // ==================== Manager 工厂 ====================

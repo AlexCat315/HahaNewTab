@@ -72,7 +72,7 @@ interface Props {
     src?: string;
     /** 加载失败时的回退图标名称或地址 */
     fallback?: string;
-    /** 图标尺寸，默认 24（单位 px） */
+    /** 图标尺寸：数字按 px 处理，字符串原样交给 CSS（推荐写 var(--icon-*) 阶） */
     size?: number | string;
     /** 颜色覆盖（内联 SVG 与系统图标均生效；图片图标不生效） */
     color?: string;
@@ -339,16 +339,24 @@ const maskStyle = computed(() => {
 
 const safeAlt = computed(() => props.alt?.trim() ?? '');
 
-const numericSize = computed(() => {
-    const size = props.size;
+const sizeValue = computed(() => {
+    const { size } = props;
     const num = typeof size === 'string' ? parseFloat(size) : size;
-    return Number.isFinite(num) && num > 0 ? num : 24;
+    if (Number.isFinite(num) && num > 0) {
+        return `${num}px`;
+    }
+    // 'var(--icon-xs)' 这类 CSS 值原样透传：parseFloat 得到 NaN，
+    // 但按 24 兜底会让图标尺寸和 --icon-* 阶脱钩，调用点写了等于没写。
+    if (typeof size === 'string' && size.trim()) {
+        return size;
+    }
+    return 'var(--icon-md)';
 });
 
 const rootStyle = computed(() => {
     const style: Record<string, string> = {
-        width: `${numericSize.value}px`,
-        height: `${numericSize.value}px`,
+        width: sizeValue.value,
+        height: sizeValue.value,
     };
     if (props.color) {
         style.color = props.color;
@@ -454,11 +462,13 @@ function onImageLoad(event: Event) {
       中性底板：透明底 logo 的墨色和所在背景糊在一起时才加（深色模式的黑章鱼猫、
       浅色模式的白 logo）。反色会毁掉品牌配色，所以不改图标颜色，只在下面垫一层
       和墨色对比度更高的底 —— 内边距把图标缩小一点，底板才不会盖住外层图标盘。
+      圆角走 --radius-md：底板尺寸随图标大小变（--icon-lg 40px 时 25% ≈ 10px），
+      12px 这一档在各档尺寸下观感一致；padding 保留百分比，它必须随图标缩放。
     */
     &.is-plated {
         box-sizing: border-box;
         background: var(--icon-plate, transparent);
-        border-radius: 25%;
+        border-radius: var(--radius-md);
         padding: 10%;
     }
 

@@ -17,8 +17,6 @@ import {
     iconPlateColor
 } from '../image.util';
 import {
-    adjustColor,
-    hexToRgba,
     channelLuminance,
     contrastRatio,
     parseCssColor
@@ -134,15 +132,6 @@ describe('image.util', () => {
 });
 
 describe('color.util', () => {
-    it('应正确调整颜色亮度', () => {
-        expect(adjustColor('#000000', 100)).toBe('#ffffff');
-        expect(adjustColor('#ffffff', -100)).toBe('#000000');
-    });
-
-    it('应正确转换 HEX 到 RGBA', () => {
-        expect(hexToRgba('#ff0000', 0.5)).toBe('rgba(255, 0, 0, 0.5)');
-    });
-
     it('相对亮度与对比度符合 WCAG', () => {
         expect(channelLuminance(255, 255, 255)).toBeCloseTo(1, 4);
         expect(channelLuminance(0, 0, 0)).toBe(0);

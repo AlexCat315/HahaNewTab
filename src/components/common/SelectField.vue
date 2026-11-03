@@ -109,7 +109,7 @@ function onChange(event: Event): void {
     }
 
     &__required {
-        color: var(--md-sys-color-error);
+        color: var(--color-error);
     }
 
     &__box {
@@ -120,9 +120,9 @@ function onChange(event: Event): void {
 
     &__field {
         width: 100%;
-        height: 40px;
+        height: var(--control-h-md);
         padding: 0 var(--space-8) 0 var(--space-3);
-        border: 1px solid color-mix(in srgb, var(--md-sys-color-on-surface) 18%, transparent);
+        border: 1px solid var(--card-border);
         border-radius: var(--radius-sm);
         background: color-mix(in srgb, var(--md-sys-color-on-surface) 5%, transparent);
         color: var(--md-sys-color-on-surface);
@@ -141,8 +141,8 @@ function onChange(event: Event): void {
     &__chevron {
         position: absolute;
         right: var(--space-3);
-        width: 16px;
-        height: 16px;
+        width: var(--icon-xs);
+        height: var(--icon-xs);
         pointer-events: none;
         color: var(--md-sys-color-on-surface-variant);
     }

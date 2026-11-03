@@ -213,7 +213,7 @@ onBeforeUnmount(() => {
                     :src="app.icon"
                     name="site"
                     fallback="site"
-                    :size="16"
+                    size="var(--icon-xs)"
                     :monochrome="iconIsMonochrome"
                     alt=""
                 />
@@ -227,19 +227,19 @@ onBeforeUnmount(() => {
 
         <div class="site-menu__list">
             <button type="button" class="site-menu__item" role="menuitem" @click="emit('open')">
-                <IconSvg name="link" :size="14" monochrome alt="" />
+                <IconSvg name="link" size="var(--icon-xs)" monochrome alt="" />
                 <span class="site-menu__label">打开</span>
             </button>
 
             <button type="button" class="site-menu__item" role="menuitem" @click="emit('copy-link')">
-                <IconSvg name="copy" :size="14" monochrome alt="" />
+                <IconSvg name="copy" size="var(--icon-xs)" monochrome alt="" />
                 <span class="site-menu__label">复制链接</span>
             </button>
 
             <div class="site-menu__divider" role="separator" />
 
             <button type="button" class="site-menu__item" role="menuitem" @click="emit('edit')">
-                <IconSvg name="edit" :size="14" monochrome alt="" />
+                <IconSvg name="edit" size="var(--icon-xs)" monochrome alt="" />
                 <span class="site-menu__label">编辑</span>
             </button>
 
@@ -251,12 +251,12 @@ onBeforeUnmount(() => {
                 :disabled="categories.length === 0"
                 @click="toggleCategoryList"
             >
-                <IconSvg name="folder" :size="14" monochrome alt="" />
+                <IconSvg name="folder" size="var(--icon-xs)" monochrome alt="" />
                 <span class="site-menu__label">移动到分类</span>
                 <IconSvg
                     class="site-menu__chevron"
                     :name="categoryExpanded ? 'arrow-up' : 'arrow-down'"
-                    :size="12"
+                    size="var(--icon-xs)"
                     monochrome
                     alt=""
                 />
@@ -276,7 +276,7 @@ onBeforeUnmount(() => {
                     <IconSvg
                         v-if="isCurrentCategory(category.id)"
                         name="check"
-                        :size="12"
+                        size="var(--icon-xs)"
                         monochrome
                         alt=""
                     />
@@ -286,7 +286,7 @@ onBeforeUnmount(() => {
             </div>
 
             <button type="button" class="site-menu__item" role="menuitem" @click="emit('toggle-hidden')">
-                <IconSvg :name="isHidden ? 'eye' : 'eye-off'" :size="14" monochrome alt="" />
+                <IconSvg :name="isHidden ? 'eye' : 'eye-off'" size="var(--icon-xs)" monochrome alt="" />
                 <span class="site-menu__label">{{ isHidden ? '取消隐藏' : '隐藏此站点' }}</span>
             </button>
 
@@ -298,7 +298,7 @@ onBeforeUnmount(() => {
                 role="menuitem"
                 @click="emit('delete')"
             >
-                <IconSvg name="delete" :size="14" monochrome alt="" />
+                <IconSvg name="delete" size="var(--icon-xs)" monochrome alt="" />
                 <span class="site-menu__label">删除</span>
             </button>
         </div>
@@ -310,15 +310,14 @@ onBeforeUnmount(() => {
 
 .site-menu {
     position: fixed;
-    z-index: 60;
-    min-width: 196px;
-    max-width: 260px;
-    padding: 6px;
-    border-radius: 14px;
-    background: rgba(var(--md-sys-color-surface-rgb), 0.98);
-    border: 1px solid var(--md-sys-color-outline-variant);
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.18);
-    backdrop-filter: blur(16px);
+    z-index: var(--z-menu);
+    // 轻浮层档：与 FabMenu / 引擎下拉 / Toast 共用同一套宽度语言
+    min-width: var(--pop-w-min);
+    max-width: var(--pop-w-max);
+    padding: var(--space-1);
+    // 几乎实心的玻璃外壳：菜单里的密集小行不能有壁纸串扰
+    @include glass-surface(var(--glass-bg-opaque), var(--radius-lg));
+    box-shadow: var(--elevation-3);
     // 定位完成前隐藏，避免在指针处闪一下再跳到正确位置
     visibility: hidden;
     opacity: 0;
@@ -333,21 +332,21 @@ onBeforeUnmount(() => {
 .site-menu__header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 8px 8px;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2) var(--space-2);
     min-width: 0;
 }
 
 .site-menu__header-icon {
-    width: 24px;
-    height: 24px;
-    border-radius: 7px;
+    width: var(--icon-md);
+    height: var(--icon-md);
+    border-radius: var(--radius-sm);
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
     overflow: hidden;
-    background: color-mix(in srgb, var(--md-sys-color-on-surface) 6%, transparent);
+    background: var(--hover-bg);
 }
 
 .site-menu__header-text {
@@ -355,18 +354,18 @@ onBeforeUnmount(() => {
     flex-direction: column;
     min-width: 0;
     flex: 1;
-    gap: 1px;
+    gap: var(--space-1);
 }
 
 .site-menu__header-name {
-    font-size: 12px;
-    font-weight: 600;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
     color: var(--md-sys-color-on-surface);
     @include text-ellipsis;
 }
 
 .site-menu__header-host {
-    font-size: 10px;
+    font-size: var(--text-xs);
     color: var(--md-sys-color-on-surface-variant);
     opacity: 0.7;
     @include text-ellipsis;
@@ -374,9 +373,9 @@ onBeforeUnmount(() => {
 
 .site-menu__badge {
     flex-shrink: 0;
-    padding: 1px 6px;
-    border-radius: 999px;
-    font-size: 10px;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-full);
+    font-size: var(--text-xs);
     color: var(--md-sys-color-on-surface-variant);
     background: var(--md-sys-color-surface-variant);
 }
@@ -384,18 +383,18 @@ onBeforeUnmount(() => {
 .site-menu__list {
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: var(--space-1);
 }
 
 .site-menu__item {
     @include button-reset;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     width: 100%;
-    padding: 7px 8px;
-    border-radius: 8px;
-    font-size: 12.5px;
+    padding: var(--space-2);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
     color: var(--md-sys-color-on-surface);
     text-align: left;
     @include md-transition(all, var(--md-transition-fast));
@@ -404,10 +403,7 @@ onBeforeUnmount(() => {
         background: var(--md-sys-color-surface-variant);
     }
 
-    &:focus-visible {
-        outline: 2px solid var(--md-sys-color-primary);
-        outline-offset: -2px;
-    }
+    @include focus-ring(var(--md-sys-color-primary), 2px, -2px);
 
     &:disabled {
         opacity: 0.45;
@@ -415,21 +411,21 @@ onBeforeUnmount(() => {
     }
 
     &--danger {
-        color: var(--md-sys-color-error);
+        color: var(--color-error);
 
         &:hover:not(:disabled) {
-            background: color-mix(in srgb, var(--md-sys-color-error) 12%, transparent);
+            background: var(--tint-error);
         }
     }
 
     &--sub {
-        padding-left: 20px;
-        font-size: 12px;
+        padding-left: var(--space-5);
+        font-size: var(--text-xs);
     }
 
     &.is-current {
         color: var(--md-sys-color-primary);
-        font-weight: 600;
+        font-weight: var(--weight-semibold);
         opacity: 1;
     }
 }
@@ -445,26 +441,28 @@ onBeforeUnmount(() => {
 }
 
 .site-menu__dot {
-    width: 12px;
-    height: 12px;
+    width: var(--space-3);
+    height: var(--space-3);
     flex-shrink: 0;
 }
 
 .site-menu__sublist {
     display: flex;
     flex-direction: column;
-    gap: 1px;
-    max-height: 168px;
+    gap: var(--space-1);
+    // 四行控件高封顶，多出来的分类在菜单内部滚起来，不让二级列表顶穿视口
+    max-height: calc(var(--control-h-md) * 4 + var(--space-4));
+    margin: var(--space-1) 0 var(--space-1) var(--space-2);
+    padding-left: var(--space-1);
+    border-left: 1px solid var(--card-border);
+    @include scrollable;
+    // 分类展开时列表要在菜单内部滚起来（max-height 已在上面约束）
     overflow-y: auto;
-    margin: 1px 0 1px 8px;
-    padding-left: 4px;
-    border-left: 1px solid var(--md-sys-color-outline-variant);
 }
 
 .site-menu__divider {
     height: 1px;
-    margin: 4px 6px;
-    background: var(--md-sys-color-outline-variant);
-    opacity: 0.7;
+    margin: var(--space-1) var(--space-2);
+    background: var(--card-border);
 }
 </style>

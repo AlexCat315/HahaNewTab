@@ -96,7 +96,10 @@ HahaNewTab/
 ├── sign-firefox.sh             # 扩展打包/签名脚本（同时生成 Chromium .zip 与 Firefox .xpi/.zip）
 ├── scripts/
 │   ├── postbuild.js            # 构建后根据目标生成 <产物目录>/manifest.json
-│   └── gen-themes.mjs          # 生成 themes.json：派生明/暗变体 + 对比度体检
+│   ├── gen-themes.mjs          # 由 theme-seeds.json 生成 themes.json + 结构/对比度体检（--check 查漂移）
+│   └── audit-styles.mjs        # 样式护栏：统计组件与 composables 里绕过 token 的写法
+├── public/config/
+│   └── theme-seeds.json        # 主题唯一的手写来源：12 族 × 明/暗调色板
 ├── package.json
 ├── vite.config.ts
 ├── vitest.config.ts
@@ -145,7 +148,30 @@ npx vitest run
 
 # 单独类型检查
 npx vue-tsc --noEmit
+
+# 样式护栏：列出组件与 composables 里绕过 token 的写法（加 --fail 给 CI 用）
+npm run audit:styles
+
+# 由 seeds 重新生成主题，并做结构/对比度体检
+npm run themes:gen
+
+# 只体检：不改文件，并检查 themes.json 是否落后于 seeds
+npm run themes:check
 ```
+
+### 主题与样式 token
+
+调色板只手写在一处：[public/config/theme-seeds.json](public/config/theme-seeds.json)（12 个主题族，每族明亮 / 深色两套 23 色）。
+改这里，然后 `npm run themes:gen` 生成 [public/config/themes.json](public/config/themes.json)——运行时加载的是后者，
+它由脚本拼装（`id`/`family`/`mode`/`legacyIds`/默认主题），不要手改。
+
+生成脚本只做三件事，且是**幂等**的：只读 seeds、绝不回读 themes.json（所以重复运行不会越改越歪）；
+seeds 里缺哪一半才按 Material 明暗对称派生哪一半，已给的手写值原样保留；对比度不达标时只报错、不写文件。
+阈值比 WCAG 正文标准松一档，因为这套主题始终浮在半透明表面与壁纸上，具体数字与理由写在脚本的 `THRESHOLDS`。
+
+组件侧的约束由 `npm run audit:styles` 守着：颜色走 `var(--card-bg)` / `var(--glass-bg-*)` / `var(--tint-*)`，
+几何走 `var(--space-*)` / `var(--radius-*)` / `var(--card-*)` / `var(--z-*)`，明暗差异交给暗色变体主题而不是
+组件里再写一套 `.dark-mode`。确实必须脱离 token 时（例如壁纸层要 `z-index:-1`），在那一行加 `token-allow` 注释并写明原因。
 
 ### 构建产物结构
 

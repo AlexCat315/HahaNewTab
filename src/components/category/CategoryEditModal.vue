@@ -212,7 +212,7 @@ const activePresetIcon = computed(() =>
                         autocomplete="off"
                     >
                         <template #prefix>
-                            <IconSvg :src="lightPreviewSrc" :size="18" :monochrome="form.monochrome" />
+                            <IconSvg :src="lightPreviewSrc" size="var(--icon-sm)" :monochrome="form.monochrome" />
                         </template>
                     </BaseInput>
                     <BaseButton
@@ -222,7 +222,7 @@ const activePresetIcon = computed(() =>
                         @click="openPresetIcons('light')"
                     >
                         <template #icon>
-                            <IconSvg name="picture" :size="16" />
+                            <IconSvg name="picture" size="var(--icon-xs)" />
                         </template>
                         选择
                     </BaseButton>
@@ -236,7 +236,7 @@ const activePresetIcon = computed(() =>
                         autocomplete="off"
                     >
                         <template #prefix>
-                            <IconSvg :src="darkPreviewSrc" :size="18" :monochrome="form.monochrome" />
+                            <IconSvg :src="darkPreviewSrc" size="var(--icon-sm)" :monochrome="form.monochrome" />
                         </template>
                     </BaseInput>
                     <BaseButton
@@ -246,7 +246,7 @@ const activePresetIcon = computed(() =>
                         @click="openPresetIcons('dark')"
                     >
                         <template #icon>
-                            <IconSvg name="picture" :size="16" />
+                            <IconSvg name="picture" size="var(--icon-xs)" />
                         </template>
                         选择
                     </BaseButton>
@@ -260,7 +260,7 @@ const activePresetIcon = computed(() =>
                         >
                             <IconSvg
                                 :src="lightPreviewSrc"
-                                :size="32"
+                                size="var(--icon-lg)"
                                 :monochrome="form.monochrome"
                             />
                         </div>
@@ -273,7 +273,7 @@ const activePresetIcon = computed(() =>
                         >
                             <IconSvg
                                 :src="darkPreviewSrc"
-                                :size="32"
+                                size="var(--icon-lg)"
                                 :monochrome="form.monochrome"
                                 style="--icon-filter: invert(1) brightness(2)"
                             />
@@ -312,7 +312,7 @@ const activePresetIcon = computed(() =>
                                 :aria-label="`选择图标 ${item.name}`"
                                 @click="selectIcon(item.url)"
                             >
-                                <IconSvg :src="item.url" :size="20" :alt="item.name" />
+                                <IconSvg :src="item.url" size="var(--icon-sm)" :alt="item.name" />
                             </button>
                         </div>
                     </div>
@@ -340,34 +340,34 @@ const activePresetIcon = computed(() =>
 .mnt-category-form {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: var(--space-5);
 
     &__group {
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: var(--space-3);
     }
 
     &__warning {
-        margin: -8px 0 0;
-        padding: 8px 10px;
-        border-radius: 8px;
-        font-size: 12px;
-        line-height: 1.5;
-        color: var(--md-sys-color-on-tertiary-container, #4a3200);
-        background: var(--md-sys-color-tertiary-container, rgba(255, 179, 0, 0.16));
+        margin: calc(var(--space-2) * -1) 0 0;
+        padding: var(--space-2) var(--space-3);
+        border-radius: var(--radius-sm);
+        font-size: var(--text-xs);
+        line-height: var(--leading-normal);
+        color: var(--on-warning);
+        background: var(--tint-warning);
     }
 
     &__group-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 8px;
+        gap: var(--space-2);
     }
 
     &__label {
-        font-size: 13px;
-        font-weight: 600;
+        font-size: var(--text-sm);
+        font-weight: var(--weight-semibold);
         color: var(--md-sys-color-on-surface);
     }
 
@@ -379,68 +379,68 @@ const activePresetIcon = computed(() =>
         display: grid;
         grid-template-columns: 36px 1fr auto;
         align-items: center;
-        gap: 10px;
+        gap: var(--space-2);
     }
 
     &__icon-label {
-        font-size: 12px;
+        font-size: var(--text-xs);
         color: var(--md-sys-color-on-surface-variant);
         text-align: right;
     }
 
     &__preview-row {
         display: flex;
-        gap: 16px;
-        margin-top: 4px;
+        gap: var(--space-4);
+        margin-top: var(--space-1);
     }
 
     &__preview-item {
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 6px;
+        gap: var(--space-1);
     }
 
     &__preview-box {
         width: 64px;
         height: 64px;
-        border-radius: 14px;
+        border-radius: var(--radius-md);
         display: flex;
         align-items: center;
         justify-content: center;
         border: 1px solid var(--md-sys-color-outline-variant);
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        box-shadow: var(--elevation-1);
         overflow: hidden;
         @include md-transition(box-shadow, var(--md-transition-fast));
 
         &:hover {
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+            box-shadow: var(--elevation-2);
         }
 
         &--light {
             background: var(--md-sys-color-surface);
         }
 
+        // 反色表面给出「与当前主题相反的那一档」预览底，不再写死深底：
+        // 内置单色图标走 CSS mask，颜色取 currentColor，所以深色预览盒
+        // 用反色前景就够了，不依赖 --icon-filter 反转。
         &--dark {
-            background: #1c1b1f;
-            border-color: rgba(255, 255, 255, 0.12);
-            // 内置单色图标走 CSS mask，颜色取 currentColor，
-            // 所以深色预览盒直接给白色，不再依赖 --icon-filter 反转
-            color: #ffffff;
+            background: var(--md-sys-color-inverse-surface);
+            color: var(--md-sys-color-inverse-on-surface);
         }
     }
 
     &__preview-label {
-        font-size: 11px;
+        font-size: var(--text-xs);
         color: var(--md-sys-color-on-surface-variant);
     }
 
     &__checkbox {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: var(--space-2);
         cursor: pointer;
-        font-size: 13px;
+        font-size: var(--text-sm);
         color: var(--md-sys-color-on-surface-variant);
 
         input[type='checkbox'] {
@@ -454,68 +454,64 @@ const activePresetIcon = computed(() =>
     &__presets {
         display: flex;
         flex-direction: column;
-        gap: 10px;
-        padding: 12px 14px 14px;
-        border-radius: 12px;
+        gap: var(--space-2);
+        padding: var(--space-3) var(--space-4) var(--space-4);
+        border-radius: var(--radius-md);
         background: color-mix(in srgb, var(--md-sys-color-primary) 6%, transparent);
         border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent);
     }
 
     &__presets-title {
-        margin: 0;
+        @include section-label;
         display: flex;
         align-items: baseline;
         justify-content: space-between;
-        gap: 8px;
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--md-sys-color-on-surface-variant);
+        gap: var(--space-2);
     }
 
     &__presets-target {
-        font-size: 11px;
-        font-weight: 400;
+        font-size: var(--text-xs);
+        font-weight: var(--weight-regular);
         color: var(--md-sys-color-primary);
     }
 
     &__presets-grid {
         display: grid;
         grid-template-columns: repeat(6, 1fr);
-        gap: 8px;
+        gap: var(--space-2);
         max-height: 200px;
         overflow-y: auto;
-        @include hide-scrollbar;
+        @include scrollable;
     }
 
     &__picker-empty {
-        padding: 24px 0;
+        padding: var(--space-6) 0;
         text-align: center;
-        font-size: 12px;
+        font-size: var(--text-xs);
         color: var(--md-sys-color-on-surface-variant);
     }
 
     &__picker-item {
         @include button-reset;
         aspect-ratio: 1;
-        border-radius: 8px;
+        border-radius: var(--radius-sm);
         background: var(--md-sys-color-surface);
         border: 1px solid var(--md-sys-color-outline-variant);
         color: var(--md-sys-color-on-surface-variant);
         @include flex-center(row, 0);
         @include md-transition(all, var(--md-transition-fast));
-        @include focus-ring;
 
         &:hover {
             border-color: var(--md-sys-color-primary);
             color: var(--md-sys-color-primary);
             transform: translateY(-1px);
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+            box-shadow: var(--elevation-1);
         }
 
         &--active,
         &--active:hover {
             border-color: var(--md-sys-color-primary);
-            background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent);
+            background: var(--tint-primary);
             color: var(--md-sys-color-primary);
             transform: none;
         }
@@ -540,26 +536,5 @@ const activePresetIcon = computed(() =>
 .mnt-category-form__presets-leave-from {
     opacity: 1;
     max-height: 320px;
-}
-
-// 深色模式适配（后代选择器直接写在 scoped 里，用 :global() 包裹会被编译丢成 html 自身）
-html.dark-mode .mnt-category-form__preview-box--light {
-    background: var(--md-sys-color-surface);
-}
-
-html.dark-mode .mnt-category-form__presets {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.08);
-}
-
-html.dark-mode .mnt-category-form__picker-item {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.08);
-
-    &--active,
-    &--active:hover {
-        background: color-mix(in srgb, var(--md-sys-color-primary) 22%, transparent);
-        border-color: var(--md-sys-color-primary);
-    }
 }
 </style>

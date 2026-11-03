@@ -85,7 +85,7 @@ function handleAdd(): void {
                     <IconSvg
                         :src="category.icon"
                         name="folder"
-                        :size="16"
+                        size="var(--icon-xs)"
                         :monochrome="category.monochrome && !iconIsImage"
                         :alt="category.name"
                     />
@@ -101,7 +101,7 @@ function handleAdd(): void {
                 :title="`添加网站到${category.name}`"
                 @click="handleAdd"
             >
-                <IconSvg name="plus" :size="14" monochrome alt="" />
+                <IconSvg name="plus" size="var(--icon-xs)" monochrome alt="" />
                 <span>添加</span>
             </button>
         </header>
@@ -135,7 +135,7 @@ function handleAdd(): void {
     @keyframes fadeInUp {
         from {
             opacity: 0;
-            transform: translateY(16px);
+            transform: translateY(var(--space-4));
         }
 
         to {
@@ -163,8 +163,8 @@ function handleAdd(): void {
     }
 
     &__icon {
-        width: 16px;
-        height: 16px;
+        width: var(--icon-xs);
+        height: var(--icon-xs);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -189,7 +189,7 @@ function handleAdd(): void {
         display: inline-flex;
         align-items: center;
         gap: var(--space-1);
-        height: 28px;
+        height: var(--control-h-xs);
         padding: 0 var(--space-3);
         border-radius: var(--radius-full);
         font-size: var(--text-sm);

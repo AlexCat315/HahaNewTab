@@ -33,7 +33,7 @@ const emit = defineEmits<{
     <Transition name="update-banner" appear>
         <div class="update-banner" role="status" aria-live="polite">
             <span class="update-banner__icon" aria-hidden="true">
-                <IconSvg name="download" :size="18" />
+                <IconSvg name="download" size="var(--icon-sm)" />
             </span>
 
             <div class="update-banner__text">
@@ -57,7 +57,7 @@ const emit = defineEmits<{
                 aria-label="关闭更新提示"
                 @click="emit('close')"
             >
-                <IconSvg name="close" :size="14" />
+                <IconSvg name="close" size="var(--icon-xs)" />
             </button>
         </div>
     </Transition>
@@ -68,23 +68,19 @@ const emit = defineEmits<{
 
 .update-banner {
     position: fixed;
-    left: 24px;
-    bottom: 24px;
-    // 低于 Toast（3000）与各类模态框，避免抢焦点层级；
-    // 高于页面内容，保证在磁贴/卡片之上可见
-    z-index: 2400;
+    left: var(--space-6);
+    bottom: var(--space-6);
+    // 压过菜单/下拉，但让位给弹层与 Toast：更新提示不该抢模态焦点
+    z-index: var(--z-banner);
 
     display: flex;
     align-items: center;
-    gap: 12px;
-    max-width: 420px;
-    padding: 12px 12px 12px 14px;
-    border-radius: 16px;
-    border: 1px solid var(--md-sys-color-outline-variant);
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+    gap: var(--space-3);
+    max-width: var(--panel-w-sm);
+    padding: var(--space-3);
 
     color: var(--md-sys-color-on-surface);
-    @include glass(0.94, 16px);
+    @include glass-surface(var(--glass-bg-strong), var(--radius-lg));
     @include md-transition(transform, var(--md-transition-fast));
 
     &__icon {
@@ -94,7 +90,7 @@ const emit = defineEmits<{
         flex-shrink: 0;
         width: 32px;
         height: 32px;
-        border-radius: 10px;
+        border-radius: var(--radius-md);
         background: var(--md-sys-color-primary-container);
         color: var(--md-sys-color-on-primary-container);
     }
@@ -106,16 +102,16 @@ const emit = defineEmits<{
 
     &__title {
         margin: 0;
-        font-size: 13px;
-        font-weight: 600;
-        line-height: 1.4;
+        font-size: var(--text-sm);
+        font-weight: var(--weight-semibold);
+        line-height: var(--leading-normal);
         @include text-ellipsis;
     }
 
     &__sub {
-        margin: 2px 0 0;
-        font-size: 11px;
-        line-height: 1.4;
+        margin: var(--space-1) 0 0;
+        font-size: var(--text-xs);
+        line-height: var(--leading-normal);
         color: var(--md-sys-color-on-surface-variant);
         @include text-ellipsis;
     }
@@ -124,10 +120,10 @@ const emit = defineEmits<{
         @include button-reset;
         @include focus-ring;
         flex-shrink: 0;
-        padding: 7px 14px;
-        border-radius: 18px;
-        font-size: 12px;
-        font-weight: 600;
+        padding: var(--space-2) var(--space-3);
+        border-radius: var(--radius-full);
+        font-size: var(--text-xs);
+        font-weight: var(--weight-semibold);
         white-space: nowrap;
         background: var(--md-sys-color-primary);
         color: var(--md-sys-color-on-primary);
@@ -135,7 +131,7 @@ const emit = defineEmits<{
 
         &:hover {
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            box-shadow: var(--elevation-2);
         }
     }
 
@@ -148,7 +144,7 @@ const emit = defineEmits<{
         flex-shrink: 0;
         width: 24px;
         height: 24px;
-        border-radius: 8px;
+        border-radius: var(--radius-sm);
         color: var(--md-sys-color-on-surface-variant);
         opacity: 0.7;
         @include md-transition(all, var(--md-transition-fast));
@@ -163,20 +159,22 @@ const emit = defineEmits<{
 // 入场/出场：从下方滑入
 .update-banner-enter-active,
 .update-banner-leave-active {
-    transition: opacity 0.25s var(--md-easing), transform 0.25s var(--md-easing);
+    transition:
+        opacity var(--md-transition-medium) var(--md-easing),
+        transform var(--md-transition-medium) var(--md-easing);
 }
 
 .update-banner-enter-from,
 .update-banner-leave-to {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(var(--space-3));
 }
 
 @include respond-to(mobile) {
     .update-banner {
-        left: 12px;
-        right: 12px;
-        bottom: 12px;
+        left: var(--space-3);
+        right: var(--space-3);
+        bottom: var(--space-3);
         max-width: none;
     }
 }

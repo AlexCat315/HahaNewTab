@@ -1,10 +1,20 @@
 <script lang="ts">
+import { ref } from 'vue';
+
 // 面板可以叠面板（分类管理里直接开编辑框），栈必须跨实例共享，所以放在模块作用域。
 const openStack: HTMLElement[] = [];
+// 第一把锁落下前 body 的 overflow 快照；栈清空时恢复它，而不是无条件写 ''。
+let bodyOverflowSnapshot: string | null = null;
+// 所有实例共用一个栈，所以入栈/出栈要通知层序：层序靠栈内位置算，不靠调用方传数字
+const stackVersion = ref(0);
+
+function touchStack(): void {
+    stackVersion.value += 1;
+}
 </script>
 
 <script setup lang="ts">
-import { computed, watch, onBeforeUnmount, ref, nextTick } from 'vue';
+import { computed, watch, onBeforeUnmount, nextTick } from 'vue';
 import IconSvg from '@/components/icon/IconSvg.vue';
 
 interface Props {
@@ -26,8 +36,6 @@ interface Props {
     closeOnOverlay?: boolean;
     /** 按 ESC 是否关闭 */
     closeOnEsc?: boolean;
-    /** 遮罩层 z-index，默认走 --z-panel */
-    zIndex?: number;
     /** 是否禁用 body 滚动（打开时） */
     lockScroll?: boolean;
     /** 内容容器额外 class */
@@ -81,7 +89,23 @@ function isTopmost(): boolean {
 
 function setBodyScroll(): void {
     if (!props.lockScroll) return;
-    document.body.style.overflow = openStack.length > 0 ? 'hidden' : '';
+
+    // 先清掉已脱离文档的残留面板：DOM 被外部直接移除（未走本组件卸载钩子）时，
+    // 旧元素会继续顶高栈计数，让最后一个弹窗关闭/卸载后 body 滚动锁永远还不回去
+    for (let i = openStack.length - 1; i >= 0; i -= 1) {
+        if (!openStack[i].isConnected) openStack.splice(i, 1);
+    }
+    touchStack();
+
+    if (openStack.length > 0) {
+        if (bodyOverflowSnapshot === null) {
+            bodyOverflowSnapshot = document.body.style.overflow;
+            document.body.style.overflow = 'hidden';
+        }
+    } else if (bodyOverflowSnapshot !== null) {
+        document.body.style.overflow = bodyOverflowSnapshot;
+        bodyOverflowSnapshot = null;
+    }
 }
 
 function focusPanel(): void {
@@ -182,6 +206,7 @@ watch(isActive, (active) => {
         openStack.push(el);
         document.addEventListener('keydown', handleKeydown, true);
     }
+    touchStack();
     setBodyScroll();
 });
 
@@ -193,6 +218,7 @@ onBeforeUnmount(() => {
     const index = contentRef.value ? openStack.indexOf(contentRef.value) : -1;
     if (index !== -1) openStack.splice(index, 1);
     restoreFocus();
+    touchStack();
     setBodyScroll();
 });
 
@@ -208,9 +234,11 @@ const baseContentStyle = computed(() => ({
     maxHeight: props.maxHeight,
 }));
 
-const overlayStyle = computed(() =>
-    props.zIndex !== undefined ? { zIndex: props.zIndex } : undefined
-);
+const overlayStyle = computed(() => {
+    stackVersion.value;
+    const index = contentRef.value ? openStack.indexOf(contentRef.value) : -1;
+    return { '--modal-depth': String(Math.max(index, 0)) };
+});
 
 const closeIconPath = 'M18 6L6 18M6 6l12 12';
 </script>
@@ -253,7 +281,7 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
                             aria-label="关闭"
                             @click="close"
                         >
-                            <IconSvg :path="closeIconPath" :size="20" color="currentColor" />
+                            <IconSvg :path="closeIconPath" size="var(--icon-sm)" color="currentColor" />
                         </button>
                     </div>
 
@@ -283,6 +311,7 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
     position: fixed;
     background: var(--scrim);
     backdrop-filter: blur(var(--glass-blur));
+    z-index: calc(var(--z-panel) + var(--modal-depth, 0) * var(--z-panel-step));
     opacity: 0;
     visibility: hidden;
     transition:
@@ -292,7 +321,6 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
     &--center {
         @include flex-center(row, 0);
         padding: var(--space-4);
-        z-index: var(--z-panel);
     }
 
     &--top-right {
@@ -300,7 +328,6 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
         justify-content: flex-end;
         align-items: flex-start;
         padding: calc(var(--header-height) + var(--shell-inset) * 2) var(--shell-inset) var(--shell-inset);
-        z-index: var(--z-panel);
     }
 
     &--active {
@@ -316,7 +343,7 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    transform: scale(0.96) translateY(12px);
+    transform: scale(0.96) translateY(var(--space-3));
     opacity: 0;
     transition:
         transform var(--md-transition-medium) var(--md-easing),
@@ -365,13 +392,13 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
 }
 
 .mnt-modal-close {
-    @include icon-button(32px);
+    @include icon-button(var(--control-h-sm));
     flex-shrink: 0;
     color: var(--md-sys-color-on-surface-variant);
 
     &:hover {
         background: var(--md-sys-color-surface-variant);
-        color: var(--md-sys-color-error);
+        color: var(--color-error);
     }
 }
 

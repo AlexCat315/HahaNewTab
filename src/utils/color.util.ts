@@ -1,53 +1,10 @@
 /**
  * 颜色处理工具
- * 与原项目 js/ThemeManager.js 中 adjustColor、hexToRgba 行为一致
+ *
+ * 只保留「需要数值判断」的三件事：相对亮度、对比度、CSS 颜色字面量解析
+ * （图标取样与背板判定用）。配色派生不在这里做——那是 styles/variables.scss
+ * 里 color-mix 的职责，JS 再算一份就会出现同一含义两套值。
  */
-
-/** 调整 HEX 颜色亮度（正数变亮，负数变暗） */
-export function adjustColor(color: string, percent: number): string {
-    const num = parseInt(color.replace('#', ''), 16);
-    const amt = Math.round(2.55 * Math.abs(percent));
-    const R = percent > 0
-        ? Math.min(255, (num >> 16) + amt)
-        : Math.max(0, (num >> 16) - amt);
-    const G = percent > 0
-        ? Math.min(255, ((num >> 8) & 0x00FF) + amt)
-        : Math.max(0, ((num >> 8) & 0x00FF) - amt);
-    const B = percent > 0
-        ? Math.min(255, (num & 0x0000FF) + amt)
-        : Math.max(0, (num & 0x0000FF) - amt);
-    return `#${((1 << 24) + (R << 16) + (G << 8) + B).toString(16).slice(1)}`;
-}
-
-/** HEX 颜色转 RGBA */
-export function hexToRgba(hex: string, alpha: number): string {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-/**
- * HEX 颜色转 `r, g, b` 三元组
- * 供 `rgba(var(--md-sys-color-surface-rgb), 0.9)` 这类需要动态 alpha 的场景使用。
- */
-export function hexToRgbTriplet(hex: string): string {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return `${r}, ${g}, ${b}`;
-}
-
-/** 判断颜色是否为浅色系（用于文字颜色反色判断） */
-export function isLightColor(hex: string): boolean {
-    const num = parseInt(hex.replace('#', ''), 16);
-    const r = (num >> 16) & 0xFF;
-    const g = (num >> 8) & 0xFF;
-    const b = num & 0xFF;
-    // 基于感知亮度公式
-    const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-    return brightness > 128;
-}
 
 /**
  * sRGB 相对亮度（WCAG 2.1），返回 0-1

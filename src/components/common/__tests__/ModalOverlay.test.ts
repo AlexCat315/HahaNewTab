@@ -117,4 +117,38 @@ describe('ModalOverlay', () => {
         wrapper.unmount();
         expect(document.body.style.overflow).toBe('');
     });
+
+    it('层序按打开顺序递增，关闭后重新压紧', async () => {
+        const first = mount(ModalOverlay, {
+            props: { modelValue: false, title: '面板' },
+            attachTo: document.body,
+        });
+        const second = mount(ModalOverlay, {
+            props: { modelValue: false, title: '编辑框' },
+            attachTo: document.body,
+        });
+
+        // Teleport 到 body 的遮罩按挂载顺序排列，用下标取比 wrapper.find 稳
+        function depthAt(index: number) {
+            const el = document.querySelectorAll('.mnt-modal-overlay')[index] as HTMLElement;
+            return el.style.getPropertyValue('--modal-depth');
+        }
+
+        first.setProps({ modelValue: true });
+        await wait();
+        // 晚一帧入栈，模拟「面板里再开编辑框」
+        second.setProps({ modelValue: true });
+        await wait();
+
+        // 后开的压在先开的之上，DOM 顺序不再决定谁盖谁
+        expect(depthAt(0)).toBe('0');
+        expect(depthAt(1)).toBe('1');
+
+        second.setProps({ modelValue: false });
+        await wait();
+        expect(depthAt(0)).toBe('0');
+
+        first.unmount();
+        second.unmount();
+    });
 });

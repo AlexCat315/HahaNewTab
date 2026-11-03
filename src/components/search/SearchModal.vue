@@ -26,13 +26,19 @@ export interface SearchModalProps {
     modelValue: boolean;
     /** 输入框占位提示 */
     placeholder?: string;
-    /** 最大宽度 */
+    /**
+     * 宽度档，交给 ModalOverlay 映射到 --panel-w-*。
+     * Cmd+K 是「读得下一行搜索结果」的面板，取 lg：md(520) 会让引擎名 +
+     * 输入 + 补全提示挤在一起，xl(780) 又比首页搜索列宽得多，跳出了同一套尺寸语言。
+     */
+    size?: 'sm' | 'md' | 'lg' | 'xl';
+    /** 显式最大宽度，只给确实要偏离宽度档的调用方用；不传就走 size */
     maxWidth?: number | string;
 }
 
 const props = withDefaults(defineProps<SearchModalProps>(), {
     placeholder: '输入搜索内容…',
-    maxWidth: 640
+    size: 'lg'
 });
 
 const emit = defineEmits<{
@@ -251,14 +257,11 @@ watch(
 
 const closeIconPath = 'M18 6L6 18M6 6l12 12';
 
-// 注意：ModalOverlay 经 Teleport 渲染，scoped 样式命不中容器，
-// 容器样式以内联方式下发；下方 scoped 中的 &__content / &__body 仅作同步备份。
+// 注意：ModalOverlay 经 Teleport 渲染，scoped 样式命不中容器。
+// 表面本身（底 / 圆角 / 阴影 / 模糊）由 ModalOverlay 的 glass-surface + elevation-3
+// token 提供，这里只保留搜索面板必须的行为差异：
+// 内容溢出可见，否则引擎下拉与搜索建议会被容器裁掉。
 const modalContentStyle = {
-    background: 'rgba(var(--md-sys-color-surface-rgb), 0.92)',
-    // 不画描边：容器靠阴影与背景模糊与页面分层
-    borderRadius: '24px',
-    boxShadow: '0 24px 64px rgba(0, 0, 0, 0.16), 0 4px 16px rgba(0, 0, 0, 0.08)',
-    backdropFilter: 'blur(24px)',
     overflow: 'visible'
 };
 
@@ -271,14 +274,16 @@ const modalBodyStyle = {
 </script>
 
 <template>
+    <!-- 不传 z-index：ModalOverlay 按打开顺序现算层序（--z-panel + 栈内序号 * --z-panel-step），
+         所以 Cmd+K 面板永远压得住它下面已经开着的面板，不用管谁先渲染。 -->
     <ModalOverlay
         v-model="isVisible"
         :show-close="false"
+        :size="size"
         :max-width="maxWidth"
         :close-on-overlay="true"
         :close-on-esc="!hasSuggestions"
         :lock-scroll="true"
-        :z-index="2100"
         content-class="search-modal__content"
         :content-style="modalContentStyle"
         body-class="search-modal__body"
@@ -316,7 +321,7 @@ const modalBodyStyle = {
                         aria-label="搜索"
                         @click="() => submitSearch()"
                     >
-                        <IconSvg name="search" :size="18" alt="" />
+                        <IconSvg name="search" size="var(--icon-sm)" alt="" />
                     </button>
                 </div>
 
@@ -326,7 +331,7 @@ const modalBodyStyle = {
                     aria-label="关闭搜索"
                     @click="close"
                 >
-                    <IconSvg :path="closeIconPath" :size="18" alt="" />
+                    <IconSvg :path="closeIconPath" size="var(--icon-sm)" alt="" />
                 </button>
             </div>
 
@@ -391,15 +396,6 @@ const modalBodyStyle = {
     flex-direction: column;
     min-height: 0;
 
-    // 同步备份：实际生效的是内联 modalContentStyle（见脚本注释）
-    &__content {
-        background: rgba(var(--md-sys-color-surface-rgb), 0.92);
-        border-radius: 24px;
-        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.16), 0 4px 16px rgba(0, 0, 0, 0.08);
-        backdrop-filter: blur(24px);
-        overflow: visible;
-    }
-
     &__body {
         padding: 0;
         display: flex;
@@ -412,15 +408,14 @@ const modalBodyStyle = {
         min-height: 0;
         overflow-y: auto;
         overflow-x: hidden;
-        border-radius: 0 0 24px 24px;
-        @include hide-scrollbar;
+        @include scrollable;
     }
 
     &__header {
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding: 12px 14px 10px;
+        gap: var(--space-2);
+        padding: var(--space-3) var(--space-4) var(--space-2);
     }
 
     // 胶囊搜索栏：引擎选择 + 输入 + 提交按钮整合为一体
@@ -429,17 +424,17 @@ const modalBodyStyle = {
         min-width: 0;
         display: flex;
         align-items: center;
-        gap: 4px;
-        padding: 4px 4px 4px 12px;
-        border-radius: 16px;
+        gap: var(--space-1);
+        padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+        border-radius: var(--radius-lg);
         background: color-mix(in srgb, var(--md-sys-color-on-surface) 5%, transparent);
         border: 1px solid transparent;
         @include md-transition(all, var(--md-transition-fast));
 
         &:focus-within {
-            background: rgba(var(--md-sys-color-surface-rgb), 0.85);
+            background: var(--glass-bg-strong);
             border-color: var(--md-sys-color-primary);
-            box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent);
+            box-shadow: 0 0 0 3px var(--tint-primary);
         }
     }
 
@@ -453,12 +448,12 @@ const modalBodyStyle = {
     // 注意：与下方 __input 的 padding/font-size 联动，改动时需同步
     &__ghost {
         position: absolute;
-        left: 6px;
+        left: var(--space-1);
         top: 50%;
         transform: translateY(-50%);
-        max-width: calc(100% - 12px);
+        max-width: calc(100% - var(--space-3));
         overflow: hidden;
-        font-size: 15px;
+        font-size: var(--text-md);
         line-height: normal;
         white-space: pre;
         pointer-events: none;
@@ -480,8 +475,8 @@ const modalBodyStyle = {
 
         :deep(.mnt-base-input__wrapper) {
             border: none;
-            border-radius: 12px;
-            padding: 8px 6px;
+            border-radius: var(--radius-md);
+            padding: var(--space-2) var(--space-1);
             background: transparent;
             box-shadow: none;
         }
@@ -491,7 +486,7 @@ const modalBodyStyle = {
         }
 
         :deep(.mnt-base-input__field) {
-            font-size: 15px;
+            font-size: var(--text-md);
 
             // 焦点指示由 __bar 的 focus-within 光晕承担
             &:focus-visible {
@@ -502,10 +497,10 @@ const modalBodyStyle = {
 
     &__submit {
         @include button-reset;
-        width: 36px;
-        height: 36px;
+        width: var(--control-h-md);
+        height: var(--control-h-md);
         padding: 0;
-        border-radius: 10px;
+        border-radius: var(--radius-sm);
         flex-shrink: 0;
         display: flex;
         align-items: center;
@@ -518,7 +513,7 @@ const modalBodyStyle = {
         &:hover {
             opacity: 0.92;
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px color-mix(in srgb, var(--md-sys-color-primary) 35%, transparent);
+            box-shadow: var(--elevation-2);
         }
 
         &:active {
@@ -530,18 +525,17 @@ const modalBodyStyle = {
             cursor: not-allowed;
         }
 
+        // 边长交给模板上的 size="var(--icon-sm)"（IconSvg 内联样式），这里只管颜色
         .icon-svg {
-            width: 18px;
-            height: 18px;
             color: var(--md-sys-color-on-primary);
         }
     }
 
     &__close {
         @include button-reset;
-        width: 36px;
-        height: 36px;
-        border-radius: 50%;
+        width: var(--control-h-md);
+        height: var(--control-h-md);
+        border-radius: var(--radius-full);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -551,8 +545,8 @@ const modalBodyStyle = {
         @include focus-ring;
 
         &:hover {
-            background: color-mix(in srgb, var(--md-sys-color-error) 10%, transparent);
-            color: var(--md-sys-color-error);
+            background: var(--tint-error);
+            color: var(--color-error);
         }
     }
 
@@ -562,21 +556,21 @@ const modalBodyStyle = {
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 6px;
-        padding: 36px 24px;
+        gap: var(--space-2);
+        padding: var(--space-8) var(--space-6);
         text-align: center;
     }
 
     &__empty-title {
         margin: 0;
-        font-size: 14px;
-        font-weight: 600;
+        font-size: var(--text-base);
+        font-weight: var(--weight-semibold);
         color: var(--md-sys-color-on-surface);
     }
 
     &__empty-text {
         margin: 0;
-        font-size: 12px;
+        font-size: var(--text-xs);
         color: var(--md-sys-color-on-surface-variant);
         opacity: 0.8;
     }
@@ -585,68 +579,68 @@ const modalBodyStyle = {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 9px 16px;
+        padding: var(--space-2) var(--space-4);
         background: transparent;
-        font-size: 12px;
+        font-size: var(--text-xs);
         color: var(--md-sys-color-on-surface-variant);
     }
 
     &__hints {
         display: flex;
-        gap: 14px;
+        gap: var(--space-3);
         flex-wrap: wrap;
 
         span {
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: var(--space-1);
         }
 
         kbd {
             min-width: 20px;
-            padding: 2px 5px;
-            border-radius: 6px;
+            padding: var(--space-1);
+            border-radius: var(--radius-xs);
             font-family: monospace;
-            font-size: 11px;
+            font-size: var(--text-xs);
             text-align: center;
-            background: color-mix(in srgb, var(--md-sys-color-on-surface) 6%, transparent);
-            border: 1px solid color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+            background: var(--hover-bg);
+            border: 1px solid var(--pressed-bg);
             border-bottom-width: 2px;
         }
     }
 
     &__engine-name {
-        font-weight: 600;
+        font-weight: var(--weight-semibold);
         color: var(--md-sys-color-primary);
     }
 }
 
 @include respond-to(mobile) {
     .search-modal__header {
-        padding: 10px 12px 8px;
-        gap: 6px;
+        padding: var(--space-2) var(--space-3);
+        gap: var(--space-1);
     }
 
     .search-modal__bar {
-        padding-left: 8px;
+        padding-left: var(--space-2);
     }
 
     .search-modal__submit {
-        width: 34px;
-        height: 34px;
+        width: var(--control-h-sm);
+        height: var(--control-h-sm);
     }
 
     .search-modal__empty {
-        padding: 28px 20px;
+        padding: var(--space-6) var(--space-5);
     }
 
     .search-modal__footer {
-        font-size: 11px;
-        padding: 8px 12px;
+        font-size: var(--text-xs);
+        padding: var(--space-2) var(--space-3);
     }
 
     .search-modal__hints {
-        gap: 10px;
+        gap: var(--space-2);
     }
 }
 </style>

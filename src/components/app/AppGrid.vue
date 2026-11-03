@@ -57,6 +57,8 @@ const PLACEHOLDER_KEY = '__drag_placeholder__';
 const gridStyle = computed(() => {
     const columns = layoutStore.isMobile ? 'auto' : layoutStore.columns;
     if (columns === 'auto') return undefined;
+    // 显式列数模式下不再压 --card-min-width 下限：用户点名要 N 列，
+    // 若沿用自适应档的 minmax 地板，窄屏上会被下限挤爆容器（溢出比窄卡更糟）
     return { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` };
 });
 
@@ -199,7 +201,7 @@ function handleDelete(app: AppItem): void {
 
         <div v-if="!hasApps" class="app-grid__empty">
             <slot name="empty">
-                <IconSvg name="folder" :size="48" />
+                <IconSvg name="folder" size="var(--icon-2xl)" />
                 <p>该分类下暂无应用</p>
             </slot>
         </div>
@@ -212,7 +214,7 @@ function handleDelete(app: AppItem): void {
                 aria-label="上一页"
                 @click="prevPage"
             >
-                <IconSvg name="arrow-left" :size="14" />
+                <IconSvg name="arrow-left" size="var(--icon-xs)" />
             </button>
             <span class="app-grid__pager-info">{{ currentPage + 1 }} / {{ pageCount }}</span>
             <button
@@ -222,7 +224,7 @@ function handleDelete(app: AppItem): void {
                 aria-label="下一页"
                 @click="nextPage"
             >
-                <IconSvg name="arrow-right" :size="14" />
+                <IconSvg name="arrow-right" size="var(--icon-xs)" />
             </button>
         </div>
     </div>
@@ -234,13 +236,12 @@ function handleDelete(app: AppItem): void {
 .app-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(var(--card-min-width), 1fr));
-    gap: var(--space-3);
-    min-height: 50px;
+    gap: var(--card-grid-gap);
 
     &__placeholder {
-        min-height: 76px;
+        min-height: var(--card-row-height);
         border: 2px dashed var(--md-sys-color-primary);
-        border-radius: var(--radius-md);
+        border-radius: var(--card-radius);
         background: color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent);
         opacity: 0.7;
     }
@@ -255,12 +256,12 @@ function handleDelete(app: AppItem): void {
     }
 
     &__pager-btn {
-        @include icon-button(28px);
+        @include icon-button(var(--control-h-xs));
         background: var(--md-sys-color-surface-variant);
         color: var(--md-sys-color-on-surface-variant);
 
         &:hover:not(:disabled) {
-            background: color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent);
+            background: var(--tint-primary);
             color: var(--md-sys-color-primary);
         }
 
@@ -293,8 +294,9 @@ function handleDelete(app: AppItem): void {
 
 @include respond-to(mobile) {
     .app-grid {
+        // 移动端只是单列：间距仍走 --card-grid-gap，
+        // 另写一档 gap 会让同一批卡片在断点上下的行距对不上
         grid-template-columns: 1fr;
-        gap: var(--space-2);
     }
 }
 </style>

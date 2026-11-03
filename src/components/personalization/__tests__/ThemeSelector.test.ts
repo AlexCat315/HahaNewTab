@@ -191,15 +191,22 @@ describe('ThemeSelector', () => {
         expect(active[0].text()).toContain('Haha娘经典');
     });
 
-    it('预览圆点同时体现明暗表面与主色', async () => {
+    it('迷你卡预览用的是该族在当前模式下的配色', async () => {
         const wrapper = mountSelector();
 
         await flushPromises();
 
-        const preview = wrapper.findAll('.theme-option__preview')[0];
-        const style = preview.attributes('style') ?? '';
-        expect(style).toContain('--preview-light: #FFF8F9');
-        expect(style).toContain('--preview-dark: #1D191A');
-        expect(style).toContain('--preview-accent: #B14A6B');
+        const previewStyle = () => wrapper.findAll('.theme-option__preview')[0].attributes('style') ?? '';
+        expect(previewStyle()).toContain('--pv-surface: #FFF8F9');
+        expect(previewStyle()).toContain('--pv-variant: #F3DDE2');
+        expect(previewStyle()).toContain('--pv-text: #201A1A');
+        expect(previewStyle()).toContain('--pv-accent: #B14A6B');
+
+        // 切到深色：预览跟着换成该族自己的暗色变体，而不是退回调色板默认值
+        await wrapper.findAll('.mnt-segmented__item')[1].trigger('click');
+        await flushPromises();
+
+        expect(previewStyle()).toContain('--pv-surface: #1D191A');
+        expect(previewStyle()).toContain('--pv-accent: #E8A2B4');
     });
 });

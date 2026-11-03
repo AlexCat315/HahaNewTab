@@ -72,7 +72,7 @@ watch(
         @close="emit('close')"
     >
         <template #header>
-            <IconSvg name="palette" :size="18" color="var(--md-sys-color-primary)" />
+            <IconSvg name="palette" size="var(--icon-sm)" color="var(--md-sys-color-primary)" />
             <h3 class="personalization-title">{{ title }}</h3>
         </template>
 
@@ -88,7 +88,7 @@ watch(
                         :aria-current="activeTab === tab.id ? 'true' : undefined"
                         @click="activeTab = tab.id"
                     >
-                        <IconSvg :name="tab.icon" :size="16" monochrome />
+                        <IconSvg :name="tab.icon" size="var(--icon-xs)" monochrome />
                         <span>{{ tab.label }}</span>
                     </button>
                 </nav>
@@ -126,13 +126,15 @@ watch(
 .panel-layout {
     display: flex;
     gap: var(--space-4);
-    min-height: 280px;
+    min-height: var(--panel-body-min-h);
 }
 
 .panel-nav {
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
+    // 128px 是「最长栏目名(4 字) + --icon-xs 图标 + 左右 --space-3 padding」的贴合宽度；
+    // 宽度档里最近的 --pop-w-min(180px) 会把 660px 面板的内容区挤得太窄，故留字面值
     flex: 0 0 128px;
     border-right: 1px solid var(--md-sys-color-outline-variant);
     padding-right: var(--space-3);
@@ -142,6 +144,7 @@ watch(
         display: flex;
         align-items: center;
         gap: var(--space-2);
+        min-height: var(--control-h-md);
         padding: var(--space-2) var(--space-3);
         border-radius: var(--radius-sm);
         font-size: var(--text-base);
@@ -187,7 +190,7 @@ watch(
         padding-right: 0;
         padding-bottom: var(--space-2);
         overflow-x: auto;
-        scrollbar-width: none;
+        @include hide-scrollbar; // 横向胶囊条：栏目导航不需要滚动条
 
         &__item {
             white-space: nowrap;

@@ -139,6 +139,8 @@
             if (isDark) {
                 root.classList.add('dark-mode');
             }
+            // 只注入基础色：卡片底、描边、hover、玻璃浮层这些派生色全部由
+            // styles/variables.scss 的 color-mix 现算，首帧就已经是主题色。
             for (var key in theme.colors) {
                 if (Object.prototype.hasOwnProperty.call(theme.colors, key)) {
                     root.style.setProperty(key, theme.colors[key]);

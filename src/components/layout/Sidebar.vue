@@ -174,7 +174,7 @@ watch(
                 <span class="nav-icon">
                     <IconSvg
                         :src="category.icon"
-                        :size="20"
+                        size="var(--icon-sm)"
                         :monochrome="category.monochrome"
                         :alt="category.name"
                     />
@@ -194,7 +194,7 @@ watch(
                 @click="handleSearchClick"
             >
                 <span class="nav-icon">
-                    <IconSvg name="search" :size="20" monochrome />
+                    <IconSvg name="search" size="var(--icon-sm)" monochrome />
                 </span>
                 <span class="nav-text">全局搜索</span>
                 <kbd v-if="!collapsed" class="search-shortcut">Ctrl K</kbd>
@@ -238,7 +238,8 @@ watch(
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    height: 40px;
+    // rail 行是可点控件，热区取控件默认档
+    height: var(--control-h-md);
     padding: 0 var(--space-3);
     margin-bottom: var(--space-1);
     border-radius: var(--radius-md);
@@ -272,7 +273,8 @@ watch(
         background: var(--md-sys-color-surface-variant);
         box-shadow: var(--elevation-2);
         cursor: grabbing;
-        z-index: 100;
+        // 只需压过同级的分类项，不必压过弹层——与应用卡拖拽态取同一档
+        z-index: var(--z-dropdown);
     }
 
     &[data-draggable='true'] {
@@ -285,8 +287,8 @@ watch(
 }
 
 .nav-icon {
-    width: 20px;
-    height: 20px;
+    width: var(--icon-sm);
+    height: var(--icon-sm);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -324,7 +326,8 @@ watch(
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    height: 40px;
+    // 与分类行同一档热区，两个入口才不会被看出两种高度
+    height: var(--control-h-md);
     padding: 0 var(--space-3);
     border-radius: var(--radius-md);
     color: var(--md-sys-color-on-surface);
@@ -344,7 +347,7 @@ watch(
     font-size: var(--text-xs);
     font-family: inherit;
     opacity: 0.7;
-    padding: 2px var(--space-2);
+    padding: var(--space-1) var(--space-2);
     border-radius: var(--radius-xs);
     border: 1px solid var(--glass-border);
     background: var(--hover-bg);
@@ -370,7 +373,7 @@ watch(
     .nav-item:hover::after {
         content: attr(data-title);
         position: absolute;
-        left: calc(100% + 10px);
+        left: calc(100% + var(--space-3));
         top: 50%;
         transform: translateY(-50%);
         background: var(--md-sys-color-inverse-surface);
@@ -399,7 +402,9 @@ watch(
         bottom: 0;
         left: 0;
         width: var(--sidebar-width);
-        border-radius: 0 var(--radius-xl) var(--radius-xl) 0;
+        // 抽屉贴住视口左缘：只把左缘两角归零，右缘保留基础规则的 --radius-xl
+        border-start-start-radius: 0;
+        border-end-start-radius: 0;
         transform: translateX(-100%);
         transition: transform var(--md-transition-medium) var(--md-easing);
 

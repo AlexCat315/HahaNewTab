@@ -41,7 +41,7 @@ const ghostStyle = computed(() => ({
                     :src="iconSrc"
                     name="site"
                     fallback="site"
-                    :size="40"
+                    size="var(--icon-xl)"
                     :monochrome="!!iconSrc && !iconIsImage"
                     :alt="state.app?.name"
                 />
@@ -60,23 +60,27 @@ const ghostStyle = computed(() => ({
 @use '@/styles/mixins' as *;
 
 .app-card-drag-ghost {
+    // 幽灵卡片复刻 AppCard 的表面（bg / 描边宽度 / 圆角 / padding 走卡片契约），
+    // 只把描边换成主色、投影抬到 elevation-3，让它读起来是「被拿起来的那一张」
+    @include card;
+
     position: fixed;
-    z-index: 10000;
+    z-index: var(--z-drag-ghost);
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px;
-    background: var(--card-bg);
-    border: 1px solid var(--md-sys-color-primary);
-    border-radius: 12px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+    gap: var(--card-gap);
+    // 与 AppCard 同一几何契约：inline 的 minHeight 是实测卡高，
+    // 这里补 token 高，保证拿起的瞬间不会先塌回内容高再被撑开
+    height: var(--card-row-height);
+    border-color: var(--md-sys-color-primary);
+    box-shadow: var(--elevation-3);
     pointer-events: none;
     transform: scale(1.03);
 
     &__icon {
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
+        width: var(--icon-xl);
+        height: var(--icon-xl);
+        border-radius: var(--radius-sm);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -96,25 +100,26 @@ const ghostStyle = computed(() => ({
         min-width: 0;
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: var(--space-1);
     }
 
     &__name {
         margin: 0;
-        font-size: 0.9rem;
-        font-weight: 600;
+        font-size: var(--text-base);
+        font-weight: var(--weight-semibold);
+        line-height: var(--leading-tight);
         color: var(--md-sys-color-on-surface);
         @include text-ellipsis;
     }
 
     &__description {
         margin: 0;
-        font-size: 0.75rem;
+        font-size: var(--text-xs);
         color: var(--md-sys-color-on-surface-variant);
         opacity: 0.85;
-        line-height: 1.3;
+        line-height: var(--leading-normal);
         @include line-clamp(2);
-        max-height: 2.8em;
+        max-height: calc(2 * var(--leading-normal) * var(--text-xs));
     }
 }
 </style>

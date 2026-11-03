@@ -102,10 +102,6 @@ withDefaults(defineProps<MainContentProps>(), {
     flex-shrink: 0;
 }
 
-.content-body {
-    min-height: 200px;
-}
-
 @include respond-to(mobile) {
     .main-content {
         margin-left: 0 !important;

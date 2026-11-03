@@ -220,7 +220,7 @@ function formatPx(value: number): string {
                 >
                 <BaseButton variant="outlined" :loading="loading" @click="handleFileSelect">
                     <template #icon>
-                        <IconSvg :path="UPLOAD_PATH" :size="16" />
+                        <IconSvg :path="UPLOAD_PATH" size="var(--icon-xs)" />
                     </template>
                     选择本地图片
                 </BaseButton>
@@ -269,7 +269,7 @@ function formatPx(value: number): string {
                 </span>
                 <BaseButton variant="text" size="small" :disabled="!hasWallpaper" @click="handleRemove">
                     <template #icon>
-                        <IconSvg :path="DELETE_PATH" :size="16" />
+                        <IconSvg :path="DELETE_PATH" size="var(--icon-xs)" />
                     </template>
                     移除壁纸
                 </BaseButton>

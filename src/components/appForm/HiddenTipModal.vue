@@ -49,7 +49,7 @@ watch(
     <ModalOverlay
         :model-value="modelValue"
         title="站点已隐藏"
-        :max-width="420"
+        size="sm"
         close-on-overlay
         @update:model-value="$emit('update:modelValue', $event)"
     >
@@ -77,22 +77,22 @@ watch(
 .hidden-tip {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--space-4);
 
     &__text {
         margin: 0;
-        font-size: 14px;
-        line-height: 1.7;
+        font-size: var(--text-base);
+        line-height: var(--leading-relaxed);
         color: var(--md-sys-color-on-surface);
 
         kbd {
             display: inline-block;
             min-width: 20px;
-            padding: 1px 6px;
-            margin: 0 2px;
-            border-radius: 6px;
+            padding: 0 var(--space-1);
+            margin: 0 var(--space-1);
+            border-radius: var(--radius-xs);
             font-family: monospace;
-            font-size: 12px;
+            font-size: var(--text-xs);
             text-align: center;
             background: color-mix(in srgb, var(--md-sys-color-on-surface) 6%, transparent);
             border: 1px solid color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
@@ -103,9 +103,9 @@ watch(
     &__checkbox {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: var(--space-2);
         cursor: pointer;
-        font-size: 14px;
+        font-size: var(--text-base);
         color: var(--md-sys-color-on-surface-variant);
 
         input[type='checkbox'] {

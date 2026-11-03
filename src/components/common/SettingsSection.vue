@@ -32,7 +32,13 @@ defineProps<Props>();
 </template>
 
 <style scoped lang="scss">
+@use '@/styles/mixins' as *;
+
 .mnt-settings-section {
+    // 设置区块就是卡片契约的静态档（见 mixins 头注「分组卡、设置区块」）：
+    // bg / 描边 / 圆角 / padding / elevation 全由混入给出，组件只排内部标题与行
+    @include card;
+
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
@@ -49,16 +55,11 @@ defineProps<Props>();
         min-width: 0;
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: var(--space-1);
     }
 
     &__title {
-        margin: 0;
-        font-size: var(--text-xs);
-        font-weight: var(--weight-semibold);
-        letter-spacing: 0.4px;
-        text-transform: uppercase;
-        color: var(--md-sys-color-on-surface-variant);
+        @include section-label;
         line-height: var(--leading-tight);
     }
 

@@ -431,7 +431,7 @@ const statusClass = computed(() => {
 <template>
     <section class="cloud-sync-panel" aria-label="云同步">
         <header class="cloud-sync-panel__header">
-            <IconSvg :path="CLOUD_PATH" :size="18" color="var(--md-sys-color-primary)" />
+            <IconSvg :path="CLOUD_PATH" size="var(--icon-sm)" color="var(--md-sys-color-primary)" />
             <h3 class="cloud-sync-panel__title">{{ title }}</h3>
         </header>
 
@@ -484,7 +484,7 @@ const statusClass = computed(() => {
                 @click="handleLogin"
             >
                 <template #icon>
-                    <IconSvg name="link" :size="16" />
+                    <IconSvg name="link" size="var(--icon-xs)" />
                 </template>
                 连接 {{ currentProviderOption.name }}
             </BaseButton>
@@ -524,7 +524,7 @@ const statusClass = computed(() => {
                     @click="handleSync"
                 >
                     <template #icon>
-                        <IconSvg name="upload" :size="16" />
+                        <IconSvg name="upload" size="var(--icon-xs)" />
                     </template>
                     立即同步
                 </BaseButton>
@@ -536,7 +536,7 @@ const statusClass = computed(() => {
                     @click="handlePull"
                 >
                     <template #icon>
-                        <IconSvg name="download" :size="16" />
+                        <IconSvg name="download" size="var(--icon-xs)" />
                     </template>
                     强制恢复云端
                 </BaseButton>
@@ -550,7 +550,7 @@ const statusClass = computed(() => {
                 @click="handleLogout"
             >
                 <template #icon>
-                    <IconSvg name="logout" :size="16" />
+                    <IconSvg name="logout" size="var(--icon-xs)" />
                 </template>
                 断开连接
             </BaseButton>
@@ -566,7 +566,7 @@ const statusClass = computed(() => {
             }"
         >
             <div class="cloud-sync-cross__head">
-                <IconSvg :paths="LOCK_PATHS" :size="16" color="var(--md-sys-color-primary)" />
+                <IconSvg :paths="LOCK_PATHS" size="var(--icon-xs)" color="var(--md-sys-color-primary)" />
                 <span class="cloud-sync-cross__name">浏览器同步</span>
                 <span v-if="browserMode === 'enabled'" class="cloud-sync-cross__badge">已开启</span>
             </div>
@@ -612,7 +612,7 @@ const statusClass = computed(() => {
                     @click="handleBrowserSubmit"
                 >
                     <template #icon>
-                        <IconSvg :paths="LOCK_PATHS" :size="16" />
+                        <IconSvg :paths="LOCK_PATHS" size="var(--icon-xs)" />
                     </template>
                     {{ browserActionLabel }}
                 </BaseButton>
@@ -684,37 +684,32 @@ const statusClass = computed(() => {
 .cloud-sync-panel {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--space-3);
 
     &__header {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: var(--space-2);
     }
 
     &__title {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--md-sys-color-primary);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin: 0;
+        @include section-label(var(--md-sys-color-primary));
     }
 
     &__error {
-        font-size: 12px;
-        color: var(--md-sys-color-error);
-        padding: 8px 10px;
-        border-radius: 8px;
-        background: var(--md-sys-color-error-container);
+        font-size: var(--text-xs);
+        color: var(--color-error);
+        padding: var(--space-2) var(--space-3);
+        border-radius: var(--radius-sm);
+        background: var(--tint-error);
     }
 
     &__status {
-        font-size: 13px;
+        font-size: var(--text-sm);
         color: var(--md-sys-color-on-surface-variant);
 
         &.is-connected {
-            color: var(--md-sys-color-success);
+            color: var(--color-success);
         }
 
         &.is-loading {
@@ -725,32 +720,32 @@ const statusClass = computed(() => {
     &__guest {
         display: flex;
         flex-direction: column;
-        gap: 10px;
+        gap: var(--space-2);
     }
 
     &__hint {
-        font-size: 12px;
+        font-size: var(--text-xs);
         color: var(--md-sys-color-on-surface-variant);
-        line-height: 1.4;
+        line-height: var(--leading-normal);
         margin: 0;
     }
 
     &__logged {
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: var(--space-3);
     }
 }
 
 .cloud-sync-user {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-2);
 
     &__avatar {
         width: 32px;
         height: 32px;
-        border-radius: 50%;
+        border-radius: var(--radius-full);
         object-fit: cover;
         background: var(--md-sys-color-surface-variant);
         flex-shrink: 0;
@@ -762,14 +757,14 @@ const statusClass = computed(() => {
     }
 
     &__name {
-        font-size: 14px;
-        font-weight: 500;
+        font-size: var(--text-base);
+        font-weight: var(--weight-medium);
         color: var(--md-sys-color-on-surface);
         @include text-ellipsis;
     }
 
     &__time {
-        font-size: 12px;
+        font-size: var(--text-xs);
         color: var(--md-sys-color-on-surface-variant);
     }
 }
@@ -777,8 +772,8 @@ const statusClass = computed(() => {
 .cloud-sync-toggle {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 13px;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
     color: var(--md-sys-color-on-surface);
     cursor: pointer;
 
@@ -791,13 +786,10 @@ const statusClass = computed(() => {
 }
 
 .cloud-sync-cross {
+    @include card;
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 12px;
-    border: 1px solid var(--md-sys-color-outline-variant);
-    border-radius: 12px;
-    background: var(--md-sys-color-surface-container-low, transparent);
+    gap: var(--space-2);
 
     &.is-restore,
     &.is-on {
@@ -812,9 +804,9 @@ const statusClass = computed(() => {
     &__head {
         display: flex;
         align-items: center;
-        gap: 6px;
-        font-size: 13px;
-        font-weight: 500;
+        gap: var(--space-1);
+        font-size: var(--text-sm);
+        font-weight: var(--weight-medium);
         color: var(--md-sys-color-on-surface);
     }
 
@@ -825,43 +817,46 @@ const statusClass = computed(() => {
 
     &__badge {
         flex-shrink: 0;
-        padding: 1px 8px;
-        border-radius: 999px;
-        font-size: 11px;
-        font-weight: 600;
+        padding: 0 var(--space-2);
+        border-radius: var(--radius-full);
+        font-size: var(--text-xs);
+        font-weight: var(--weight-semibold);
+        line-height: var(--leading-tight);
         color: var(--md-sys-color-on-surface-variant);
         background: var(--md-sys-color-surface-variant);
     }
 
+    // 「已开启」用 tint 底 + 主色字，不用主色实底 + 白字：
+    // 深色主题的 primary 是提亮过的，白字压上去读不出。
     &.is-on &__badge {
-        color: var(--md-sys-color-on-primary);
-        background: var(--md-sys-color-primary);
+        color: var(--md-sys-color-primary);
+        background: var(--tint-primary-strong);
     }
 
     &__status {
         margin: 0;
-        font-size: 12px;
-        font-weight: 500;
+        font-size: var(--text-xs);
+        font-weight: var(--weight-medium);
         color: var(--md-sys-color-on-surface-variant);
     }
 
     &.is-on &__status {
-        color: var(--md-sys-color-success);
+        color: var(--color-success);
     }
 
     &__warn {
         margin: 0;
-        font-size: 12px;
-        line-height: 1.4;
-        padding: 6px 8px;
-        border-radius: 8px;
-        color: var(--md-sys-color-on-surface-variant);
-        background: var(--md-sys-color-surface-variant);
+        font-size: var(--text-xs);
+        line-height: var(--leading-normal);
+        padding: var(--space-1) var(--space-2);
+        border-radius: var(--radius-sm);
+        color: var(--on-warning);
+        background: var(--tint-warning);
     }
 
     &__actions {
         display: flex;
-        gap: 4px;
+        gap: var(--space-1);
 
         > * {
             flex: 1;
@@ -876,10 +871,10 @@ const statusClass = computed(() => {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
-        gap: 4px;
-        padding-top: 8px;
+        gap: var(--space-1);
+        padding-top: var(--space-2);
         border-top: 1px dashed var(--md-sys-color-outline-variant);
-        font-size: 11px;
+        font-size: var(--text-xs);
         color: var(--md-sys-color-on-surface-variant);
         opacity: 0.9;
     }
@@ -887,15 +882,17 @@ const statusClass = computed(() => {
     &__refresh {
         @include button-reset;
         margin-left: auto;
-        padding: 2px 6px;
-        border-radius: 6px;
-        font-size: 11px;
-        font-weight: 600;
+        // 诊断行里的文字按钮热区抬到 xs 档，避免只有 20px 高的可点区
+        min-height: var(--control-h-xs);
+        padding: var(--space-1) var(--space-2);
+        border-radius: var(--radius-xs);
+        font-size: var(--text-xs);
+        font-weight: var(--weight-semibold);
         color: var(--md-sys-color-primary);
-        @include md-transition(background-color, var(--md-transition-fast));
+        @include md-transition(background-color color, var(--md-transition-fast));
 
         &:hover:not(:disabled) {
-            background: var(--md-sys-color-primary-container);
+            background: var(--hover-bg);
         }
 
         &:disabled {
@@ -907,18 +904,20 @@ const statusClass = computed(() => {
 
 .cloud-sync-provider {
     display: flex;
-    gap: 6px;
+    gap: var(--space-1);
 
     &__btn {
         flex: 1;
-        padding: 6px 0;
+        // 与同面板的 BaseButton small 取同一档，切换平台按钮和「连接」按钮等高
+        height: var(--control-h-sm);
+        padding: 0;
         border: 1px solid var(--md-sys-color-outline-variant);
-        border-radius: 8px;
+        border-radius: var(--radius-sm);
         background: transparent;
         color: var(--md-sys-color-on-surface-variant);
-        font-size: 13px;
+        font-size: var(--text-sm);
         cursor: pointer;
-        transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+        @include md-transition(background-color color border-color, var(--md-transition-medium));
 
         &.is-active {
             background: var(--md-sys-color-primary-container);
@@ -935,7 +934,7 @@ const statusClass = computed(() => {
 
 .cloud-sync-actions {
     display: flex;
-    gap: 8px;
+    gap: var(--space-2);
 
     > * {
         flex: 1;
@@ -944,12 +943,6 @@ const statusClass = computed(() => {
 
 .cloud-sync-logout {
     align-self: flex-start;
-    color: var(--md-sys-color-error);
-}
-
-html.dark-mode {
-    .cloud-sync-user__avatar {
-        background: var(--hover-bg);
-    }
+    color: var(--color-error);
 }
 </style>

@@ -124,7 +124,7 @@ function handleKeydown(event: KeyboardEvent): void {
     &__track {
         position: relative;
         width: 100%;
-        height: 16px;
+        height: var(--control-h-sm);
         display: flex;
         align-items: center;
     }
@@ -135,39 +135,62 @@ function handleKeydown(event: KeyboardEvent): void {
         top: 50%;
         transform: translateY(-50%);
         height: 4px;
-        border-radius: 2px;
+        border-radius: var(--radius-full);
         background: var(--md-sys-color-primary);
         pointer-events: none;
     }
 
     &__input {
         position: relative;
-        z-index: 1;
+        z-index: var(--z-content);
         width: 100%;
-        height: 4px;
-        border-radius: 2px;
-        background: var(--md-sys-color-surface-variant);
+        height: var(--control-h-sm);
+        border-radius: var(--radius-full);
+        background: transparent;
         outline: none;
         -webkit-appearance: none;
         appearance: none;
         cursor: pointer;
 
+        // 热区吃满控件档，视觉轨道仍是一条居中 4px 线：以前 input 本体只有
+        // 4px 高，触屏/精确指针下几乎点不中。
+        &::-webkit-slider-runnable-track {
+            height: var(--control-h-sm);
+            border-radius: var(--radius-full);
+            background: linear-gradient(
+                var(--md-sys-color-surface-variant),
+                var(--md-sys-color-surface-variant)
+            ) center / 100% 4px no-repeat;
+        }
+
         &::-webkit-slider-thumb {
             -webkit-appearance: none;
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
+            width: var(--icon-xs);
+            height: var(--icon-xs);
+            // Blink 不自动垂直居中滑块，需按 (轨道高 - 滑块高)/2 下推
+            margin-top: calc((var(--control-h-sm) - var(--icon-xs)) / 2);
+            border-radius: var(--radius-full);
             background: var(--md-sys-color-primary);
             cursor: pointer;
             box-shadow: var(--elevation-1);
             @include md-transition(transform, var(--md-transition-fast));
         }
 
+        &::-moz-range-track {
+            width: 100%;
+            height: var(--control-h-sm);
+            border-radius: var(--radius-full);
+            background: linear-gradient(
+                var(--md-sys-color-surface-variant),
+                var(--md-sys-color-surface-variant)
+            ) center / 100% 4px no-repeat;
+        }
+
         &::-moz-range-thumb {
-            width: 16px;
-            height: 16px;
+            width: var(--icon-xs);
+            height: var(--icon-xs);
             border: none;
-            border-radius: 50%;
+            border-radius: var(--radius-full);
             background: var(--md-sys-color-primary);
             cursor: pointer;
             box-shadow: var(--elevation-1);
@@ -187,13 +210,5 @@ function handleKeydown(event: KeyboardEvent): void {
             cursor: not-allowed;
         }
     }
-}
-
-// Firefox 进度条背景
-.mnt-base-slider__input::-moz-range-track {
-    width: 100%;
-    height: 4px;
-    border-radius: 2px;
-    background: var(--md-sys-color-surface-variant);
 }
 </style>

@@ -83,20 +83,21 @@ const spinnerPath = 'M12 2v4m0 12v4M2 12h4m12 0h4';
 
     // 尺寸用 height + 横向 padding 定义，不再靠上下 padding 撑：
     // 同一排按钮里有单行文字也有图标时，垂直 padding 会让它们视觉不等高。
+    // 高度只准取 --control-h-* 四档，这样按钮、输入框、分段控件在同一行里天然对齐。
     &--small {
-        height: 30px;
+        height: var(--control-h-sm);
         padding: 0 var(--space-3);
         font-size: var(--text-sm);
     }
 
     &--medium {
-        height: 38px;
+        height: var(--control-h-md);
         padding: 0 var(--space-5);
         font-size: var(--text-base);
     }
 
     &--large {
-        height: 46px;
+        height: var(--control-h-lg);
         padding: 0 var(--space-6);
         font-size: var(--text-md);
     }
@@ -155,11 +156,11 @@ const spinnerPath = 'M12 2v4m0 12v4M2 12h4m12 0h4';
     // 深色主题的 error 是浅珊瑚色，白字压上去只有 1.9:1，
     // 而且主题 token 里根本没有 on-error 这个色，写死的 #fff 无法跟随主题。
     &--danger {
-        background: color-mix(in srgb, var(--md-sys-color-error) 14%, transparent);
-        color: var(--md-sys-color-error);
+        background: var(--tint-error);
+        color: var(--color-error);
 
         &:not(:disabled):hover {
-            background: color-mix(in srgb, var(--md-sys-color-error) 24%, transparent);
+            background: color-mix(in srgb, var(--color-error) 24%, transparent);
         }
     }
 
@@ -174,8 +175,8 @@ const spinnerPath = 'M12 2v4m0 12v4M2 12h4m12 0h4';
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 18px;
-        height: 18px;
+        width: var(--icon-sm);
+        height: var(--icon-sm);
         flex-shrink: 0;
 
         :deep(svg) {
@@ -188,8 +189,8 @@ const spinnerPath = 'M12 2v4m0 12v4M2 12h4m12 0h4';
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 16px;
-        height: 16px;
+        width: var(--icon-xs);
+        height: var(--icon-xs);
         animation: mnt-spin 1s linear infinite;
 
         svg {

@@ -113,7 +113,7 @@ function handleDelete(event: MouseEvent): void {
                 :src="iconSrc"
                 name="site"
                 fallback="site"
-                :size="40"
+                size="var(--icon-xl)"
                 :monochrome="hasIcon && !iconIsImage"
                 :alt="app.name"
             />
@@ -136,7 +136,7 @@ function handleDelete(event: MouseEvent): void {
                 @click="handleEdit"
             >
                 <template #icon>
-                    <IconSvg name="edit" :size="16" monochrome :alt="`编辑 ${app.name}`" />
+                    <IconSvg name="edit" size="var(--icon-xs)" monochrome :alt="`编辑 ${app.name}`" />
                 </template>
             </BaseButton>
             <BaseButton
@@ -148,7 +148,7 @@ function handleDelete(event: MouseEvent): void {
                 @click="handleDelete"
             >
                 <template #icon>
-                    <IconSvg name="delete" :size="16" monochrome :alt="`删除 ${app.name}`" />
+                    <IconSvg name="delete" size="var(--icon-xs)" monochrome :alt="`删除 ${app.name}`" />
                 </template>
             </BaseButton>
         </div>
@@ -159,30 +159,21 @@ function handleDelete(event: MouseEvent): void {
 @use '@/styles/mixins' as *;
 
 .app-card {
+    // 卡片契约的可点档：bg / border / radius / elevation / padding / hover 抬升
+    // 全部由混入给出，这里只补本组件的布局与状态标记
+    @include card-interactive;
+
     position: relative;
     display: flex;
     align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-3);
+    gap: var(--card-gap);
     // 固定等高：容纳两行简介，无简介时内容垂直居中
-    height: 76px;
-    background: var(--card-bg);
-    border: 1px solid var(--card-border);
-    border-radius: var(--radius-md);
-    box-shadow: var(--elevation-1);
-    cursor: pointer;
+    height: var(--card-row-height);
     user-select: none;
     -webkit-user-select: none;
     touch-action: manipulation;
     contain: layout style paint;
     transform: translateZ(0);
-    @include md-transition(all, var(--md-transition-fast));
-
-    // 只抬升不描边：整屏卡片同时换成主色边框会糊成一片，hover 也读不出层级
-    &:hover {
-        transform: translateY(-2px);
-        box-shadow: var(--elevation-2);
-    }
 
     &.is-hidden {
         opacity: 0.7;
@@ -212,8 +203,8 @@ function handleDelete(event: MouseEvent): void {
     }
 
     &__icon {
-        width: 40px;
-        height: 40px;
+        width: var(--icon-xl);
+        height: var(--icon-xl);
         border-radius: var(--radius-sm);
         display: flex;
         align-items: center;
@@ -234,7 +225,7 @@ function handleDelete(event: MouseEvent): void {
         min-width: 0;
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: var(--space-1);
     }
 
     &__name {
@@ -252,7 +243,9 @@ function handleDelete(event: MouseEvent): void {
         color: var(--md-sys-color-on-surface-variant);
         line-height: var(--leading-normal);
         @include line-clamp(2);
-        max-height: 3em;
+        // 两行的封顶高度由 clamp 的行数推导（2 × leading × 字号），
+        // 写死 3em 会在 --leading-* 或 --text-xs 调整后失去同步
+        max-height: calc(2 * var(--leading-normal) * var(--text-xs));
     }
 
     &__actions {
@@ -273,8 +266,8 @@ function handleDelete(event: MouseEvent): void {
     }
 
     &__action-btn {
-        width: 28px;
-        height: 28px;
+        width: var(--control-h-xs);
+        height: var(--control-h-xs);
         min-width: auto;
         padding: 0 !important;
         border-radius: var(--radius-xs);
@@ -282,15 +275,15 @@ function handleDelete(event: MouseEvent): void {
         color: var(--md-sys-color-on-surface-variant);
 
         &:hover {
-            background: color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent);
+            background: var(--tint-primary);
             color: var(--md-sys-color-primary);
         }
 
         // 删除用「主色底 + error 文字」而不是「error 实底 + 白字」：
         // 深色主题的 error 是浅珊瑚色，白字压上去只有 1.9:1。
         &--delete:hover {
-            background: color-mix(in srgb, var(--md-sys-color-error) 16%, transparent);
-            color: var(--md-sys-color-error);
+            background: var(--tint-error);
+            color: var(--color-error);
         }
     }
 }

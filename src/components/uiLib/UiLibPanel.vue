@@ -6,14 +6,13 @@
 <template>
     <ModalOverlay
         v-model="isOpen"
-        max-width="640"
+        size="lg"
         max-height="80vh"
-        :z-index="2100"
         @close="emit('close')"
     >
         <template #header>
             <div class="ui-lib-panel__title">
-                <IconSvg name="picture" :size="20" />
+                <IconSvg name="picture" size="var(--icon-sm)" />
                 <span>图标库</span>
             </div>
         </template>
@@ -26,13 +25,13 @@
                     autocomplete="off"
                 >
                     <template #prefix>
-                        <IconSvg name="search" :size="16" />
+                        <IconSvg name="search" size="var(--icon-xs)" />
                     </template>
                 </BaseInput>
             </div>
 
             <div v-if="store.isLoading" class="ui-lib-panel__state">
-                <IconSvg name="refresh" :size="28" />
+                <IconSvg name="refresh" size="var(--icon-md)" />
                 <p>图标库加载中…</p>
             </div>
 
@@ -57,7 +56,7 @@
                             aria-label="删除分类"
                             @click.stop="deleteCategory(cat.id, cat.name)"
                         >
-                            <IconSvg name="close" :size="12" />
+                            <IconSvg name="close" size="var(--icon-xs)" />
                         </span>
                     </button>
 
@@ -69,7 +68,7 @@
                         title="新建分类"
                         @click="startAddCategory"
                     >
-                        <IconSvg name="plus" :size="16" />
+                        <IconSvg name="plus" size="var(--icon-xs)" />
                     </button>
                     <input
                         v-else
@@ -87,7 +86,7 @@
 
                 <div class="ui-lib-panel__content" role="tabpanel">
                     <div v-if="visibleItems.length === 0" class="ui-lib-panel__state">
-                        <IconSvg name="picture" :size="36" />
+                        <IconSvg name="picture" size="var(--icon-lg)" />
                         <p>{{ emptyText }}</p>
                     </div>
 
@@ -107,10 +106,10 @@
                                 aria-label="删除图标"
                                 @click.stop="deleteItem(item.id, item.name)"
                             >
-                                <IconSvg name="close" :size="12" />
+                                <IconSvg name="close" size="var(--icon-xs)" />
                             </span>
                             <span class="ui-lib-panel__icon">
-                                <IconSvg :src="item.url" :size="26" :alt="item.name" />
+                                <IconSvg :src="item.url" size="var(--icon-md)" :alt="item.name" />
                             </span>
                             <span class="ui-lib-panel__item-name">{{ item.name }}</span>
                         </button>
@@ -160,7 +159,7 @@
                         class="ui-lib-panel__add-row"
                         @click="startAddItem"
                     >
-                        <IconSvg name="plus" :size="18" />
+                        <IconSvg name="plus" size="var(--icon-sm)" />
                         <span>添加图标</span>
                     </button>
                 </div>
@@ -175,15 +174,15 @@
         </template>
     </ModalOverlay>
 
+    <!-- 预览层：与主面板同走 --z-panel，靠声明顺序（Teleport 追加在后面）压在主面板之上 -->
     <ModalOverlay
         v-model="previewVisible"
         title="图标预览"
-        max-width="400"
-        :z-index="2200"
+        size="sm"
     >
         <div v-if="previewTarget" class="ui-lib-panel__preview">
             <div class="ui-lib-panel__preview-box">
-                <IconSvg :src="previewTarget.url" :size="64" :alt="previewTarget.name" />
+                <IconSvg :src="previewTarget.url" size="var(--icon-2xl)" :alt="previewTarget.name" />
             </div>
             <div class="ui-lib-panel__preview-name">{{ previewTarget.name }}</div>
             <div class="ui-lib-panel__preview-desc">
@@ -440,33 +439,33 @@ function close(): void {
 .ui-lib-panel {
     display: flex;
     flex-direction: column;
-    min-height: 320px;
+    min-height: var(--panel-body-min-h);
 
     &__title {
         display: flex;
         align-items: center;
-        gap: 8px;
-        font-size: 1.1rem;
-        font-weight: 600;
+        gap: var(--space-2);
+        font-size: var(--text-lg);
+        font-weight: var(--weight-semibold);
         color: var(--md-sys-color-on-surface);
     }
 
     &__footer-total {
         margin-right: auto;
-        font-size: 12px;
+        font-size: var(--text-xs);
         color: var(--md-sys-color-on-surface-variant);
     }
 
     &__search {
-        padding: 12px 24px 0;
+        padding: var(--space-3) var(--space-6) 0;
     }
 
     &__state {
         flex: 1;
-        @include flex-center(column, 12px);
-        padding: 48px 24px;
+        @include flex-center(column, var(--space-3));
+        padding: var(--space-12) var(--space-6);
         color: var(--md-sys-color-on-surface-variant);
-        font-size: 14px;
+        font-size: var(--text-base);
 
         p {
             margin: 0;
@@ -476,9 +475,9 @@ function close(): void {
     &__tabs {
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding: 12px 24px;
-        border-bottom: 1px solid var(--md-sys-color-outline-variant);
+        gap: var(--space-2);
+        padding: var(--space-3) var(--space-6);
+        border-bottom: 1px solid var(--card-border);
         overflow-x: auto;
         @include hide-scrollbar;
     }
@@ -487,13 +486,13 @@ function close(): void {
         @include button-reset;
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-        padding: 6px 14px;
-        border-radius: 20px;
-        border: 1px solid var(--md-sys-color-outline);
+        gap: var(--space-1);
+        padding: var(--space-2) var(--space-3);
+        border-radius: var(--radius-full);
+        border: 1px solid var(--card-border);
         background: transparent;
         color: var(--md-sys-color-on-surface);
-        font-size: 13px;
+        font-size: var(--text-sm);
         white-space: nowrap;
         @include md-transition(all, var(--md-transition-fast));
         @include focus-ring;
@@ -511,14 +510,14 @@ function close(): void {
     }
 
     &__tab-count {
-        font-size: 11px;
-        padding: 0 6px;
-        border-radius: 999px;
-        background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent);
+        font-size: var(--text-xs);
+        padding: 0 var(--space-1);
+        border-radius: var(--radius-full);
+        background: var(--tint-primary);
         color: var(--md-sys-color-primary);
 
         .is-active & {
-            background: rgba(255, 255, 255, 0.22);
+            background: color-mix(in srgb, var(--md-sys-color-on-primary) 22%, transparent);
             color: var(--md-sys-color-on-primary);
         }
     }
@@ -529,12 +528,12 @@ function close(): void {
         justify-content: center;
         width: 16px;
         height: 16px;
-        border-radius: 50%;
+        border-radius: var(--radius-full);
         cursor: pointer;
         @include md-transition(background, var(--md-transition-fast));
 
         &:hover {
-            background: rgba(255, 255, 255, 0.28);
+            background: color-mix(in srgb, var(--md-sys-color-on-primary) 28%, transparent);
         }
     }
 
@@ -542,8 +541,8 @@ function close(): void {
         @include button-reset;
         width: 30px;
         height: 30px;
-        border-radius: 50%;
-        border: 1.5px dashed var(--md-sys-color-outline);
+        border-radius: var(--radius-full);
+        border: 1.5px dashed var(--card-border);
         color: var(--md-sys-color-on-surface-variant);
         flex-shrink: 0;
         @include flex-center(row, 0);
@@ -559,67 +558,57 @@ function close(): void {
 
     &__tab-input {
         width: 120px;
-        padding: 6px 12px;
-        border-radius: 20px;
+        padding: var(--space-2) var(--space-3);
+        border-radius: var(--radius-full);
         border: 1px solid var(--md-sys-color-primary);
-        background: var(--md-sys-color-surface);
+        background: var(--card-bg);
         color: var(--md-sys-color-on-surface);
-        font-size: 13px;
+        font-size: var(--text-sm);
         font-family: inherit;
-        outline: none;
         flex-shrink: 0;
     }
 
     &__content {
         flex: 1;
         overflow-y: auto;
-        padding: 16px 24px;
-        @include hide-scrollbar;
+        padding: var(--space-4) var(--space-6);
+        @include scrollable;
     }
 
     &__grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
-        gap: 12px;
+        gap: var(--space-3);
     }
 
     &__item {
         @include button-reset;
+        // 可点磁贴走卡片契约：hover 只抬 elevation，不换描边色
+        @include card-interactive;
         position: relative;
         aspect-ratio: 1;
-        border-radius: 12px;
-        border: 1px solid var(--md-sys-color-outline-variant);
-        background: var(--md-sys-color-surface);
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 6px;
-        padding: 8px;
-        @include md-transition(all, var(--md-transition-fast));
+        gap: var(--space-1);
+        padding: var(--space-2);
         @include focus-ring;
-
-        &:hover,
-        &:focus-visible {
-            border-color: var(--md-sys-color-primary);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
     }
 
     &__item-delete {
         position: absolute;
-        top: 4px;
-        right: 4px;
+        top: var(--space-1);
+        right: var(--space-1);
         width: 18px;
         height: 18px;
-        border-radius: 50%;
+        border-radius: var(--radius-full);
         display: flex;
         align-items: center;
         justify-content: center;
         cursor: pointer;
-        color: var(--md-sys-color-error);
-        background: var(--md-sys-color-error-container);
+        color: var(--color-error);
+        background: var(--tint-error);
         opacity: 0;
         @include md-transition(opacity, var(--md-transition-fast));
 
@@ -630,17 +619,17 @@ function close(): void {
     }
 
     &__icon {
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
+        width: var(--tile-icon-size);
+        height: var(--tile-icon-size);
+        border-radius: var(--radius-sm);
         display: flex;
         align-items: center;
         justify-content: center;
-        background: color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent);
+        background: var(--tint-primary);
     }
 
     &__item-name {
-        font-size: 11px;
+        font-size: var(--text-xs);
         color: var(--md-sys-color-on-surface-variant);
         text-align: center;
         @include text-ellipsis;
@@ -649,15 +638,15 @@ function close(): void {
 
     &__add-row {
         @include button-reset;
-        margin-top: 12px;
+        margin-top: var(--space-3);
         width: 100%;
-        padding: 12px 16px;
-        border-radius: 12px;
-        border: 1.5px dashed var(--md-sys-color-outline);
+        padding: var(--space-3) var(--space-4);
+        border-radius: var(--radius-md);
+        border: 1.5px dashed var(--card-border);
         color: var(--md-sys-color-on-surface-variant);
-        font-size: 14px;
-        font-weight: 500;
-        @include flex-center(row, 8px);
+        font-size: var(--text-base);
+        font-weight: var(--weight-medium);
+        @include flex-center(row, var(--space-2));
         @include md-transition(all, var(--md-transition-fast));
         @include focus-ring;
 
@@ -669,107 +658,78 @@ function close(): void {
     }
 
     &__item-form {
-        margin-top: 12px;
-        padding: 14px;
-        border-radius: 12px;
-        border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent);
+        margin-top: var(--space-3);
+        padding: var(--space-4);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--tint-primary-strong);
         background: color-mix(in srgb, var(--md-sys-color-primary) 4%, transparent);
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: var(--space-3);
     }
 
     &__form-group {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: var(--space-1);
     }
 
     &__label {
-        font-size: 13px;
-        font-weight: 600;
+        font-size: var(--text-sm);
+        font-weight: var(--weight-semibold);
         color: var(--md-sys-color-on-surface);
     }
 
     &__select {
         width: 100%;
-        padding: 10px 14px;
-        border: 1px solid var(--md-sys-color-outline);
-        border-radius: 10px;
-        background: var(--md-sys-color-surface);
+        padding: var(--space-2) var(--space-3);
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius-sm);
+        background: var(--card-bg);
         color: var(--md-sys-color-on-surface);
-        font-size: 14px;
+        font-size: var(--text-base);
         font-family: inherit;
-        outline: none;
 
+        // 焦点环由 global.scss 的 :focus-visible 统一提供，这里只加强描边
         &:focus-visible {
             border-color: var(--md-sys-color-primary);
-            box-shadow: 0 0 0 3px rgba(177, 74, 107, 0.08);
         }
     }
 
     &__form-actions {
         display: flex;
         justify-content: flex-end;
-        gap: 8px;
+        gap: var(--space-2);
     }
 
     &__preview {
-        padding: 16px 8px;
+        padding: var(--space-4) var(--space-2);
         text-align: center;
     }
 
     &__preview-box {
-        width: 120px;
-        height: 120px;
-        margin: 0 auto 16px;
+        // 预览底板直接取磁贴档，不再自写一个 120px 的孤例方盒
+        width: var(--tile-size);
+        height: var(--tile-size);
+        margin: 0 auto var(--space-4);
         display: flex;
         align-items: center;
         justify-content: center;
         background: var(--md-sys-color-surface-variant);
-        border: 1px solid var(--md-sys-color-outline-variant);
-        border-radius: 16px;
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius-lg);
     }
 
     &__preview-name {
-        font-size: 16px;
-        font-weight: 500;
+        font-size: var(--text-lg);
+        font-weight: var(--weight-medium);
         color: var(--md-sys-color-on-surface);
-        margin-bottom: 8px;
+        margin-bottom: var(--space-2);
     }
 
     &__preview-desc {
-        font-size: 13px;
+        font-size: var(--text-sm);
         color: var(--md-sys-color-on-surface-variant);
-    }
-}
-
-// 深色模式适配（后代选择器直接写在 scoped 里，用 :global() 包裹会被编译丢成 html 自身）
-html.dark-mode .ui-lib-panel__item {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.08);
-
-    &:hover,
-    &:focus-visible {
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    }
-}
-
-html.dark-mode .ui-lib-panel__tab-input {
-    background: rgba(255, 255, 255, 0.06);
-}
-
-html.dark-mode .ui-lib-panel__select {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.08);
-}
-
-html.dark-mode .ui-lib-panel__add-row {
-    border-color: rgba(255, 255, 255, 0.16);
-
-    &:hover {
-        border-color: var(--md-sys-color-primary);
-        background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent);
     }
 }
 </style>

@@ -87,16 +87,13 @@ function moveFocus(event: KeyboardEvent, index: number, delta: number): void {
 .mnt-segmented {
     display: inline-flex;
     gap: var(--space-1);
-    padding: 3px;
+    padding: var(--space-1);
     border-radius: var(--radius-md);
     background: var(--md-sys-color-surface-variant);
     max-width: 100%;
     overflow-x: auto;
-    scrollbar-width: none;
-
-    &::-webkit-scrollbar {
-        display: none;
-    }
+    // 横向分段条：溢出时静默滚动是设计意图，不接主题滚动条
+    @include hide-scrollbar;
 
     &--block {
         display: flex;
@@ -107,7 +104,9 @@ function moveFocus(event: KeyboardEvent, index: number, delta: number): void {
         @include button-reset;
         @include flex-center(row, 0);
         flex: 1 0 auto;
-        height: 30px;
+        // xs 段 + 容器上下 --space-1 留白 = 整条控件恰好 --control-h-md，
+        // 与同排的输入框 / 下拉 / 开关行严格等高
+        height: var(--control-h-xs);
         padding: 0 var(--space-3);
         border-radius: var(--radius-sm);
         font-size: var(--text-base);
@@ -118,7 +117,7 @@ function moveFocus(event: KeyboardEvent, index: number, delta: number): void {
 
         &:hover:not(:disabled) {
             color: var(--md-sys-color-on-surface);
-            background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+            background: var(--hover-bg);
         }
 
         &--active,

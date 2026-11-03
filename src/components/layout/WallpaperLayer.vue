@@ -40,7 +40,10 @@ const hasBackground = computed(() => hasWallpaper.value);
     left: 0;
     width: 100%;
     height: 100%;
-    z-index: -1;
+    // 结构性负层：壁纸必须压在全部内容之下，而 global.scss 解释了为什么 html 不能带
+    // 背景色（body 的底色会盖在 z-index:-1 的壁纸层之上）。--z-wallpaper(0) 会被内容盖住，
+    // 所以这一层不走 z 阶梯，用 token-allow 豁免。
+    z-index: -1; // token-allow
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
@@ -59,7 +62,8 @@ const hasBackground = computed(() => hasWallpaper.value);
     left: 0;
     width: 100%;
     height: 100%;
-    z-index: -1;
+    // 与壁纸层同层：遮罩只压壁纸，不能压内容（原因见 .wallpaper-layer 上方注释）
+    z-index: -1; // token-allow
     background: var(--md-sys-color-background);
     @include md-transition(opacity);
     pointer-events: none;

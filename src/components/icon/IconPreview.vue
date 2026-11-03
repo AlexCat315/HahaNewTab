@@ -22,7 +22,7 @@
                     class="icon-preview__btn"
                     @click="onSelect"
                 >
-                    <IconSvg name="edit" :size="14" />
+                    <IconSvg name="edit" size="var(--icon-xs)" />
                     <span>选择</span>
                 </button>
                 <button
@@ -31,7 +31,7 @@
                     class="icon-preview__btn icon-preview__btn--danger"
                     @click="onClear"
                 >
-                    <IconSvg name="delete" :size="14" />
+                    <IconSvg name="delete" size="var(--icon-xs)" />
                     <span>清除</span>
                 </button>
                 <slot name="actions" />
@@ -45,11 +45,14 @@ import { computed } from 'vue';
 import IconSvg from './IconSvg.vue';
 import { getSystemIconUrl, createPlaceholderSvg } from '@/utils/image.util';
 
-/** 预设尺寸映射 */
-const SIZE_MAP: Record<Exclude<IconPreviewSize, number>, { box: number; icon: number }> = {
-    small: { box: 40, icon: 24 },
-    medium: { box: 48, icon: 28 },
-    large: { box: 56, icon: 32 },
+/**
+ * 预设尺寸映射：底板与图标都落在 --icon-* 阶的相邻档位上，
+ * 让预览磁贴和其它图标表面（AppCard favicon、图标库缩略图）用同一把尺。
+ */
+const SIZE_MAP: Record<Exclude<IconPreviewSize, number>, { box: string; icon: string }> = {
+    small: { box: 'var(--icon-lg)', icon: 'var(--icon-sm)' },
+    medium: { box: 'var(--icon-xl)', icon: 'var(--icon-md)' },
+    large: { box: 'var(--icon-2xl)', icon: 'var(--icon-lg)' },
 };
 
 /** 支持的预设尺寸 */
@@ -96,7 +99,7 @@ const sizeName = computed(() => (typeof props.size === 'number' ? 'custom' : pro
 
 const boxMetrics = computed(() => {
     if (typeof props.size === 'number') {
-        return { box: props.size, icon: Math.round(props.size * 0.6) };
+        return { box: `${props.size}px`, icon: `${Math.round(props.size * 0.6)}px` };
     }
     return SIZE_MAP[props.size];
 });
@@ -129,8 +132,8 @@ const resolvedPlaceholder = computed(() => {
 });
 
 const boxStyle = computed(() => ({
-    width: `${boxMetrics.value.box}px`,
-    height: `${boxMetrics.value.box}px`,
+    width: boxMetrics.value.box,
+    height: boxMetrics.value.box,
 }));
 
 function onSelect() {
@@ -149,22 +152,22 @@ function onClear() {
 .icon-preview {
     display: inline-flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
 
     &__box {
-        border-radius: 12px;
-        border: 2px solid var(--md-sys-color-outline);
+        border-radius: var(--radius-md);
+        border: 2px solid var(--card-border);
         background: var(--md-sys-color-surface-variant);
         display: flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
         overflow: hidden;
-        @include md-transition(border-color, box-shadow);
+        @include md-transition(border-color box-shadow);
 
         &:focus-within {
             border-color: var(--md-sys-color-primary);
-            box-shadow: 0 0 0 2px var(--md-sys-color-primary-container);
+            box-shadow: 0 0 0 2px var(--tint-primary);
         }
     }
 
@@ -175,42 +178,44 @@ function onClear() {
     &__meta {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: var(--space-1);
         min-width: 0;
     }
 
     &__label {
-        font-size: 12px;
+        font-size: var(--text-xs);
         color: var(--md-sys-color-on-surface-variant);
-        line-height: 1.3;
+        line-height: var(--leading-tight);
     }
 
     &__actions {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: var(--space-2);
     }
 
     &__btn {
         @include button-reset;
-        @include flex-center(row, 4px);
-        padding: 6px 10px;
-        border-radius: 8px;
-        font-size: 12px;
-        font-weight: 500;
-        color: var(--md-sys-color-on-surface);
-        background: var(--md-sys-color-surface);
-        border: 1px solid var(--md-sys-color-outline);
-        @include md-transition(background, border-color);
+        @include flex-center(row, var(--space-1));
+        padding: var(--space-1) var(--space-2);
+        border-radius: var(--radius-sm);
+        font-size: var(--text-xs);
+        font-weight: var(--weight-medium);
+        color: var(--md-sys-color-on-surface-variant);
+        background: var(--hover-bg);
+        border: 1px solid var(--card-border);
+        @include md-transition(background-color color border-color, var(--md-transition-fast));
 
         &:hover {
-            background: var(--md-sys-color-surface-variant);
+            background: var(--pressed-bg);
+            color: var(--md-sys-color-on-surface);
             border-color: var(--md-sys-color-primary);
         }
 
         &--danger:hover {
-            border-color: var(--md-sys-color-error);
-            color: var(--md-sys-color-error);
+            border-color: var(--color-error);
+            color: var(--color-error);
+            background: var(--tint-error);
         }
     }
 }

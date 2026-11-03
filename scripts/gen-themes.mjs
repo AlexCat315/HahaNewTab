@@ -1,26 +1,31 @@
 #!/usr/bin/env node
 /**
- * 由「单一模式的调色板」派生明/暗另一半，并生成 public/config/themes.json。
+ * 由 public/config/theme-seeds.json 生成 public/config/themes.json。
  *
- * 背景：原先 12 套主题里 7 套是亮色、5 套是深色，每套只有一个模式。
- * 现在每套主题都要同时具备明亮与深色两套调色板（12 个主题族 × 2 = 24 个变体）。
+ * 为什么要有这一步：调色板是手写的，但「24 个变体 + legacyIds + 默认主题」是机械结构。
+ * 脚本负责结构，seeds 负责颜色，两边都不会漏。
  *
- * 原则：
- * - **已有调色板原样保留**（不做任何改动），只派生缺失的那一半，
- *   避免"改造主题"变成"换主题"，老用户的观感不发生意外变化。
- * - 派生以原调色板的 primary 色相为基准，其余颜色按 Material Design 3 的
- *   明暗对称关系推导（亮色：低明度 primary + 高亮表面；深色：高明度 primary + 低亮表面）。
+ * 关键约定：
+ * - **只读 seeds，绝不回读 themes.json。** 早期版本拿 themes.json 当输入，
+ *   重复运行会把 material-rose-light 再拆一遍变成 material-rose-light-light，
+ *   还会覆盖掉人工重校过的配色——是个地雷，现在从根上堵住了。
+ * - seeds 里给了哪一半就用哪一半（原样保留，不做任何改动），缺的那一半才派生。
+ *   12 族现在两半齐全，所以正常运行时这里只做校验，不改色。
+ * - 对比度自动校正**只作用于派生出来的那一半**：手写值不达标应当由人决定，
+ *   而不是被脚本悄悄改掉。
  *
  * 用法：
- *   node scripts/gen-themes.mjs          # 生成并覆盖 public/config/themes.json
- *   node scripts/gen-themes.mjs --check  # 只做对比度体检，不写文件
+ *   node scripts/gen-themes.mjs          # 生成并写入 public/config/themes.json
+ *   node scripts/gen-themes.mjs --check  # 不写文件：结构/对比度体检 + 与 themes.json 比对漂移
+ *                                          # （改了 seeds 却忘了重新生成，--check 会失败）
  */
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const SEEDS_PATH = resolve(__dirname, '../public/config/theme-seeds.json');
 const THEMES_PATH = resolve(__dirname, '../public/config/themes.json');
 
 // ==================== 颜色工具 ====================
@@ -255,7 +260,7 @@ function ensurePrimaryContrast(colors, mode, minContrast = 3.2) {
     return { from: original, to: hex, contrast: contrast(hex, surface) };
 }
 
-// ==================== 生成 ====================
+// ==================== 调色板契约 ====================
 
 /** 与调色板字段顺序保持一致，diff 更可读 */
 const TOKEN_ORDER = [
@@ -295,34 +300,134 @@ function orderColors(colors) {
     return ordered;
 }
 
-const source = JSON.parse(readFileSync(THEMES_PATH, 'utf8'));
+const HEX_RE = /^#[\da-f]{6}$/i;
+
+/**
+ * 阈值比 WCAG 的「正文 4.5 / 大字 3」松一档，因为这套主题始终浮在壁纸上：
+ * 表面本身是半透明的（--glass-bg 只混了 78% surface），字还要和壁纸抢注意力。
+ * 按足本卡会把所有浅色主题判死；按这里的线仍然能保证纯色模式下看得清。
+ */
+const THRESHOLDS = {
+    body: 7,
+    secondaryText: 4.5,
+    primary: 3.0,
+    onSolid: 3.0,
+};
+
+/** [前景 token, 背景 token, 阈值键, 报告用名称] */
+const CONTRAST_PAIRS = [
+    ['--md-sys-color-on-surface', '--md-sys-color-surface', 'body', '正文/表面'],
+    ['--md-sys-color-on-background', '--md-sys-color-background', 'body', '正文/背景'],
+    ['--md-sys-color-on-surface-variant', '--md-sys-color-surface', 'secondaryText', '次级文字/表面'],
+    ['--md-sys-color-primary', '--md-sys-color-surface', 'primary', 'primary/表面'],
+    ['--md-sys-color-on-primary', '--md-sys-color-primary', 'onSolid', '按钮文字/primary'],
+    ['--md-sys-color-on-primary-container', '--md-sys-color-primary-container', 'secondaryText', 'on-primary-container/容器'],
+    ['--md-sys-color-error', '--md-sys-color-surface', 'secondaryText', 'error/表面'],
+    ['--md-sys-color-success', '--md-sys-color-surface', 'secondaryText', 'success/表面'],
+];
+
+/**
+ * 校验一套调色板：token 是否齐全合法、对比度是否达标。
+ * 结构有问题时不再算对比度——色值本身不可信，算出来的数字只会误导。
+ */
+function auditPalette(colors) {
+    const structural = [];
+
+    for (const key of TOKEN_ORDER) {
+        if (!colors[key]) {
+            structural.push(`缺少 ${key}`);
+        } else if (!HEX_RE.test(colors[key])) {
+            structural.push(`${key} 不是 #RRGGBB：${colors[key]}`);
+        }
+    }
+    for (const key of Object.keys(colors)) {
+        if (!TOKEN_ORDER.includes(key)) {
+            structural.push(`多余的 ${key}`);
+        }
+    }
+
+    const contrastIssues = [];
+    if (structural.length === 0) {
+        for (const [fg, bg, minKey, label] of CONTRAST_PAIRS) {
+            const ratio = contrast(colors[fg], colors[bg]);
+            const min = THRESHOLDS[minKey];
+            if (ratio < min) {
+                contrastIssues.push({ label, ratio, min });
+            }
+        }
+    }
+
+    return { structural, contrast: contrastIssues };
+}
+
+// ==================== 生成 ====================
+
 const checkOnly = process.argv.includes('--check');
+
+if (!existsSync(SEEDS_PATH)) {
+    console.error(`找不到 seeds 文件：${SEEDS_PATH}`);
+    process.exit(1);
+}
+
+const seeds = JSON.parse(readFileSync(SEEDS_PATH, 'utf8'));
+if (!Array.isArray(seeds.families) || seeds.families.length === 0) {
+    console.error(`${SEEDS_PATH} 的 families 为空或格式不对。`);
+    process.exit(1);
+}
 
 const themes = [];
 const legacyIds = {};
 const report = [];
 const corrections = [];
+const structuralIssues = [];
+const contrastIssues = [];
 
-for (const old of source.themes) {
-    const baseMode = old.isDark ? 'dark' : 'light';
-    const lightColors = baseMode === 'light' ? { ...old.colors } : deriveLight(old.colors);
-    const darkColors = baseMode === 'dark' ? { ...old.colors } : deriveDark(old.colors);
+for (const family of seeds.families) {
+    const seededLight = family.palettes?.light;
+    const seededDark = family.palettes?.dark;
 
-    // 对比度校正：只动明度，不动色相
-    const fixes = {};
-    const lightFix = ensurePrimaryContrast(lightColors, 'light');
-    const darkFix = ensurePrimaryContrast(darkColors, 'dark');
-    if (lightFix) fixes.light = lightFix;
-    if (darkFix) fixes.dark = darkFix;
-    if (Object.keys(fixes).length > 0) {
-        corrections.push({ family: old.id, name: old.name, ...fixes });
+    if (!seededLight && !seededDark) {
+        structuralIssues.push({ who: family.id, detail: '明暗两半都没写，无从派生' });
+        continue;
     }
 
-    const lightId = `${old.id}-light`;
-    const darkId = `${old.id}-dark`;
+    // 手写的那一半原样使用，缺的那一半才派生
+    const lightColors = seededLight ? { ...seededLight } : deriveLight(seededDark);
+    const darkColors = seededDark ? { ...seededDark } : deriveDark(lightColors);
 
-    // 旧 ID 指向它原本所在的那一半，保证老用户升级后配色不变
-    legacyIds[old.id] = baseMode === 'light' ? lightId : darkId;
+    const derived = { light: !seededLight, dark: !seededDark };
+
+    // 校正只作用于派生半，理由见文件头
+    for (const mode of ['light', 'dark']) {
+        if (!derived[mode]) continue;
+        const fix = ensurePrimaryContrast(
+            mode === 'light' ? lightColors : darkColors,
+            mode,
+        );
+        if (fix) {
+            corrections.push({ family: family.id, name: family.name, [mode]: fix });
+        }
+    }
+
+    for (const [mode, colors] of [['light', lightColors], ['dark', darkColors]]) {
+        const audit = auditPalette(colors);
+        for (const detail of audit.structural) {
+            structuralIssues.push({ who: `${family.id} (${mode})`, detail });
+        }
+        for (const issue of audit.contrast) {
+            contrastIssues.push({
+                who: `${family.id} (${mode}) ${derived[mode] ? '[派生]' : '[手写]'}`,
+                ...issue,
+            });
+        }
+        report.push({ family: family.id, mode, derived: derived[mode], colors });
+    }
+
+    const lightId = `${family.id}-light`;
+    const darkId = `${family.id}-dark`;
+
+    // 旧主题 ID 指向它原本所在的那一半，老用户升级后配色不变
+    legacyIds[family.id] = family.legacy === 'dark' ? darkId : lightId;
 
     for (const [mode, id, colors] of [
         ['light', lightId, lightColors],
@@ -330,64 +435,55 @@ for (const old of source.themes) {
     ]) {
         themes.push({
             id,
-            family: old.id,
+            family: family.id,
             mode,
             isDark: mode === 'dark',
-            name: old.name,
-            description: old.description,
-            logo: old.logo,
+            name: family.name,
+            description: family.description,
+            logo: family.logo,
             colors: orderColors(colors),
         });
     }
-
-    report.push({
-        family: old.id,
-        name: old.name,
-        derived: baseMode === 'light' ? 'dark' : 'light',
-        light: lightColors,
-        dark: darkColors,
-    });
 }
 
-// 默认主题 = 原默认主题族里"与系统无关"的那一半，运行时按系统偏好再挑模式
-const defaultFamily = source.themes.find((t) => t.id === source.defaultTheme)?.id
-    ?? source.themes[0].id;
+// 默认主题来自 seeds，运行时再按系统偏好挑同一族的另一半
+const defaultFamily = seeds.families.find((f) => f.id === seeds.defaultFamily)?.id
+    ?? seeds.families[0].id;
+const defaultMode = seeds.defaultMode === 'dark' ? 'dark' : 'light';
 
 const output = {
-    defaultTheme: legacyIds[defaultFamily],
+    defaultTheme: `${defaultFamily}-${defaultMode}`,
     legacyIds,
     themes,
 };
 
-// ==================== 对比度体检 ====================
+// ==================== 体检报告 ====================
 
+const ratio = (v) => v.toFixed(2).padStart(7);
 let failed = 0;
-console.log('主题族                     | 派生 | primary/表面 | 正文/表面 | 次级文字/表面');
-console.log('---------------------------|------|-------------|----------|--------------');
-for (const item of report) {
-    for (const mode of ['light', 'dark']) {
-        const c = item[mode];
-        const surface = c['--md-sys-color-surface'];
-        const pContrast = contrast(c['--md-sys-color-primary'], surface);
-        const bodyContrast = contrast(c['--md-sys-color-on-surface'], surface);
-        const mutedContrast = contrast(c['--md-sys-color-on-surface-variant'], surface);
-        const ok = pContrast >= 3.0 && bodyContrast >= 7 && mutedContrast >= 4.5;
-        if (!ok) failed += 1;
-        console.log(
-            `${`${item.family} (${mode})`.padEnd(26)} | ${(item.derived === mode ? '✓' : ' ').padEnd(4)} | `
-            + `${pContrast.toFixed(2).padStart(11)} | ${bodyContrast.toFixed(2).padStart(8)} | `
-            + `${mutedContrast.toFixed(2).padStart(12)}${ok ? '' : '  ✗'}`,
-        );
-    }
-}
 
-if (checkOnly) {
-    console.log(`\n体检完成：${failed === 0 ? '全部通过' : `${failed} 项未达标`}`);
-    process.exit(failed === 0 ? 0 : 1);
+console.log('主题变体                          | 来源 | 正文 | 次级 | primary | on-primary');
+console.log('----------------------------------|------|------|------|---------|-----------');
+for (const item of report) {
+    const c = item.colors;
+    const surface = c['--md-sys-color-surface'];
+    const body = contrast(c['--md-sys-color-on-surface'], surface);
+    const muted = contrast(c['--md-sys-color-on-surface-variant'], surface);
+    const primary = contrast(c['--md-sys-color-primary'], surface);
+    const onPrimary = contrast(c['--md-sys-color-on-primary'], c['--md-sys-color-primary']);
+    const ok = body >= THRESHOLDS.body
+        && muted >= THRESHOLDS.secondaryText
+        && primary >= THRESHOLDS.primary
+        && onPrimary >= THRESHOLDS.onSolid;
+    if (!ok) failed += 1;
+    console.log(
+        `${`${item.family} (${item.mode})`.padEnd(34)} | ${(item.derived ? '派生' : '手写').padEnd(4)} | `
+        + `${ratio(body)} | ${ratio(muted)} | ${ratio(primary)} | ${ratio(onPrimary)}${ok ? '' : '  ✗'}`,
+    );
 }
 
 if (corrections.length > 0) {
-    console.log('\n对比度校正（仅调明度，色相不变）：');
+    console.log('\n派生半的对比度校正（只沿明度轴走，色相与饱和度不变）：');
     for (const item of corrections) {
         for (const mode of ['light', 'dark']) {
             const fix = item[mode];
@@ -397,9 +493,45 @@ if (corrections.length > 0) {
     }
 }
 
-writeFileSync(THEMES_PATH, `${JSON.stringify(output, null, 4)}\n`, 'utf8');
-console.log(`\n已写入 ${THEMES_PATH}`);
-console.log(`主题族 ${report.length} 个，变体 ${themes.length} 个`);
-if (failed > 0) {
-    console.log(`注意：${failed} 项对比度未达标，需要手工微调`);
+if (structuralIssues.length > 0) {
+    console.log(`\n结构问题 ${structuralIssues.length} 项：`);
+    for (const issue of structuralIssues) {
+        console.log(`  ${issue.who}: ${issue.detail}`);
+    }
 }
+
+if (contrastIssues.length > 0) {
+    console.log(`\n对比度未达标 ${contrastIssues.length} 项（阈值见 THRESHOLDS）：`);
+    for (const issue of contrastIssues) {
+        console.log(`  ${issue.who.padEnd(36)} ${issue.label.padEnd(24)} ${issue.ratio.toFixed(2)} < ${issue.min}`);
+    }
+}
+
+const hasIssues = failed > 0 || structuralIssues.length > 0;
+const serialized = `${JSON.stringify(output, null, 4)}\n`;
+
+if (checkOnly) {
+    if (hasIssues) {
+        console.log('\n✗ 体检未通过。');
+        process.exit(1);
+    }
+    if (!existsSync(THEMES_PATH)) {
+        console.error('\n✗ public/config/themes.json 不存在，请运行 node scripts/gen-themes.mjs');
+        process.exit(1);
+    }
+    if (readFileSync(THEMES_PATH, 'utf8') !== serialized) {
+        console.log('\n✗ themes.json 与 seeds 不一致（改过 seeds 却没重新生成）。');
+        process.exit(1);
+    }
+    console.log(`\n✓ themes.json 与 seeds 一致，${report.length} 个变体全部达标。`);
+    process.exit(0);
+}
+
+if (hasIssues) {
+    console.log('\n✗ 存在结构或对比度问题，未写入 themes.json。');
+    process.exit(1);
+}
+
+writeFileSync(THEMES_PATH, serialized, 'utf8');
+console.log(`\n已写入 ${THEMES_PATH}`);
+console.log(`主题族 ${seeds.families.length} 个，变体 ${themes.length} 个，默认 ${output.defaultTheme}`);

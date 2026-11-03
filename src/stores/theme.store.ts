@@ -4,7 +4,8 @@
  * 职责：
  * - 管理当前主题 ID、深色模式状态、主题列表
  * - 加载并缓存 public/config/themes.json
- * - 将主题 CSS 变量注入 document.documentElement
+ * - 将主题基础 CSS 变量注入 document.documentElement
+ *   （所有派生色由 styles/variables.scss 的 color-mix 给出，这里不重算第二份）
  * - 监听系统深色偏好变化
  * - 持久化交给 usePersistentSlice（selectedTheme 存具体变体，
  *   appNavigator_themeSettings 存跟随系统开关与主题族）
@@ -12,7 +13,7 @@
  * 与原项目 js/ThemeManager.js 行为保持一致：
  * - 默认主题为 themes.json 中的 defaultTheme
  * - 未保存主题且系统偏好深色时，自动选择首个深色主题
- * - 应用主题时同时注入基础 colors 与派生变量
+ * - 应用主题时注入基础 colors
  * - 深色主题为 body 添加 dark-mode 类
  */
 
@@ -23,7 +24,6 @@ import { loadThemes } from '@/services/config.service';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { StorageValue, ThemeSettings } from '@/types/storage';
 import type { Theme, ThemeFamily, ThemeMode } from '@/types/config';
-import { adjustColor, hexToRgba, hexToRgbTriplet } from '@/utils/color.util';
 
 /**
  * 解析持久化的主题偏好设置。
@@ -45,27 +45,6 @@ function parseThemeSettings(raw: StorageValue | null): ThemeSettings | null {
         familyId: candidate.familyId
     };
 }
-
-/** 派生 CSS 变量名集合 */
-const DERIVED_VARIABLES = [
-    '--md-primary',
-    '--md-primary-dark',
-    '--md-primary-light',
-    '--md-primary-container',
-    '--md-secondary',
-    '--md-secondary-container',
-    '--md-background',
-    '--md-surface',
-    '--md-surface-variant',
-    '--md-surface-2',
-    '--md-on-primary',
-    '--md-on-background',
-    '--md-on-surface',
-    '--md-outline',
-    '--md-shadow',
-    '--md-sys-color-surface-rgb',
-    '--md-sys-color-background-rgb',
-] as const;
 
 /** 获取系统深色偏好媒体查询对象 */
 function getDarkModeMediaQuery(): MediaQueryList | null {
@@ -232,45 +211,6 @@ export const useThemeStore = defineStore('theme', () => {
     }
 
     /**
-     * 计算并注入派生 CSS 变量
-     */
-    function injectDerivedVariables(theme: Theme): void {
-        if (typeof document === 'undefined') {
-            return;
-        }
-
-        const root = document.documentElement;
-        const primary = theme.colors['--md-sys-color-primary'];
-        const surface = theme.colors['--md-sys-color-surface'];
-
-        root.style.setProperty('--md-primary', primary);
-        root.style.setProperty('--md-primary-dark', adjustColor(primary, -15));
-        root.style.setProperty('--md-primary-light', adjustColor(primary, 15));
-        root.style.setProperty('--md-primary-container', theme.colors['--md-sys-color-primary-container']);
-        root.style.setProperty('--md-secondary', theme.colors['--md-sys-color-secondary']);
-        root.style.setProperty('--md-secondary-container', theme.colors['--md-sys-color-secondary-container']);
-        root.style.setProperty('--md-background', surface);
-        root.style.setProperty('--md-surface', hexToRgba(surface, 0.85));
-        root.style.setProperty('--md-surface-variant', theme.colors['--md-sys-color-surface-variant']);
-        root.style.setProperty('--md-surface-2', hexToRgba(surface, 0.7));
-        root.style.setProperty('--md-on-primary', theme.colors['--md-sys-color-on-primary']);
-        root.style.setProperty('--md-on-background', theme.colors['--md-sys-color-on-surface']);
-        root.style.setProperty('--md-on-surface', theme.colors['--md-sys-color-on-surface-variant']);
-        root.style.setProperty('--md-outline', theme.colors['--md-sys-color-surface-variant']);
-        root.style.setProperty('--md-shadow', hexToRgba(primary, 0.15));
-        // RGB 三元组要跟着主题走：variables.scss 里深色模式给的是写死的 30,30,30，
-        // 换成带色相的深色主题（如深海幽蓝）后，半透明面板会偏中性灰
-        root.style.setProperty(
-            '--md-sys-color-surface-rgb',
-            hexToRgbTriplet(surface)
-        );
-        root.style.setProperty(
-            '--md-sys-color-background-rgb',
-            hexToRgbTriplet(theme.colors['--md-sys-color-background'] ?? surface)
-        );
-    }
-
-    /**
      * 注入主题基础颜色变量
      */
     function injectBaseVariables(theme: Theme): void {
@@ -292,9 +232,6 @@ export const useThemeStore = defineStore('theme', () => {
         }
         const root = document.documentElement;
         Object.keys(currentTheme.value?.colors ?? {}).forEach(key => {
-            root.style.removeProperty(key);
-        });
-        DERIVED_VARIABLES.forEach(key => {
             root.style.removeProperty(key);
         });
     }
@@ -337,7 +274,6 @@ export const useThemeStore = defineStore('theme', () => {
         }
 
         injectBaseVariables(theme);
-        injectDerivedVariables(theme);
         updateBodyClass(resolveMode(theme) === 'dark');
         if (typeof document !== 'undefined') {
             document.documentElement.setAttribute('data-theme', theme.id);

@@ -157,7 +157,7 @@ function highlightMatch(suggestion: string): string {
                     :highlight="highlightMatch(suggestion)"
                 >
                     <span class="search-suggestions__icon">
-                        <IconSvg name="search" :size="15" alt="" monochrome />
+                        <IconSvg name="search" size="var(--icon-xs)" alt="" monochrome />
                     </span>
                     <span
                         class="search-suggestions__text"
@@ -175,31 +175,17 @@ function highlightMatch(suggestion: string): string {
 .search-suggestions {
     overflow-y: auto;
     background: transparent;
-    scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--md-sys-color-on-surface) 20%, transparent) transparent;
-
-    &::-webkit-scrollbar {
-        width: 8px;
-    }
-
-    &::-webkit-scrollbar-thumb {
-        background: color-mix(in srgb, var(--md-sys-color-on-surface) 20%, transparent);
-        border-radius: 4px;
-    }
-
-    &::-webkit-scrollbar-track {
-        background: transparent;
-    }
+    @include scrollable;
 
     &__skeleton {
-        padding: 4px 8px 10px;
+        padding: var(--space-1) var(--space-2) var(--space-3);
     }
 
     &__skeleton-item {
         display: flex;
         align-items: center;
-        gap: 12px;
-        padding: 9px 10px;
+        gap: var(--space-3);
+        padding: var(--space-2) var(--space-3);
     }
 
     &__skeleton-icon,
@@ -215,19 +201,19 @@ function highlightMatch(suggestion: string): string {
     }
 
     &__skeleton-icon {
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
+        width: var(--icon-md);
+        height: var(--icon-md);
+        border-radius: var(--radius-full);
         flex-shrink: 0;
     }
 
     &__skeleton-text {
         height: 14px;
-        border-radius: 7px;
+        border-radius: var(--radius-sm);
     }
 
     &__list {
-        padding: 4px 8px 10px;
+        padding: var(--space-1) var(--space-2) var(--space-3);
         @include md-transition(opacity, var(--md-transition-fast));
         // 骨架换成真实列表时淡入，避免硬切
         animation: mnt-suggestions-in 0.16s ease;
@@ -243,40 +229,43 @@ function highlightMatch(suggestion: string): string {
         width: 100%;
         display: flex;
         align-items: center;
-        gap: 12px;
-        padding: 9px 10px;
-        border-radius: 12px;
+        gap: var(--space-3);
+        padding: var(--space-2);
+        border-radius: var(--radius-md);
         color: var(--md-sys-color-on-surface);
-        font-size: 14px;
-        font-weight: 500;
+        font-size: var(--text-base);
+        font-weight: var(--weight-medium);
         text-align: left;
         @include md-transition(all, var(--md-transition-fast));
         @include focus-ring;
 
-        &:hover,
-        &.is-active {
-            background: var(--md-sys-color-primary-container);
-            color: var(--md-sys-color-on-primary-container);
-
-            .search-suggestions__icon {
-                background: color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent);
-            }
+        // 列表行的交互语言与全应用一致：悬停只加中性底，选中才上主色。
+        // 不用 primary-container 实底——那是「内容块」的颜色，在暗色主题下是一整块
+        // 不透明色，压在几乎实心的下拉面板上读不出「这一行是当前项」。
+        &:hover {
+            background: var(--hover-bg);
         }
 
         &.is-active {
-            font-weight: 600;
+            background: var(--tint-primary);
+            color: var(--md-sys-color-primary);
+            font-weight: var(--weight-semibold);
+
+            .search-suggestions__icon {
+                background: var(--tint-primary-strong);
+            }
         }
     }
 
     &__icon {
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
+        width: var(--icon-md);
+        height: var(--icon-md);
+        border-radius: var(--radius-full);
         display: flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
-        background: color-mix(in srgb, var(--md-sys-color-on-surface) 6%, transparent);
+        background: var(--hover-bg);
         @include md-transition(all, var(--md-transition-fast));
     }
 
@@ -284,11 +273,19 @@ function highlightMatch(suggestion: string): string {
         @include text-ellipsis;
         flex: 1;
 
+        // 命中片段：字重只到 --weight-semibold（阶梯顶），所以主色必须一起上才读得出强调。
+        // 左右留 --space-1：选中态给命中处垫底色时，行内文本宽度不随状态变化。
         :deep(mark) {
             background: transparent;
             color: var(--md-sys-color-primary);
-            font-weight: 700;
-            padding: 0;
+            font-weight: var(--weight-semibold);
+            padding: 0 var(--space-1);
+            border-radius: var(--radius-xs);
+        }
+
+        // 选中行整行都是主色，命中片段单靠字重和颜色已经顶不出来，垫一档深主色底
+        .is-active & :deep(mark) {
+            background: var(--tint-primary-strong);
         }
     }
 }
@@ -315,8 +312,8 @@ function highlightMatch(suggestion: string): string {
 
 @include respond-to(mobile) {
     .search-suggestions__item {
-        padding: 10px 12px;
-        font-size: 15px;
+        padding: var(--space-2) var(--space-3);
+        font-size: var(--text-md);
     }
 }
 </style>

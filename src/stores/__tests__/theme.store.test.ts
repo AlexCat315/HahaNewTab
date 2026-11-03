@@ -151,13 +151,13 @@ describe('useThemeStore', () => {
         expect(store.isDark).toBe(false);
         expect(store.currentMode).toBe('light');
         expect(document.documentElement.style.getPropertyValue('--md-sys-color-primary')).toBe('#B14A6B');
-        expect(document.documentElement.style.getPropertyValue('--md-primary')).toBe('#B14A6B');
+        // 派生变量一律不再由 JS 注入：配色派生只认 variables.scss 的 color-mix 一处，
+        // 否则同一含义会有 JS 与 CSS 两套值，组件用哪套全凭手感，主题就跟不齐
+        expect(document.documentElement.style.getPropertyValue('--md-primary')).toBe('');
+        expect(document.documentElement.style.getPropertyValue('--md-sys-color-surface-rgb')).toBe('');
         expect(document.documentElement.getAttribute('data-theme')).toBe('material-rose-light');
         expect(document.body.classList.contains('dark-mode')).toBe(false);
         expect(document.documentElement.classList.contains('dark-mode')).toBe(false);
-        // RGB 三元组要跟随主题，供 rgba(var(--md-sys-color-surface-rgb), .9) 这类混色使用
-        expect(document.documentElement.style.getPropertyValue('--md-sys-color-surface-rgb'))
-            .toBe('255, 248, 249');
     });
 
     it('初始化时应持久化默认主题到 StorageManager', async () => {

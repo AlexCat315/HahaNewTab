@@ -83,60 +83,60 @@ function handleClose(item: ToastItem): void {
 
 .mnt-toast-container {
     position: fixed;
-    z-index: 3000;
+    z-index: var(--z-toast);
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 16px;
+    gap: var(--space-2);
+    padding: var(--space-4);
     pointer-events: none;
-    max-width: 360px;
+    max-width: var(--pop-w-toast);
     width: 100%;
 
     &--top-right {
-        top: 16px;
-        right: 16px;
+        top: var(--space-4);
+        right: var(--space-4);
     }
 
     &--top-left {
-        top: 16px;
-        left: 16px;
+        top: var(--space-4);
+        left: var(--space-4);
     }
 
     &--bottom-right {
-        bottom: 16px;
-        right: 16px;
+        bottom: var(--space-4);
+        right: var(--space-4);
         flex-direction: column-reverse;
     }
 
     &--bottom-left {
-        bottom: 16px;
-        left: 16px;
+        bottom: var(--space-4);
+        left: var(--space-4);
         flex-direction: column-reverse;
     }
 }
 
 .mnt-toast {
-    // 类型强调色：success / error / info 跟随主题变量，warning 使用固定琥珀色
+    // 类型强调色一律走语义 token：info 用主色，success / warning / error 用对应
+    // 状态色。底色 = 强调色淡 tint 叠加在主题玻璃面上，文字用 on-surface，
+    // 切任何主题族（明/暗）都跟随。
     --toast-accent: var(--md-sys-color-primary);
 
     pointer-events: auto;
     position: relative;
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 12px 16px;
-    border-radius: 14px;
-    font-size: 13px;
-    font-weight: 500;
-    line-height: 1.5;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    line-height: var(--leading-normal);
     color: var(--md-sys-color-on-surface);
-    // 淡色整条填充：类型强调色低透明度叠加在主题 surface 之上，边框同色稍深
-    border: 1px solid rgba(127, 127, 127, 0.35);
+    // 淡色整条填充：类型强调色低透明度叠加在主题 surface 玻璃面之上，边框同色稍深
     border: 1px solid color-mix(in srgb, var(--toast-accent) 40%, transparent);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-    background: rgba(var(--md-sys-color-surface-rgb), 0.88);
-    background: color-mix(in srgb, var(--toast-accent) 20%, rgba(var(--md-sys-color-surface-rgb), 0.88));
-    backdrop-filter: blur(12px);
+    box-shadow: var(--elevation-2);
+    background: color-mix(in srgb, var(--toast-accent) 20%, var(--glass-bg-strong));
+    backdrop-filter: blur(var(--glass-blur));
     @include md-transition(all, var(--md-transition-fast));
 
     &__icon {
@@ -144,13 +144,13 @@ function handleClose(item: ToastItem): void {
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
-        width: 20px;
-        height: 20px;
+        width: var(--icon-sm);
+        height: var(--icon-sm);
         color: var(--toast-accent);
 
         svg {
-            width: 20px;
-            height: 20px;
+            width: var(--icon-sm);
+            height: var(--icon-sm);
             display: block;
         }
     }
@@ -168,7 +168,7 @@ function handleClose(item: ToastItem): void {
         justify-content: center;
         width: 24px;
         height: 24px;
-        border-radius: 6px;
+        border-radius: var(--radius-xs);
         color: var(--toast-accent);
         opacity: 0.7;
         flex-shrink: 0;
@@ -187,15 +187,15 @@ function handleClose(item: ToastItem): void {
     }
 
     &--success {
-        --toast-accent: var(--md-sys-color-success);
+        --toast-accent: var(--color-success);
     }
 
     &--error {
-        --toast-accent: var(--md-sys-color-error);
+        --toast-accent: var(--color-error);
     }
 
     &--warning {
-        --toast-accent: #F59E0B;
+        --toast-accent: var(--color-warning);
     }
 
     &--info {
@@ -206,7 +206,7 @@ function handleClose(item: ToastItem): void {
 // 进入/离开动画
 .mnt-toast-enter-active,
 .mnt-toast-leave-active {
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all var(--md-transition-medium) var(--md-easing);
 }
 
 .mnt-toast-enter-from,
@@ -223,19 +223,19 @@ function handleClose(item: ToastItem): void {
 
 @include respond-to(mobile) {
     .mnt-toast-container {
-        left: 16px;
-        right: 16px;
+        left: var(--space-4);
+        right: var(--space-4);
         max-width: none;
-        padding: 12px;
+        padding: var(--space-3);
 
         &--top-right,
         &--top-left {
-            top: 12px;
+            top: var(--space-3);
         }
 
         &--bottom-right,
         &--bottom-left {
-            bottom: 12px;
+            bottom: var(--space-3);
         }
     }
 }

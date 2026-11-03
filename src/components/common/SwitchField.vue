@@ -68,6 +68,9 @@ function onChange(event: Event): void {
     align-items: center;
     justify-content: space-between;
     gap: var(--space-4);
+    // 开关行与同排的按钮 / 下拉 / 输入框取同一档热区高度；
+    // track 本身是 M3 几何（40×22），撑高的是可点的整行标签
+    min-height: var(--control-h-md);
     cursor: pointer;
 
     &--bare {
@@ -77,7 +80,7 @@ function onChange(event: Event): void {
     &__text {
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: var(--space-1);
         min-width: 0;
     }
 
@@ -97,15 +100,7 @@ function onChange(event: Event): void {
 
     // 原生 checkbox 只保留语义，不占位
     &__input {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        margin: -1px;
-        padding: 0;
-        overflow: hidden;
-        clip: rect(0, 0, 0, 0);
-        white-space: nowrap;
-        border: 0;
+        @include visually-hidden;
     }
 
     &__track {
@@ -125,7 +120,7 @@ function onChange(event: Event): void {
         left: 2px;
         width: 14px;
         height: 14px;
-        border-radius: 50%;
+        border-radius: var(--radius-full);
         background: var(--md-sys-color-outline);
         transform: translate(0, -50%);
         @include md-transition(all, var(--md-transition-fast));

@@ -125,16 +125,19 @@ function handleFocus(event: FocusEvent): void {
     }
 
     &__required {
-        color: var(--md-sys-color-error);
+        color: var(--color-error);
     }
 
+    // 高度取 --control-h-md 而不是靠上下 padding 撑：与同排的单选项
+    // （BaseButton medium、SelectField、SwitchField 行）严格等高。
     &__wrapper {
         display: flex;
         align-items: center;
         gap: var(--space-2);
         width: 100%;
-        padding: var(--space-3) var(--space-4);
-        border: 1px solid color-mix(in srgb, var(--md-sys-color-on-surface) 18%, transparent);
+        height: var(--control-h-md);
+        padding: 0 var(--space-3);
+        border: 1px solid var(--card-border);
         border-radius: var(--radius-sm);
         background: color-mix(in srgb, var(--md-sys-color-on-surface) 5%, transparent);
         color: var(--md-sys-color-on-surface);
@@ -156,12 +159,27 @@ function handleFocus(event: FocusEvent): void {
             opacity: 0.55;
         }
 
+        // type=search 的原生清除按钮由 UA 绘制，永远是系统蓝，换任何一套主题都不跟随。
+        // appearance 掉它再用 currentColor 重画一个：点击行为仍是原生清空。
+        &::-webkit-search-cancel-button {
+            -webkit-appearance: none;
+            appearance: none;
+            width: var(--icon-xs);
+            height: var(--icon-xs);
+            margin-left: var(--space-1);
+            cursor: pointer;
+            background-color: currentColor;
+            opacity: 0.7;
+            -webkit-mask: var(--clear-mask) center / contain no-repeat;
+            mask: var(--clear-mask) center / contain no-repeat;
+        }
+
         &--has-prefix {
-            padding-left: 4px;
+            padding-left: var(--space-1);
         }
 
         &--has-suffix {
-            padding-right: 4px;
+            padding-right: var(--space-1);
         }
     }
 
@@ -177,7 +195,7 @@ function handleFocus(event: FocusEvent): void {
     &__messages {
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: var(--space-1);
     }
 
     &__hint,
@@ -193,7 +211,7 @@ function handleFocus(event: FocusEvent): void {
     }
 
     &__error {
-        color: var(--md-sys-color-error);
+        color: var(--color-error);
     }
 
     // 焦点环由当前主题色派生：以前写死的玫红阴影在薄荷绿/午夜蔷薇等主题下完全跑色
@@ -203,11 +221,11 @@ function handleFocus(event: FocusEvent): void {
     }
 
     &--error &__wrapper {
-        border-color: var(--md-sys-color-error);
+        border-color: var(--color-error);
     }
 
     &--error:focus-within &__wrapper {
-        box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-error) 18%, transparent);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-error) 18%, transparent);
     }
 
     &--disabled &__wrapper {

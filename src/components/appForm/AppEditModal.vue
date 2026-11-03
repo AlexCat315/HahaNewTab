@@ -315,14 +315,14 @@ watch(
     <ModalOverlay
         :model-value="modelValue"
         :title="modalTitle"
-        :max-width="520"
+        size="md"
         close-on-overlay
         @update:model-value="$emit('update:modelValue', $event)"
     >
         <form class="app-edit-form" @submit.prevent="handleSubmit">
             <section class="form-section">
                 <header class="form-section__header">
-                    <IconSvg name="edit" :size="16" color="var(--md-sys-color-primary)" monochrome />
+                    <IconSvg name="edit" size="var(--icon-xs)" color="var(--md-sys-color-primary)" monochrome />
                     <h3 class="form-section__title">基本信息</h3>
                 </header>
 
@@ -348,7 +348,7 @@ watch(
                         @blur="handleUrlBlur"
                     />
                     <p v-if="duplicateApp && !errors.url" class="form-warning">
-                        <IconSvg name="warning" :size="14" />
+                        <IconSvg name="warning" size="var(--icon-xs)" />
                         <span>
                             该网站已存在：{{ duplicateApp.name }}（分类：{{ duplicateCategoryName }}），同一站点不能重复添加
                         </span>
@@ -400,7 +400,7 @@ watch(
 
             <section class="form-section">
                 <header class="form-section__header">
-                    <IconSvg name="picture" :size="16" color="var(--md-sys-color-primary)" monochrome />
+                    <IconSvg name="picture" size="var(--icon-xs)" color="var(--md-sys-color-primary)" monochrome />
                     <h3 class="form-section__title">图标设置</h3>
                 </header>
 
@@ -409,7 +409,7 @@ watch(
                         <div class="icon-preview">
                             <IconSvg
                                 :src="effectiveIcon"
-                                :size="36"
+                                size="var(--icon-lg)"
                                 :fallback="DEFAULT_ICON"
                                 alt="图标预览"
                             />
@@ -427,7 +427,7 @@ watch(
                                 @click="showIconPicker = !showIconPicker"
                             >
                                 <template #icon>
-                                    <IconSvg name="picture" :size="16" monochrome />
+                                    <IconSvg name="picture" size="var(--icon-xs)" monochrome />
                                 </template>
                                 选择
                             </BaseButton>
@@ -442,7 +442,7 @@ watch(
                             @click="autoFetchIcon"
                         >
                             <template #icon>
-                                <IconSvg name="refresh" :size="14" monochrome />
+                                <IconSvg name="refresh" size="var(--icon-xs)" monochrome />
                             </template>
                             自动获取图标
                         </BaseButton>
@@ -471,7 +471,7 @@ watch(
                         >
                             <IconSvg
                                 :src="item.url"
-                                :size="22"
+                                size="var(--icon-sm)"
                                 :fallback="DEFAULT_ICON"
                                 :alt="item.name"
                             />
@@ -510,63 +510,61 @@ watch(
 .app-edit-form {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: var(--space-5);
 }
 
 .form-section {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: var(--space-3);
 
     &__header {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: var(--space-2);
     }
 
     &__title {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--md-sys-color-primary);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin: 0;
+        // 表单区块标题：主色 eyebrow，与 CloudSyncPanel / SettingsSection 同一档
+        @include section-label(var(--md-sys-color-primary));
     }
 }
 
 .form-group {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--space-1);
 
     &--checkbox {
         flex-direction: row;
         align-items: center;
-        gap: 8px;
+        gap: var(--space-2);
     }
 }
 
 .form-label {
     display: flex;
     align-items: center;
-    gap: 4px;
-    font-size: 13px;
-    font-weight: 600;
+    gap: var(--space-1);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
     color: var(--md-sys-color-on-surface);
 }
 
 .form-required {
-    color: var(--md-sys-color-error);
+    color: var(--color-error);
 }
 
+// 描边给出焦点态的即时反馈，键盘焦点环由 global.scss 的 :focus-visible 统一提供，
+// 组件不再自写 rgba 光圈。
 .form-select {
     width: 100%;
-    padding: 10px 14px;
+    padding: var(--space-2) var(--space-3);
     border: 1px solid var(--md-sys-color-outline);
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
     background: var(--md-sys-color-surface);
     color: var(--md-sys-color-on-surface);
-    font-size: 14px;
+    font-size: var(--text-base);
     font-family: inherit;
     outline: none;
     cursor: pointer;
@@ -574,32 +572,31 @@ watch(
 
     &:focus {
         border-color: var(--md-sys-color-primary);
-        box-shadow: 0 0 0 3px rgba(177, 74, 107, 0.08);
     }
 
     &--error {
-        border-color: var(--md-sys-color-error);
+        border-color: var(--color-error);
     }
 }
 
 .form-error {
     margin: 0;
-    font-size: 12px;
-    color: var(--md-sys-color-error);
-    line-height: 1.4;
+    font-size: var(--text-xs);
+    color: var(--color-error);
+    line-height: var(--leading-normal);
 }
 
 .form-warning {
     display: flex;
     align-items: flex-start;
-    gap: 6px;
+    gap: var(--space-1);
     margin: 0;
-    padding: 8px 10px;
-    border-radius: 8px;
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--md-sys-color-on-tertiary-container, #4a3200);
-    background: var(--md-sys-color-tertiary-container, rgba(255, 179, 0, 0.16));
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-xs);
+    line-height: var(--leading-normal);
+    color: var(--on-warning);
+    background: var(--tint-warning);
 
     :deep(.icon-svg) {
         margin-top: 1px;
@@ -609,26 +606,25 @@ watch(
 }
 
 .icon-card {
+    // 静态表面走卡片契约（bg / 描边 / 圆角 / elevation / padding）
+    @include card;
+
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 12px;
-    border: 1px solid var(--md-sys-color-outline-variant);
-    border-radius: 14px;
-    background: var(--md-sys-color-surface-variant);
+    gap: var(--space-2);
 }
 
 .icon-selector {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .icon-preview {
-    width: 56px;
-    height: 56px;
+    width: var(--icon-2xl);
+    height: var(--icon-2xl);
     flex-shrink: 0;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     background: var(--md-sys-color-surface);
     border: 1px solid var(--md-sys-color-outline);
     @include flex-center(row, 0);
@@ -638,7 +634,7 @@ watch(
     flex: 1;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
 
     :deep(.mnt-base-input) {
         flex: 1;
@@ -647,15 +643,15 @@ watch(
 
 .icon-actions {
     display: flex;
-    gap: 8px;
+    gap: var(--space-2);
     align-items: center;
 }
 
 .icon-larger-toggle {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 13px;
+    gap: var(--space-1);
+    font-size: var(--text-sm);
     color: var(--md-sys-color-on-surface);
     cursor: pointer;
     margin-left: auto;
@@ -671,25 +667,25 @@ watch(
 .icon-picker {
     display: grid;
     grid-template-columns: repeat(6, 1fr);
-    gap: 8px;
+    gap: var(--space-2);
     max-height: 140px;
     overflow-y: auto;
-    padding: 8px;
+    @include scrollable;
+    padding: var(--space-2);
     border: 1px solid var(--md-sys-color-outline-variant);
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
     background: var(--md-sys-color-surface);
 }
 
 .icon-picker-item {
     @include button-reset;
-    width: 40px;
-    height: 40px;
-    border-radius: 8px;
+    width: var(--icon-xl);
+    height: var(--icon-xl);
+    border-radius: var(--radius-sm);
     background: var(--md-sys-color-surface);
     border: 1px solid var(--md-sys-color-outline);
     @include flex-center(row, 0);
     @include md-transition(all, var(--md-transition-fast));
-    @include focus-ring;
 
     &:hover {
         border-color: var(--md-sys-color-primary);
@@ -700,9 +696,9 @@ watch(
 .checkbox-label {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     cursor: pointer;
-    font-size: 14px;
+    font-size: var(--text-base);
     color: var(--md-sys-color-on-surface-variant);
 
     input[type='checkbox'] {
@@ -711,16 +707,6 @@ watch(
         cursor: pointer;
         accent-color: var(--md-sys-color-primary);
     }
-}
-
-// 深色模式只补「比表面深一档」的填充，颜色仍取自主题 token
-// 注意：后代选择器必须直接写在 scoped 样式里。用 `:global(html.dark-mode) { … }` 包裹时，
-// Vue 的 scoped 编译会把后代选择器丢掉，声明直接落到 html 上（会盖住壁纸层）。
-html.dark-mode .icon-card,
-html.dark-mode .icon-picker,
-html.dark-mode .icon-picker-item {
-    background: var(--hover-bg);
-    border-color: var(--md-sys-color-outline-variant);
 }
 
 @include respond-to(mobile) {

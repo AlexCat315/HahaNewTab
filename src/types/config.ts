@@ -67,22 +67,3 @@ export interface DefaultDataConfig {
 
 /** 配置加载器返回类型 */
 export type ConfigName = 'themes' | 'searchEngines' | 'defaultData';
-
-/** 主题派生变量集合（ThemeManager 动态计算） */
-export interface DerivedThemeVariables {
-    '--md-primary': string;
-    '--md-primary-dark': string;
-    '--md-primary-light': string;
-    '--md-primary-container': string;
-    '--md-secondary': string;
-    '--md-secondary-container': string;
-    '--md-background': string;
-    '--md-surface': string;
-    '--md-surface-variant': string;
-    '--md-surface-2': string;
-    '--md-on-primary': string;
-    '--md-on-background': string;
-    '--md-on-surface': string;
-    '--md-outline': string;
-    '--md-shadow': string;
-}

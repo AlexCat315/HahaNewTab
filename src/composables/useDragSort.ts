@@ -275,9 +275,9 @@ export function useDragSort(options: UseDragSortOptions): UseDragSortReturn {
             height: `${rect.height}px`,
             margin: '0',
             pointerEvents: 'none',
-            zIndex: '10000',
+            zIndex: 'var(--z-drag-ghost)',
             opacity: '0.9',
-            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.2)',
+            boxShadow: 'var(--elevation-2)',
             // 覆盖克隆节点继承的 transition/animation，保证幽灵实时跟手
             transition: 'none',
             animation: 'none',

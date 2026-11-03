@@ -590,19 +590,19 @@ const fabItems = [
                     @click="openAddApp(activeCategoryId)"
                 >
                     <template #icon>
-                        <IconSvg name="plus" :size="16" monochrome alt="" />
+                        <IconSvg name="plus" size="var(--icon-xs)" monochrome alt="" />
                     </template>
                     添加网站
                 </BaseButton>
             </template>
 
             <div v-if="dataManager.isLoading.value" class="app-loading">
-                <IconSvg name="refresh" :size="32" monochrome />
+                <IconSvg name="refresh" size="var(--icon-lg)" monochrome />
                 <p>数据加载中…</p>
             </div>
 
             <div v-else-if="!hasApps" class="app-empty">
-                <IconSvg name="folder" :size="56" monochrome />
+                <IconSvg name="folder" size="var(--icon-2xl)" monochrome />
                 <p>该分类下暂无应用</p>
                 <BaseButton variant="primary" size="small" @click="openAddApp(activeCategoryId)">
                     添加网站
@@ -751,15 +751,7 @@ const fabItems = [
 }
 
 .visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
+    @include visually-hidden;
 }
 
 @keyframes spin {

@@ -26,14 +26,9 @@
     --md-sys-color-on-background: #201A1A;
     --md-sys-color-outline: #E0D0D3;
     --md-sys-color-error: #BA1A1A;
-    --md-sys-color-error-container: #FFDAD6;
     --md-sys-color-success: #376B2F;
     --md-sys-color-inverse-surface: #201A1A;
     --md-sys-color-inverse-on-surface: #F3DDE2;
-
-    // RGB 版本，用于半透明混合
-    --md-sys-color-surface-rgb: 255, 248, 249;
-    --md-sys-color-background-rgb: 255, 248, 249;
 
     // ==================== 由主题基础色派生的 token ====================
     //
@@ -51,6 +46,12 @@
     --card-bg: var(--md-sys-color-surface-container);
     --card-border: var(--md-sys-color-outline-variant);
     --hover-bg: color-mix(in srgb, var(--md-sys-color-on-surface) 7%, transparent);
+    --pressed-bg: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+
+    // 主色底纹：选中态、图标底、hover 强调都用「 tint 底 + 主色文字」，
+    // 不用主色实底 + 白字——深色主题的 primary 是提亮过的，白字压上去读不出。
+    --tint-primary: color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent);
+    --tint-primary-strong: color-mix(in srgb, var(--md-sys-color-primary) 28%, transparent);
 
     // 动效变量
     --md-easing: cubic-bezier(0.4, 0, 0.2, 1);
@@ -75,6 +76,9 @@
     --leading-normal: 1.5;
     --leading-relaxed: 1.65;
     --tracking-tight: -0.01em;
+    // 小标签（大写 eyebrow：分组标题、状态徽标）的字距只取这一档；
+    // 组件里 0.3/0.4/0.5px 各写一遍，同一层面板里就会出现两种「松」。
+    --tracking-label: 0.04em;
     --weight-regular: 400;
     --weight-medium: 500;
     --weight-semibold: 600;
@@ -100,6 +104,65 @@
     --radius-xl: 22px;
     --radius-full: 999px;
 
+    // ==================== 卡片契约 ====================
+    //
+    // 卡片只有三档，几何由这里给全，组件不再各写各的 padding/圆角（见 mixins 的
+    // card / card-interactive / glass-surface）：
+    // - card            静态表面：分组卡、设置区块
+    // - card-interactive 可点卡片：应用卡、列表行；hover 只抬 elevation，不换描边色
+    // - glass-surface   浮在壁纸上的大外壳：顶栏、侧栏 rail、弹层
+    // 卡片档不带 backdrop-filter：一屏几十张卡片同时开模糊会掉帧，只有外壳值得。
+    --card-radius: var(--radius-md);
+    --card-pad: var(--space-3);
+    --card-pad-lg: var(--space-4);
+    --card-gap: var(--space-3);
+    --card-grid-gap: var(--space-3);
+    --card-row-height: 76px;
+
+    // ==================== 图标尺寸阶 ====================
+    //
+    // 以前模板里数得出 16 种 :size="N"（12/14/15/16/18/20/22/24/26/28/32/36/40/48/56/64），
+    // 同一屏里 14 和 15 的箭头并排放，肉眼看不出差别但就是不齐。现在只准取这 6 档，
+    // 组件写 size="var(--icon-xs)" 而不是数字——尺寸是排版决定，不该每个调用点各调一次。
+    // - xs    行内附饰：卡片操作按钮、分页箭头、chip 上的关闭
+    // - sm    按钮/开关内的图标、顶栏图标
+    // - md    默认档（IconSvg 不传 size 时就是它）
+    // - lg    面板里的占位图、图标库缩略图
+    // - xl    应用卡 favicon 底板
+    // - 2xl   空状态与预览的大图
+    --icon-xs: 16px;
+    --icon-sm: 20px;
+    --icon-md: 24px;
+    --icon-lg: 32px;
+    --icon-xl: 40px;
+    --icon-2xl: 56px;
+
+    // 原生 <input type="search"> 的清除按钮是 UA 画的，永远是系统蓝，跟任何主题都不搭。
+    // BaseInput 把它 appearance 掉后用这层遮罩重画，颜色就回到 currentColor。
+    // 用站点绝对路径：与 IconSvg 处理内置图标的方式一致，扩展页里也解析得到。
+    --clear-mask: url('/image/icons/close.svg');
+
+    // ==================== 控件高度阶 ====================
+    // 按钮、输入框、开关、图标按钮的热区只取这四档；44px 是移动端最小可点尺寸。
+    --control-h-xs: 28px;
+    --control-h-sm: 32px;
+    --control-h-md: 38px;
+    --control-h-lg: 46px;
+
+    // ==================== 语义色 ====================
+    //
+    // 状态反馈（Toast、Banner、删除确认）只准用这几个 token。以前 Toast 写死琥珀
+    // #F59E0B、删除按钮写死红，切到任何主题族都不跟色。
+    // error / success 由主题给出（明暗各有一套亮度）；warning 主题里没有，固定一档
+    // 琥珀——它不属于任何族的性格，属于「提醒」这件事本身。
+    --color-error: var(--md-sys-color-error);
+    --color-success: var(--md-sys-color-success);
+    --color-warning: #C77700;
+    --tint-error: color-mix(in srgb, var(--md-sys-color-error) 16%, transparent);
+    --tint-success: color-mix(in srgb, var(--md-sys-color-success) 16%, transparent);
+    --tint-warning: color-mix(in srgb, var(--color-warning) 18%, transparent);
+    --on-warning: color-mix(in srgb, var(--color-warning) 82%, var(--md-sys-color-on-surface));
+
     // ==================== 悬浮外壳几何 ====================
     // 非简洁模式的所有浮层（顶栏 / 侧栏 rail / 分组卡）共用这套尺寸语言：
     // 浮层与视口边缘留 --shell-inset，浮层之间留 --shell-gap，
@@ -121,12 +184,37 @@
     --panel-w-md: 520px;
     --panel-w-lg: 660px;
     --panel-w-xl: 780px;
+    // 弹层正文的最低高度：切 tab 时面板不能忽高忽低，所以给内容区一个下限。
+    --panel-body-min-h: 280px;
+
+    // ==================== 轻浮层（菜单 / 下拉 / Toast）宽度档 ====================
+    // 这些不是模态弹层，走另一套更窄的尺寸语言：以前 FabMenu 200、站点菜单 196~260、
+    // 引擎下拉 180~260、Toast 360、Popup 360 全是各写各的。
+    --pop-w-min: 180px;
+    --pop-w-max: 260px;
+    --pop-w-toast: 360px;
+
+    // ==================== 阅读列宽 ====================
+    // 极简首页是「一列居中」的排版，和完整模式的 1240 多列网格不是一套尺寸语言。
+    --reading-max-width: 680px;
+    --search-max-width: 580px;
+    --search-box-height: 52px;
+
+    // ==================== 磁贴 ====================
+    // 极简首页的分类磁贴：固定小方块，不用 --card-* 那套（磁贴是导航，不是内容卡）。
+    --tile-size: 88px;
+    --tile-icon-size: 40px;
+    --tile-gap: var(--space-2);
 
     // ==================== 玻璃浮层 ====================
     // 浮在壁纸上的表面：半透明 surface + 背景模糊 + 18% 描边。
-    // 透明度分两档是因为 rail/顶栏要「轻」，而弹层里的文字必须有足够对比。
+    // 透明度分三档是因为 rail/顶栏要「轻」，弹层里的文字必须有足够对比，
+    // 而菜单这类密集小行需要几乎实心，否则壁纸会把字挤糊。
     --glass-bg: color-mix(in srgb, var(--md-sys-color-surface) 78%, transparent);
     --glass-bg-strong: color-mix(in srgb, var(--md-sys-color-surface) 92%, transparent);
+    // 菜单/浮层里的文字不能有壁纸串扰：需要「几乎实心」时用这一档，
+    // 不要再回退到 rgba(var(--md-sys-color-surface-rgb), .98) 那种手写混色。
+    --glass-bg-opaque: color-mix(in srgb, var(--md-sys-color-surface) 98%, transparent);
     --glass-blur: 20px;
     --glass-border: var(--md-sys-color-outline-variant);
 
@@ -150,54 +238,48 @@
         0 8px 24px rgba(0, 0, 0, calc(0.10 * var(--shadow-k)));
     --elevation-3: 0 8px 20px rgba(0, 0, 0, calc(0.10 * var(--shadow-k))),
         0 24px 56px rgba(0, 0, 0, calc(0.16 * var(--shadow-k)));
-    --card-shadow: var(--elevation-1);
 
     // ==================== 层序 ====================
     // 之前每个组件自己挑 z-index（999/1000/1003/2000/2100/2200），
     // 加一层就得猜一次谁压谁；收成命名档位，浮层关系一眼可读。
+    //
+    // 以前这里只有一档 --z-dropdown: 50，而弹层内部的下拉（引擎选择、图标选择）
+    // 必须压过弹层本身，于是组件只能回去写 2100/2400/3000 这类裸数字——
+    // 同一份层序又分成两个宇宙。现在把「弹层内上浮」显式建出来，裸数字归零。
     --z-wallpaper: 0;
     --z-content: 10;
     --z-rail: 20;
     --z-header: 30;
     --z-fab: 40;
     --z-dropdown: 50;
+    --z-menu: 60;
+    // 更新横幅：压过菜单/下拉，但让位给弹层（不抢模态焦点）
+    --z-banner: 90;
     --z-panel: 100;
-    --z-panel-raised: 110;
+    // 弹层可以叠弹层（面板里开编辑框、编辑框里开图标选择）。
+    // 层序由 ModalOverlay 按打开顺序现算：--z-panel + 栈内序号 * --z-panel-step，
+    // 所以调用方不用再传裸数字——传数字正是让这套档位失效的那个口子。
+    // 10 的步长留到 --z-toast(200) 之前还能叠 10 层，远超实际用到的 3 层。
+    --z-panel-step: 10;
+    --z-dropdown-raised: 120;
     --z-toast: 200;
+    // 确认框压过一切浮层：它就是用来打断当前操作的，且要高于 toast，
+    // 否则「删除成功」的 toast 会盖在待确认的对话框上。
+    --z-alert: 210;
+    --z-drag-ghost: 300;
 
     // 图标滤镜：浅色模式显示原始图标，深色模式反转为白色（仅作用于 monochrome 图标）
     --icon-filter: none;
-
-    // 派生变量（由 ThemeManager 动态设置，提供默认回退）
-    --md-primary: var(--md-sys-color-primary);
-    --md-primary-dark: #963D59;
-    --md-primary-light: #C96785;
-    --md-primary-container: var(--md-sys-color-primary-container);
-    --md-secondary: var(--md-sys-color-secondary);
-    --md-secondary-container: var(--md-sys-color-secondary-container);
-    --md-background: var(--md-sys-color-surface);
-    --md-surface: rgba(255, 248, 249, 0.85);
-    --md-surface-variant: var(--md-sys-color-surface-variant);
-    --md-surface-2: rgba(255, 248, 249, 0.7);
-    --md-on-primary: var(--md-sys-color-on-primary);
-    --md-on-background: var(--md-sys-color-on-surface);
-    --md-on-surface: var(--md-sys-color-on-surface-variant);
-    --md-outline: var(--md-sys-color-surface-variant);
-    --md-shadow: rgba(177, 74, 107, 0.15);
 }
 
 // 深色模式变量覆盖
 //
 // 配色本身已经由「暗色变体」主题给出（html.dark-mode 只表示当前这套是暗的），
-// 所以这里不再覆盖任何颜色 token —— 只保留与主题无关的两项：
+// 所以这里不再覆盖任何颜色 token —— 只留与主题无关的两项：
 // - --icon-filter：仍然走 <img> 的远程图标需要反色（内置图标改走 mask，用 currentColor）
-// - surface-rgb / background-rgb：首帧兜底值，theme.store 初始化后会按当前主题改成真实值
+// - --shadow-k：深色底上 5% 的黑等于没有投影，浮层会「粘」回背景，只加强度，几何不变
 html.dark-mode {
     --icon-filter: invert(1) brightness(2);
-    --md-sys-color-surface-rgb: 30, 30, 30;
-    --md-sys-color-background-rgb: 20, 20, 20;
-
-    // 深色底上 5% 的黑等于没有投影，浮层会「粘」回背景。只加强度，几何不变。
     --shadow-k: 3;
 }
 

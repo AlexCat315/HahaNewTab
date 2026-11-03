@@ -88,23 +88,56 @@
 }
 
 /**
- * 通用卡片表面样式
+ * 卡片契约的静态档：半透明主题表面 + 18% 描边 + elevation-1
+ *
+ * 不带 backdrop-filter：一屏几十张卡片同时开模糊会掉帧，模糊只留给
+ * glass-surface 那几块大外壳（顶栏 / rail / 弹层）。
  */
-@mixin surface-card {
+@mixin card($radius: var(--card-radius)) {
     background: var(--card-bg);
     border: 1px solid var(--card-border);
-    box-shadow: var(--card-shadow);
-    border-radius: 12px;
+    border-radius: $radius;
+    box-shadow: var(--elevation-1);
+    padding: var(--card-pad);
 }
 
 /**
- * 玻璃拟态背景
- * @param {Number} $bg-opacity - 背景不透明度，默认 0.85
- * @param {Number} $blur - 模糊半径，默认 10px
+ * 卡片契约的可点档：在 card 之上只加「抬升」这一种反馈
+ *
+ * hover 只换 elevation，不换描边色——整屏卡片同时描上主色边框会糊成一片，
+ * 反而读不出层级（AppCard 早已验证过这一点，这里把它固化成契约）。
  */
-@mixin glass($bg-opacity: 0.85, $blur: 10px) {
-    background: rgba(var(--md-sys-color-surface-rgb), $bg-opacity);
-    backdrop-filter: blur($blur);
+@mixin card-interactive($radius: var(--card-radius)) {
+    @include card($radius);
+    cursor: pointer;
+    @include md-transition(transform box-shadow background, var(--md-transition-fast));
+
+    &:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--elevation-2);
+    }
+
+    &:active {
+        transform: translateY(0);
+        box-shadow: var(--elevation-1);
+        background: var(--md-sys-color-surface-variant);
+    }
+}
+
+/**
+ * 分组小标题（eyebrow）：面板内每个分组的标题共用这一档
+ *
+ * 以前 5 处各写各的：12px 配 on-surface-variant、13px 配主色、字距 0.3/0.4/0.5px
+ * 混着来，同一层面板里能数出两种「松」。字距统一成 --tracking-label，
+ * 颜色留参数——分组标题用中性色，表单区块标题用主色，这两种确实都在用。
+ */
+@mixin section-label($color: var(--md-sys-color-on-surface-variant)) {
+    margin: 0;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: $color;
 }
 
 /**
@@ -200,9 +233,9 @@
 
 /**
  * 图标按钮：固定方形热区，hover/active 有反馈
- * @param {Number} $size - 边长，默认 36px
+ * @param {String} $size - 边长，默认 --control-h-md
  */
-@mixin icon-button($size: 36px) {
+@mixin icon-button($size: var(--control-h-md)) {
     @include button-reset;
     @include flex-center;
     width: $size;

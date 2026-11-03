@@ -99,7 +99,7 @@ function formatCount(categoryId: string): string {
     <ModalOverlay
         :model-value="modelValue"
         title="管理分类"
-        :max-width="480"
+        size="md"
         close-on-overlay
         close-on-esc
         @update:model-value="$emit('update:modelValue', $event)"
@@ -111,7 +111,7 @@ function formatCount(categoryId: string): string {
                 class="mnt-category-manager__empty"
                 role="status"
             >
-                <IconSvg name="folder" :size="48" />
+                <IconSvg name="folder" size="var(--icon-2xl)" />
                 <p class="mnt-category-manager__empty-title">暂无自定义分类</p>
                 <p class="mnt-category-manager__empty-hint">点击下方「新建分类」创建第一个分类</p>
             </div>
@@ -132,7 +132,7 @@ function formatCount(categoryId: string): string {
                             <div class="mnt-category-manager__icon">
                                 <IconSvg
                                     :src="category.icon"
-                                    :size="24"
+                                    size="var(--icon-md)"
                                     :monochrome="category.monochrome"
                                     :alt="category.name"
                                 />
@@ -154,7 +154,7 @@ function formatCount(categoryId: string): string {
                                 @click="handleEdit(category)"
                             >
                                 <template #icon>
-                                    <IconSvg name="edit" :size="16" />
+                                    <IconSvg name="edit" size="var(--icon-xs)" />
                                 </template>
                             </BaseButton>
                             <BaseButton
@@ -165,7 +165,7 @@ function formatCount(categoryId: string): string {
                                 @click="handleDelete(category)"
                             >
                                 <template #icon>
-                                    <IconSvg name="delete" :size="16" />
+                                    <IconSvg name="delete" size="var(--icon-xs)" />
                                 </template>
                             </BaseButton>
                         </div>
@@ -177,7 +177,7 @@ function formatCount(categoryId: string): string {
                     class="mnt-category-manager__add-row"
                     @click="handleAdd"
                 >
-                    <IconSvg name="plus" :size="18" />
+                    <IconSvg name="plus" size="var(--icon-sm)" />
                     <span>新建分类</span>
                 </button>
             </template>
@@ -187,7 +187,7 @@ function formatCount(categoryId: string): string {
             <BaseButton variant="text" @click="handleClose">关闭</BaseButton>
             <BaseButton variant="primary" @click="handleAdd">
                 <template #icon>
-                    <IconSvg name="plus" :size="16" />
+                    <IconSvg name="plus" size="var(--icon-xs)" />
                 </template>
                 新建分类
             </BaseButton>
@@ -203,52 +203,52 @@ function formatCount(categoryId: string): string {
     flex-direction: column;
 
     &__summary {
-        margin: 0 4px 10px;
-        font-size: 12px;
+        margin: 0 var(--space-1) var(--space-2);
+        font-size: var(--text-xs);
         color: var(--md-sys-color-on-surface-variant);
     }
 
     &__empty {
-        @include flex-center(column, 12px);
-        padding: 32px 16px;
+        @include flex-center(column, var(--space-3));
+        padding: var(--space-8) var(--space-4);
         color: var(--md-sys-color-on-surface-variant);
         text-align: center;
 
         p {
             margin: 0;
-            font-size: 14px;
+            font-size: var(--text-base);
         }
     }
 
     &__empty-title {
-        font-weight: 600;
+        font-weight: var(--weight-semibold);
         color: var(--md-sys-color-on-surface);
     }
 
     &__empty-hint {
-        font-size: 12px !important;
+        font-size: var(--text-xs) !important;
         opacity: 0.8;
     }
 
     &__list {
         list-style: none;
         margin: 0;
-        padding: 4px;
+        padding: var(--space-1);
         display: flex;
         flex-direction: column;
-        gap: 10px;
+        gap: var(--space-2);
         max-height: 400px;
         overflow-y: auto;
-        @include hide-scrollbar;
+        @include scrollable;
     }
 
     &__item {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 12px;
-        padding: 14px 16px;
-        border-radius: 12px;
+        gap: var(--space-3);
+        padding: var(--space-3) var(--space-4);
+        border-radius: var(--radius-md);
         background: var(--md-sys-color-surface-variant);
         border: 1px solid var(--md-sys-color-outline-variant);
         @include md-transition(all, var(--md-transition-fast));
@@ -257,22 +257,22 @@ function formatCount(categoryId: string): string {
             background: var(--md-sys-color-surface);
             border-color: color-mix(in srgb, var(--md-sys-color-primary) 45%, transparent);
             transform: translateY(-1px);
-            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+            box-shadow: var(--elevation-1);
         }
     }
 
     &__info {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: var(--space-3);
         flex: 1;
         min-width: 0;
     }
 
     &__icon {
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
+        width: var(--icon-xl);
+        height: var(--icon-xl);
+        border-radius: var(--radius-sm);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -286,93 +286,72 @@ function formatCount(categoryId: string): string {
     &__text {
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: var(--space-1);
         min-width: 0;
     }
 
     &__name {
-        font-weight: 600;
-        font-size: 15px;
+        font-weight: var(--weight-semibold);
+        font-size: var(--text-md);
         color: var(--md-sys-color-on-surface);
-        line-height: 1.3;
+        line-height: var(--leading-tight);
         @include text-ellipsis;
     }
 
     &__meta {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: var(--space-1);
     }
 
     &__count {
-        font-size: 12px;
+        font-size: var(--text-xs);
         color: var(--md-sys-color-on-surface-variant);
-        line-height: 1.3;
+        line-height: var(--leading-tight);
     }
 
     &__badge {
-        font-size: 10px;
-        line-height: 1.4;
-        padding: 1px 6px;
-        border-radius: 999px;
-        background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent);
+        font-size: var(--text-xs);
+        line-height: var(--leading-tight);
+        padding: 0 var(--space-1);
+        border-radius: var(--radius-full);
+        background: var(--tint-primary);
         color: var(--md-sys-color-primary);
     }
 
     &__actions {
         display: flex;
-        gap: 4px;
+        gap: var(--space-1);
         flex-shrink: 0;
     }
 
     &__delete-btn {
-        color: var(--md-sys-color-error);
+        color: var(--color-error);
 
+        // 「tint 底 + error 文字」：深色主题的 error 是浅珊瑚色，实底压白字读不出
         &:hover {
-            background: var(--md-sys-color-error-container);
+            background: var(--tint-error);
         }
     }
 
     &__add-row {
         @include button-reset;
-        margin-top: 10px;
+        margin-top: var(--space-2);
         width: 100%;
-        padding: 12px 16px;
-        border-radius: 12px;
+        padding: var(--space-3) var(--space-4);
+        border-radius: var(--radius-md);
         border: 1.5px dashed var(--md-sys-color-outline);
         color: var(--md-sys-color-on-surface-variant);
-        font-size: 14px;
-        font-weight: 500;
-        @include flex-center(row, 8px);
+        font-size: var(--text-base);
+        font-weight: var(--weight-medium);
+        @include flex-center(row, var(--space-2));
         @include md-transition(all, var(--md-transition-fast));
-        @include focus-ring;
 
         &:hover {
             border-color: var(--md-sys-color-primary);
             color: var(--md-sys-color-primary);
             background: color-mix(in srgb, var(--md-sys-color-primary) 6%, transparent);
         }
-    }
-}
-
-// 深色模式适配（后代选择器直接写在 scoped 里，用 :global() 包裹会被编译丢成 html 自身）
-html.dark-mode .mnt-category-manager__item {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.08);
-
-    &:hover {
-        background: rgba(255, 255, 255, 0.08);
-        border-color: color-mix(in srgb, var(--md-sys-color-primary) 55%, transparent);
-        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
-    }
-}
-
-html.dark-mode .mnt-category-manager__add-row {
-    border-color: rgba(255, 255, 255, 0.16);
-
-    &:hover {
-        border-color: var(--md-sys-color-primary);
-        background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent);
     }
 }
 </style>
