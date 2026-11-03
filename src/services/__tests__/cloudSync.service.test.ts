@@ -405,6 +405,46 @@ describe('CloudSyncService', () => {
         });
     });
 
+    it('sync 首次同步时同 id 冲突按「谁写得更晚」定夺：本地没编辑过则采用云端版本', async () => {
+        const { service, storage, dataManager } = createService();
+        // 出厂默认数据与云端同名站点共用 id '1'，不打 DATA_UPDATED_AT 的新设备不该覆盖云端
+        await seedSignedIn(service, storage, {
+            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [app('1', '出厂名')] },
+            [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB
+        });
+        stubSyncFetch({
+            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [app('1', '云端改名'), app('r9', '云端独有')] },
+            [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB
+        });
+
+        await service.sync();
+
+        expect(dataManager.applyStorageSnapshot).toHaveBeenCalledWith({
+            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [app('1', '云端改名'), app('r9', '云端独有')] },
+            [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB
+        });
+    });
+
+    it('sync 首次同步时本地编辑更晚则同 id 冲突保留本地', async () => {
+        const { service, storage, dataManager } = createService();
+        await seedSignedIn(service, storage, {
+            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [app('1', '本地改名')] },
+            [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB,
+            [STORAGE_KEYS.DATA_UPDATED_AT]: Date.now() + 60000
+        });
+        stubSyncFetch({
+            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [app('1', '云端改名'), app('r9', '云端独有')] },
+            [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB
+        });
+
+        await service.sync();
+
+        expect(dataManager.applyStorageSnapshot).toHaveBeenCalledWith({
+            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [app('1', '本地改名'), app('r9', '云端独有')] },
+            [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB
+        });
+    });
+
     it('sync 静默模式成功时不 Toast', async () => {
         const { service, storage, ui } = createService();
         await seedSignedIn(service, storage, seedMergeFixture([app('a1', 'A')], [app('a1', 'A')]));

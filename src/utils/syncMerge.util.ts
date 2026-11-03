@@ -19,6 +19,14 @@ import { normalizeNameKey } from '@/utils/name.util';
 export type SyncSnapshot = Record<string, unknown>;
 
 /**
+ * 同 id 冲突时的胜方
+ *
+ * 仅在 base 缺失（首次同步）时用得上：没有共同祖先就无法判断哪一端改过，
+ * 只能按「谁最后一次写入更晚」定方向。常规三方合并不看这个，冲突一律本地优先。
+ */
+export type MergeTieBreak = 'local' | 'remote';
+
+/**
  * 稳定序列化：对象键排序后 JSON.stringify，用于深比较（避免键序差异误判）
  */
 export function stableStringify(value: unknown): string {
@@ -64,11 +72,16 @@ function toMap<T extends { id: string }>(items: T[] | null | undefined): Map<str
  * - 仅一端新增 → 采用新增端；两端同 id 新增取本地
  *
  * 顺序：保留本地数组顺序，远端新增项追加到末尾。
+ *
+ * `tieBreak` 只在 base 里查不到该 id 时生效：此时无法区分「本地新增」和
+ * 「首次同步、两端各自都有的同一实体」，同 id 且内容不同的那部分交给 tieBreak 定夺，
+ * 其余条目仍然两端并存（并集），不会因为选了一端就丢掉另一端的独有数据。
  */
 export function mergeById<T extends { id: string }>(
     base: T[] | null | undefined,
     local: T[] | null | undefined,
-    remote: T[] | null | undefined
+    remote: T[] | null | undefined,
+    tieBreak: MergeTieBreak = 'local'
 ): T[] {
     const baseMap = toMap(base);
     const remoteMap = toMap(remote);
@@ -82,8 +95,12 @@ export function mergeById<T extends { id: string }>(
         const remoteItem = remoteMap.get(id);
 
         if (!baseItem) {
-            // 本地新增（或两端同 id 新增，本地优先）
-            result.push(item);
+            // 本地新增，或两端同 id 新增/首次同步无从判断改动方
+            result.push(
+                tieBreak === 'remote' && remoteItem && !deepEqual(remoteItem, item)
+                    ? remoteItem
+                    : item
+            );
             continue;
         }
 
@@ -127,9 +144,10 @@ export function mergeById<T extends { id: string }>(
 export function mergeAppList(
     base: AppItem[] | null | undefined,
     local: AppItem[] | null | undefined,
-    remote: AppItem[] | null | undefined
+    remote: AppItem[] | null | undefined,
+    tieBreak: MergeTieBreak = 'local'
 ): AppItem[] {
-    const merged = mergeById<AppItem>(base, local, remote);
+    const merged = mergeById<AppItem>(base, local, remote, tieBreak);
     const localIds = new Set((local ?? []).map((app) => app.id));
     const seenKeys = new Set<string>();
 
@@ -167,9 +185,10 @@ export function mergeAppList(
 function mergeCategoryList(
     base: Category[] | null | undefined,
     local: Category[] | null | undefined,
-    remote: Category[] | null | undefined
+    remote: Category[] | null | undefined,
+    tieBreak: MergeTieBreak = 'local'
 ): { categories: Category[]; remap: Map<string, string> } {
-    const merged = mergeById<Category>(base, local, remote);
+    const merged = mergeById<Category>(base, local, remote, tieBreak);
     const localIds = new Set((local ?? []).map((category) => category.id));
     const idByName = new Map<string, string>();
 
@@ -207,14 +226,16 @@ function mergeCategoryList(
 export function mergeAppNavigatorData(
     base: AppNavigatorData | null | undefined,
     local: AppNavigatorData | null | undefined,
-    remote: AppNavigatorData | null | undefined
+    remote: AppNavigatorData | null | undefined,
+    tieBreak: MergeTieBreak = 'local'
 ): AppNavigatorData {
     const { categories, remap } = mergeCategoryList(
         base?.categories,
         local?.categories,
-        remote?.categories
+        remote?.categories,
+        tieBreak
     );
-    const apps = mergeAppList(base?.apps, local?.apps, remote?.apps);
+    const apps = mergeAppList(base?.apps, local?.apps, remote?.apps, tieBreak);
 
     if (remap.size === 0) {
         return { categories, apps };
@@ -233,33 +254,38 @@ export function mergeAppNavigatorData(
 export function mergeUserUiLib(
     base: UserUiLib | null | undefined,
     local: UserUiLib | null | undefined,
-    remote: UserUiLib | null | undefined
+    remote: UserUiLib | null | undefined,
+    tieBreak: MergeTieBreak = 'local'
 ): UserUiLib {
     return {
-        categories: mergeById<UiCategory>(base?.categories, local?.categories, remote?.categories),
-        items: mergeById<UserUiLib['items'][number]>(base?.items, local?.items, remote?.items)
+        categories: mergeById<UiCategory>(base?.categories, local?.categories, remote?.categories, tieBreak),
+        items: mergeById<UserUiLib['items'][number]>(base?.items, local?.items, remote?.items, tieBreak)
     };
 }
 
 /**
  * 合并整个同步快照（站点数据 + 用户图标库）
  * base/local/remote 均为以存储键名为键的快照；base 为空（null）时视为空快照，做并集合并。
+ * `tieBreak` 只在 base 缺失时用于决定同 id 冲突的胜方，常规合并保持本地优先。
  */
 export function mergeSyncData(
     base: SyncSnapshot | null,
     local: SyncSnapshot,
-    remote: SyncSnapshot
+    remote: SyncSnapshot,
+    tieBreak: MergeTieBreak = 'local'
 ): SyncSnapshot {
     return {
         [STORAGE_KEYS.MAIN_DATA]: mergeAppNavigatorData(
             base?.[STORAGE_KEYS.MAIN_DATA] as AppNavigatorData | null | undefined,
             local[STORAGE_KEYS.MAIN_DATA] as AppNavigatorData | null | undefined,
-            remote[STORAGE_KEYS.MAIN_DATA] as AppNavigatorData | null | undefined
+            remote[STORAGE_KEYS.MAIN_DATA] as AppNavigatorData | null | undefined,
+            tieBreak
         ),
         [STORAGE_KEYS.USER_UI_LIB]: mergeUserUiLib(
             base?.[STORAGE_KEYS.USER_UI_LIB] as UserUiLib | null | undefined,
             local[STORAGE_KEYS.USER_UI_LIB] as UserUiLib | null | undefined,
-            remote[STORAGE_KEYS.USER_UI_LIB] as UserUiLib | null | undefined
+            remote[STORAGE_KEYS.USER_UI_LIB] as UserUiLib | null | undefined,
+            tieBreak
         )
     };
 }

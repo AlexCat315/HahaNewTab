@@ -1,7 +1,7 @@
 import { CLOUD_SYNC_DATA_KEYS, STORAGE_KEYS } from '@/types/storage';
 import { pushCrossDeviceAuth, pullCrossDeviceAuth, getCrossDeviceState } from '@/services/crossDeviceSync.service';
 import { deepEqual, mergeSyncData } from '@/utils/syncMerge.util';
-import type { SyncSnapshot } from '@/utils/syncMerge.util';
+import type { MergeTieBreak, SyncSnapshot } from '@/utils/syncMerge.util';
 import { createGistProvider, SyncProviderError } from '@/services/gistProvider.service';
 import type {
     CloudSyncDependencies,
@@ -216,7 +216,13 @@ export class CloudSyncService {
             }
 
             const base = await this.storage.get<SyncSnapshot>(STORAGE_KEYS.CLOUD_SYNC_BASE);
-            const merged = mergeSyncData(base, localData, remote.data ?? {});
+            // 首次同步没有 base，同 id 冲突无法判断哪端改过：改按「最后一次写入更晚」的一方胜出，
+            // 否则新装设备那份出厂默认数据会把另一台已经改过的云端覆盖回去
+            const hasBase = Boolean(base?.[STORAGE_KEYS.MAIN_DATA] || base?.[STORAGE_KEYS.USER_UI_LIB]);
+            const localUpdatedAt = (await this.storage.get<number>(STORAGE_KEYS.DATA_UPDATED_AT)) ?? 0;
+            const tieBreak: MergeTieBreak =
+                !hasBase && (remote.lastModified ?? 0) > localUpdatedAt ? 'remote' : 'local';
+            const merged = mergeSyncData(base, localData, remote.data ?? {}, tieBreak);
 
             const applied = SYNC_DATA_KEYS.some((key) => !deepEqual(merged[key], localData[key]));
             const uploaded = SYNC_DATA_KEYS.some((key) => !deepEqual(merged[key], remote.data?.[key]));

@@ -191,6 +191,28 @@ describe('mergeById 顺序与 base 为空', () => {
         expect(mergeById(null, [item('a', 'A')], undefined)).toEqual([item('a', 'A')]);
         expect(mergeById(null, undefined, [item('a', 'A')])).toEqual([item('a', 'A')]);
     });
+
+    it('tieBreak 为 remote 时同 id 冲突取远端版本', () => {
+        const local = [item('a', 'A'), item('b', 'B-local')];
+        const remote = [item('b', 'B-remote'), item('c', 'C')];
+        const result = mergeById(null, local, remote, 'remote');
+        expect(result.map((i) => i.id)).toEqual(['a', 'b', 'c']);
+        expect(result.find((i) => i.id === 'b')?.name).toBe('B-remote');
+        // 并集语义不变：本地独有项不会因为让给了远端而丢失
+        expect(result.find((i) => i.id === 'a')?.name).toBe('A');
+    });
+
+    it('tieBreak 为 remote 时内容相同的同 id 项不受影响', () => {
+        const result = mergeById(null, [item('b', 'Same')], [item('b', 'Same')], 'remote');
+        expect(result).toEqual([item('b', 'Same')]);
+    });
+
+    it('tieBreak 只在 base 缺失时生效，有 base 仍按三方规则本地优先', () => {
+        const base = [item('b', 'B-base')];
+        const local = [item('b', 'B-local')];
+        const remote = [item('b', 'B-remote')];
+        expect(mergeById(base, local, remote, 'remote').map((i) => i.name)).toEqual(['B-local']);
+    });
 });
 
 describe('mergeAppNavigatorData', () => {
