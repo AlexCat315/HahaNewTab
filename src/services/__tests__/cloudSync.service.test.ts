@@ -17,7 +17,7 @@ import type {
 
 const TEST_TOKEN = 'ghp_test';
 const TEST_GIST_ID = 'gist_1';
-const SYNC_FILE_NAME = 'mugen-newtab-sync.json';
+const SYNC_FILE_NAME = 'haha-newtab-sync.json';
 
 function createMockStorage(): ICloudSyncStorageAdapter {
     const store = new Map<string, unknown>();

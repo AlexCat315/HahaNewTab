@@ -80,7 +80,7 @@ async function redirectStartupTab(): Promise<void> {
             }
         }
     } catch (error) {
-        console.warn('[MugenNewTab] redirect startup tab failed:', error);
+        console.warn('[HahaNewTab] redirect startup tab failed:', error);
     }
 }
 
@@ -102,7 +102,7 @@ function handleTabCreated(tab: Tab): void {
     if (tab.id === undefined) return;
     const targetUrl = getExtensionUrl();
     browser?.tabs?.update(tab.id, { url: targetUrl }).catch((error: unknown) => {
-        console.warn('[MugenNewTab] onCreated redirect failed:', error);
+        console.warn('[HahaNewTab] onCreated redirect failed:', error);
     });
 }
 

@@ -11,9 +11,9 @@
  * 用法：
  *   node scripts/make-latest-json.js \
  *     --version=1.0.0.109 \
- *     --repo=AlexCat315/MugenNewTab \
- *     --xpi=artifacts/mugennewtab-1.0.0.109.xpi \
- *     --zip=artifacts/mugen_newtab-chromium.zip \
+ *     --repo=AlexCat315/HahaNewTab \
+ *     --xpi=artifacts/hahanewtab-1.0.0.109.xpi \
+ *     --zip=artifacts/haha_newtab-chromium.zip \
  *     --out=artifacts/latest.json
  *
  * 客户端读取地址：

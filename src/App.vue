@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * App.vue - MugenNewTab 新标签页根组件
+ * App.vue - HahaNewTab 新标签页根组件
  *
  * 整合壁纸层、顶部栏、侧边栏、主内容区、浮动菜单、各类模态框、
  * 个性化面板、确认对话框与 Toast 容器，完成完整的页面集成。
@@ -429,7 +429,7 @@ async function handleExport(): Promise<void> {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `mugen_newtab_backup_${new Date().toISOString().slice(0, 10)}.json`;
+        link.download = `haha_newtab_backup_${new Date().toISOString().slice(0, 10)}.json`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);

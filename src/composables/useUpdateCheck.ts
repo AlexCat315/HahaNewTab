@@ -31,8 +31,8 @@ import { STORAGE_KEYS } from '@/types/storage';
 import type { BrowserType } from '@/types/browserApi.types';
 import { openUrl } from '@/utils/navigation.util';
 
-/** 发版仓库（fork 的 releases 里同时挂着 xpi / chromium zip / 清单文件） */
-export const RELEASE_REPO = 'AlexCat315/MugenNewTab';
+/** 发版仓库（本仓库的 releases 里同时挂着 xpi / chromium zip / 清单文件） */
+export const RELEASE_REPO = 'AlexCat315/HahaNewTab';
 
 /** 静态版本清单：发版时上传为 Release 资产，`latest` 永远指向最新正式版 */
 export const LATEST_JSON_URL = `https://github.com/${RELEASE_REPO}/releases/latest/download/latest.json`;

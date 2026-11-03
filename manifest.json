@@ -1,10 +1,10 @@
 {
     "manifest_version": 3,
-    "name": "MugenNewTab - 新标签页导航",
+    "name": "HahaNewTab - 新标签页导航",
     "version": "1.0.1.1",
     "description": "统一管理和快速访问各类开发者工具和外部链接的应用导航中心",
-    "author": "MugenNewTab",
-    "homepage_url": "https://github.com/Mieriki/MugenNewTab",
+    "author": "HahaNewTab",
+    "homepage_url": "https://github.com/AlexCat315/HahaNewTab",
     "icons": {
         "16": "image/logo/logo_girl-16.png",
         "32": "image/logo/logo_girl-32.png",
@@ -16,7 +16,7 @@
     },
     "action": {
         "default_popup": "view/popup.html",
-        "default_title": "添加网站到 MugenNewTab",
+        "default_title": "添加网站到 HahaNewTab",
         "default_icon": {
             "16": "image/logo/logo_girl-16.png",
             "32": "image/logo/logo_girl-32.png"

@@ -90,7 +90,7 @@ describe('PopupApp.vue', () => {
         await flushPromises();
 
         expect(wrapper.find('.popup-root').exists()).toBe(true);
-        expect(wrapper.find('.popup-title').text()).toContain('添加到 Mugen新标签页');
+        expect(wrapper.find('.popup-title').text()).toContain('添加到 Haha新标签页');
         expect(wrapper.find('input[placeholder="例如：GitHub"]').exists()).toBe(true);
         expect(wrapper.find('input[type="url"]').exists()).toBe(true);
         expect(wrapper.find('#popup-category').exists()).toBe(true);

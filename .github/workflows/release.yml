@@ -106,9 +106,9 @@ jobs:
             --channel unlisted
 
           # 统一改名为固定格式，方便 updates.json 里拼稳定链接
-          # web-ext 通常已经按 mugennewtab-<version>.xpi 命名，同文件时跳过 mv
+          # web-ext 通常已经按 hahanewtab-<version>.xpi 命名，同文件时跳过 mv
           SRC="$(ls artifacts/*.xpi | head -n 1)"
-          DST="artifacts/mugennewtab-${VERSION}.xpi"
+          DST="artifacts/hahanewtab-${VERSION}.xpi"
           if [ "$SRC" != "$DST" ]; then
             mv "$SRC" "$DST"
           fi
@@ -125,7 +125,7 @@ jobs:
             --overwrite-dest
 
           SRC="$(ls artifacts/*.zip | head -n 1)"
-          DST="artifacts/mugen_newtab-chromium.zip"
+          DST="artifacts/haha_newtab-chromium.zip"
           if [ "$SRC" != "$DST" ]; then
             mv "$SRC" "$DST"
           fi
@@ -142,7 +142,7 @@ jobs:
           node scripts/make-updates-json.js \
             --version="$VERSION" \
             --repo="$REPO" \
-            --xpi="artifacts/mugennewtab-${VERSION}.xpi" \
+            --xpi="artifacts/hahanewtab-${VERSION}.xpi" \
             --out=artifacts/updates.json \
             --tag="$TAG"
           cat artifacts/updates.json
@@ -160,8 +160,8 @@ jobs:
             --version="$VERSION" \
             --repo="$REPO" \
             --tag="$TAG" \
-            --xpi="artifacts/mugennewtab-${VERSION}.xpi" \
-            --zip="artifacts/mugen_newtab-chromium.zip" \
+            --xpi="artifacts/hahanewtab-${VERSION}.xpi" \
+            --zip="artifacts/haha_newtab-chromium.zip" \
             --out=artifacts/latest.json
           cat artifacts/latest.json
 
@@ -173,13 +173,13 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "$TAG" \
-            "artifacts/mugennewtab-${VERSION}.xpi" \
-            "artifacts/mugen_newtab-chromium.zip" \
+            "artifacts/hahanewtab-${VERSION}.xpi" \
+            "artifacts/haha_newtab-chromium.zip" \
             "artifacts/updates.json" \
             "artifacts/latest.json" \
-            --title "MugenNewTab ${VERSION}" \
-            --notes "Firefox 已签名包：mugennewtab-${VERSION}.xpi
-          Chrome / Edge 通用包：mugen_newtab-chromium.zip
+            --title "HahaNewTab ${VERSION}" \
+            --notes "Firefox 已签名包：hahanewtab-${VERSION}.xpi
+          Chrome / Edge 通用包：haha_newtab-chromium.zip
 
           安装方式（Firefox）：下载 .xpi 后拖入 about:addons 页面，或直接用 Firefox 打开该文件。
           已安装旧版本的用户会在 24 小时内自动更新到本版本。

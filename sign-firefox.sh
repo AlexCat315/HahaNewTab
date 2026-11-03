@@ -4,7 +4,7 @@ set -e
 cd "$(dirname "$0")"
 
 echo "=========================================="
-echo "  MugenNewTab - 扩展打包脚本"
+echo "  HahaNewTab - 扩展打包脚本"
 echo "=========================================="
 echo ""
 
@@ -75,9 +75,9 @@ web-ext build \
     >/dev/null 2>&1
 
 # web-ext 会根据 manifest 名称自动命名，这里重命名为统一名称
-mv "$DIST_DIR/"*.zip "$DIST_DIR/mugen_newtab-chromium.zip" 2>/dev/null || true
+mv "$DIST_DIR/"*.zip "$DIST_DIR/haha_newtab-chromium.zip" 2>/dev/null || true
 
-echo "✅ Chromium 包: $DIST_DIR/mugen_newtab-chromium.zip"
+echo "✅ Chromium 包: $DIST_DIR/haha_newtab-chromium.zip"
 
 # ====== Firefox 打包：签名 .xpi 或未签名 .zip ======
 echo ""
@@ -109,7 +109,7 @@ echo "输出文件："
 ls -1 "$DIST_DIR"
 echo ""
 echo "说明："
-echo "  - mugen_newtab-chromium.zip          : Chrome / Edge 商店提交包 / 开发者模式加载包"
-echo "  - 以 mugen_newtab-*.xpi 结尾的文件 : Firefox 已签名安装包"
-echo "  - 以 mugen_newtab-*.zip 结尾的文件 : Firefox 未签名包（临时加载用）"
+echo "  - haha_newtab-chromium.zip          : Chrome / Edge 商店提交包 / 开发者模式加载包"
+echo "  - 以 hahanewtab-*.xpi 结尾的文件  : Firefox 已签名安装包"
+echo "  - 以 hahanewtab-*.zip 结尾的文件  : Firefox 未签名包（临时加载用）"
 echo ""

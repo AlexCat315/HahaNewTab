@@ -21,7 +21,7 @@ export interface AppHeaderProps {
 }
 
 const props = withDefaults(defineProps<AppHeaderProps>(), {
-    title: 'Mugen新标签页',
+    title: 'Haha新标签页',
     logoSrc: '',
     showCollapseToggle: true,
     sidebarCollapsed: false
@@ -74,7 +74,7 @@ function handleBrandDblclick(): void {
             <!-- 不加 title 提示：隐藏站点的入口刻意保持隐蔽，提示由 HiddenTipModal 负责 -->
             <div class="brand" @dblclick="handleBrandDblclick">
                 <div class="brand-icon is-image">
-                    <img :src="resolvedLogoSrc" alt="Mugen" loading="lazy" />
+                    <img :src="resolvedLogoSrc" alt="Haha" loading="lazy" />
                 </div>
                 <div class="brand-text">
                     <h1>{{ title }}</h1>

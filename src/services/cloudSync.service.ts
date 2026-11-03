@@ -19,8 +19,8 @@ import type {
     UploadResult
 } from '@/types/cloudSync.types';
 
-const SYNC_FILE_NAME = 'mugen-newtab-sync.json';
-const GIST_DESCRIPTION = 'MugenNewTab 导航数据云同步备份';
+const SYNC_FILE_NAME = 'haha-newtab-sync.json';
+const GIST_DESCRIPTION = 'HahaNewTab 导航数据云同步备份';
 
 /**
  * 需要同步的本地存储键（仅站点数据与用户图标库，个性化设置不同步）

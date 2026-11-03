@@ -9,8 +9,8 @@
  * 用法：
  *   node scripts/make-updates-json.js \
  *     --version=1.0.0.104 \
- *     --repo=AlexCat315/MugenNewTab \
- *     --xpi=artifacts/mugennewtab-1.0.0.104.xpi \
+ *     --repo=AlexCat315/HahaNewTab \
+ *     --xpi=artifacts/hahanewtab-1.0.0.104.xpi \
  *     --out=artifacts/updates.json
  *
  * update_link 默认拼成：

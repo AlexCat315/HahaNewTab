@@ -38,7 +38,7 @@ function createGistResponse(content?: unknown): Response {
     return createResponse({
         id: TEST_GIST_ID,
         files: {
-            'mugen-newtab-sync.json': {
+            'haha-newtab-sync.json': {
                 content: content !== undefined
                     ? (typeof content === 'string' ? content : JSON.stringify(content))
                     : JSON.stringify(defaultSyncData)

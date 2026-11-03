@@ -1,8 +1,8 @@
-# MugenNewTab - 新标签页导航
+# HahaNewTab - 新标签页导航
 
 一个基于 **Material Design 3** 设计的纯前端新标签页导航应用，同时也是一个 **Chrome / Firefox 浏览器扩展（Manifest V3）**。它提供统一的应用导航中心，用于管理和快速访问各类开发者工具、外部链接和自定义网站。
-![MugenNewTab](./public/image/logo/mugen.png)
-![MugenNewTab](./public/image/logo/logo_girl-256.png)
+![HahaNewTab](./public/image/logo/mugen.png)
+![HahaNewTab](./public/image/logo/logo_girl-256.png)
 
 ---
 
@@ -49,7 +49,7 @@ npm run build:chromium
 2. 开启右上角「开发者模式」
 3. 点击「加载已解压的扩展程序」
 4. 选择 `./build-chromium.sh` 生成的 `build-chromium/` 目录（或 `npm run build:chromium` 生成的 `dist-chrome/`）
-5. 打开新标签页即可看到 MugenNewTab
+5. 打开新标签页即可看到 HahaNewTab
 
 扩展版使用 `chrome.storage.local` 存储数据。
 
@@ -69,7 +69,7 @@ npm run build:chromium
 ## 📁 项目结构
 
 ```
-MugenNewTab/
+HahaNewTab/
 ├── index.html                  # 主入口（网页版 & 扩展新标签页）
 ├── view/
 │   └── popup.html              # 扩展弹出窗口入口
@@ -235,9 +235,9 @@ dist-firefox/  # Firefox
 
 生成文件：
 
-- `dist/mugen_newtab-chromium.zip`：Chrome / Edge 商店提交包 / 开发者模式加载包
-- `dist/mugen_newtab-*.xpi`：Firefox 已签名安装包（需设置 API 密钥）
-- `dist/mugen_newtab-*.zip`：Firefox 未签名包（未设置密钥时生成，用于临时加载测试）
+- `dist/haha_newtab-chromium.zip`：Chrome / Edge 商店提交包 / 开发者模式加载包
+- `dist/hahanewtab-*.xpi`：Firefox 已签名安装包（需设置 API 密钥）
+- `dist/hahanewtab-*.zip`：Firefox 未签名包（未设置密钥时生成，用于临时加载测试）
 
 ---
 
@@ -278,7 +278,7 @@ dist-firefox/  # Firefox
 | `WEB_EXT_API_KEY` | AMO 的 JWT issuer，形如 `user:12345:67` |
 | `WEB_EXT_API_SECRET` | AMO 的 JWT secret |
 
-> Fork 仓库需要在 Actions 页面点一次「I understand my workflows, go ahead and enable them」。
+> 仓库首次启用 Actions 时，需要在 Actions 页面点一次「I understand my workflows, go ahead and enable them」。
 
 ### Firefox 自动更新是怎么生效的
 
@@ -288,7 +288,7 @@ dist-firefox/  # Firefox
 "browser_specific_settings": {
   "gecko": {
     "id": "xxxx@xxx.com",
-    "update_url": "https://github.com/AlexCat315/MugenNewTab/releases/latest/download/updates.json"
+    "update_url": "https://github.com/AlexCat315/HahaNewTab/releases/latest/download/updates.json"
   }
 }
 ```
@@ -321,6 +321,22 @@ Firefox 是唯一支持「自托管 + 自动更新」的浏览器。
   `update_url` 检查更新，改地址会导致老用户永远收不到更新（只能靠企业策略兜底）。
 - **必须经 AMO 签名**。正式版 Firefox 只安装已签名的扩展，未签名的只能在
   Developer Edition / Nightly 里关掉 `xpinstall.signatures.required` 后使用。
+
+### 更新通道必须与本仓库绑定（重要）
+
+本项目是从 `MugenNewTab` 独立出来的新项目，两条更新通道必须彻底隔开，
+否则装了旧版 MugenNewTab 的用户会被静默升级成本插件：
+
+- 老插件的 `update_url` 写死指向它自己安装时那份 manifest 里的地址，
+  所以 **本项目的 Release、`updates.json`、`latest.json` 只能发到本仓库**，
+  绝对不要往旧仓库传任何版本。
+- **不要把旧仓库改名成本仓库的名字**：GitHub 会对改名做重定向，
+  旧地址 `.../MugenNewTab/releases/latest/download/updates.json` 会解析到新仓库，
+  而 `updates.json` 里的 addon id 仍是同一个，Firefox 就会把新插件当成老插件的更新静默装上。
+  要停掉旧插件的更新通道，正确做法是删除旧仓库（地址 404，Firefox 静默跳过，不会提示更新）。
+- 本插件读取的更新地址由两处常量决定，迁移仓库时必须同步改掉：
+  `manifest.firefox.json` 的 `browser_specific_settings.gecko.update_url`（Firefox 静默自动更新）
+  与 `src/composables/useUpdateCheck.ts` 的 `RELEASE_REPO`（Chrome / Edge 应用内提示）。
 
 ### 安装方式
 
@@ -364,7 +380,10 @@ npx vitest run
 
 ## 📄 许可证
 
-本项目基于开源许可证发布，详见 [LICENSE](./LICENSE)。
+本项目基于 MIT 许可证发布，详见 [LICENSE](./LICENSE)。
+
+代码源自 MugenNewTab（MIT License, Copyright (c) 2026 Mieriki）并在此之上独立演进；
+MIT 要求保留原始版权声明与许可文本，因此 LICENSE 中的上游版权声明继续保留。
 
 ---
 

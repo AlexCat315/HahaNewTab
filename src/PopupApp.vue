@@ -2,7 +2,7 @@
 /**
  * PopupApp.vue - 浏览器扩展 popup 根组件
  *
- * 自动读取当前活动标签页信息，提供快速添加网站到 MugenNewTab 的表单。
+ * 自动读取当前活动标签页信息，提供快速添加网站到 HahaNewTab 的表单。
  */
 import { computed, ref, watch } from 'vue';
 import { useDataManager } from '@/composables/useDataManager';
@@ -21,7 +21,7 @@ import IconSvg from '@/components/icon/IconSvg.vue';
 const NEW_CATEGORY_VALUE = '__new__';
 // 须用绝对路径：popup 页面位于 view/ 子目录，相对路径会解析为 view/image/... 导致 404
 const DEFAULT_ICON = getSystemIconUrl('picture');
-const HOME_PAGE_URL = 'https://github.com/MugenNewTab/MugenNewTab';
+const HOME_PAGE_URL = 'https://github.com/AlexCat315/HahaNewTab';
 /** 品牌 Logo（全浏览器统一使用 logo_girl） */
 const brandLogo = getBrandLogo();
 
@@ -241,8 +241,8 @@ watch(
     <div id="popup-root" class="popup-root">
         <header class="popup-header">
             <div class="popup-brand" @click="openHomePage">
-                <img :src="brandLogo" alt="Mugen" class="popup-logo" />
-                <span class="popup-title">添加到 Mugen新标签页</span>
+                <img :src="brandLogo" alt="Haha" class="popup-logo" />
+                <span class="popup-title">添加到 Haha新标签页</span>
             </div>
         </header>
 

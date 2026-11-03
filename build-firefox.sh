@@ -4,7 +4,7 @@ set -e
 cd "$(dirname "$0")"
 
 echo "=========================================="
-echo "  MugenNewTab - Firefox 扩展构建脚本"
+echo "  HahaNewTab - Firefox 扩展构建脚本"
 echo "=========================================="
 echo ""
 
