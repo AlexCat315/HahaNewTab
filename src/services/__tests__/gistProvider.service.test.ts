@@ -1,7 +1,8 @@
 /**
  * gistProvider.service 测试
  * 覆盖 GitHub / Gitee 双平台适配器：请求 URL、认证方式（Header Bearer vs Query access_token）、
- * 请求方法、错误分类（网络/超时/401/频率限制）、Gitee emoji 无损转义与 1MB 文件大小限制。
+ * 请求方法、详情接口截断（>1MB 的 truncated 半截正文必须改走 raw_url）、多文件写入与删除语义、
+ * 错误分类（网络/超时/401/频率限制）、Gitee emoji 无损转义与两平台各自的单文件体积上限。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
@@ -111,20 +112,101 @@ describe('GitHub provider', () => {
         expect(content).toBeNull();
     });
 
-    it('getGistFileContent 在 content 缺失时回退 raw_url 拉取', async () => {
+    it('getGistFileContent 在详情接口截断（truncated + 半截正文）时改用 raw_url 取全文', async () => {
+        // 真实行为：>1MB 的文件详情接口给 truncated:true 并且 content 只是「截断后的前半段」，
+        // 把它当完整快照用，同步会在约 1MB 处静默失败
         const fetchMock = vi.fn()
             .mockResolvedValueOnce(createResponse({
                 id: 'g1',
-                files: { 'sync.json': { raw_url: 'https://gist.githubusercontent.com/raw/abc', truncated: true } }
+                files: {
+                    'sync.json': {
+                        content: '{"version":"1.1","data":{"pe',
+                        truncated: true,
+                        raw_url: 'https://gist.githubusercontent.com/raw/abc'
+                    }
+                }
             }))
-            .mockResolvedValueOnce(createResponse('{"via":"raw"}'));
+            .mockResolvedValueOnce(createResponse('{"version":"1.1","data":{}}'));
         vi.stubGlobal('fetch', fetchMock);
 
         const content = await provider.getGistFileContent(TEST_TOKEN, 'g1', 'sync.json');
 
-        expect(content).toBe('{"via":"raw"}');
+        expect(content).toBe('{"version":"1.1","data":{}}');
         expect(fetchMock).toHaveBeenCalledTimes(2);
         expect(lastFetchCall(fetchMock)[0]).toBe('https://gist.githubusercontent.com/raw/abc');
+    });
+
+    it('readFileFromMap 对小文件直接用 inline 正文，不多发一次请求', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(createResponse('unused'));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const content = await provider.readFileFromMap(TEST_TOKEN, {
+            content: '{"a":1}',
+            truncated: false,
+            raw_url: 'https://gist.githubusercontent.com/raw/abc'
+        });
+
+        expect(content).toBe('{"a":1}');
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('readFileFromMap 在 raw_url 也取不到时返回 null，而不是半截正文', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(createResponse({ message: 'Not Found' }, 404));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const content = await provider.readFileFromMap(TEST_TOKEN, {
+            content: '{"a":',
+            truncated: true,
+            raw_url: 'https://gist.githubusercontent.com/raw/abc'
+        });
+
+        expect(content).toBeNull();
+    });
+
+    it('getGistFileMap 返回完整文件表', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(createResponse({
+            id: 'g1',
+            files: { 'a.txt': { content: 'A' }, 'b.txt': { content: 'B' } }
+        }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const files = await provider.getGistFileMap(TEST_TOKEN, 'g1');
+
+        expect(Object.keys(files ?? {})).toEqual(['a.txt', 'b.txt']);
+        expect(lastFetchCall(fetchMock)[0]).toBe('https://api.github.com/gists/g1');
+    });
+
+    it('updateGistFiles 一次 PATCH 同时写新分片、改主文件、删旧分片', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(createResponse({ id: 'g1' }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        await provider.updateGistFiles(TEST_TOKEN, 'g1', {
+            'haha-newtab-sync.json': '{"a":1}',
+            'haha-asset-abc-0.txt': 'AAAA'
+        }, ['haha-asset-old-0.txt']);
+
+        const [url, init] = lastFetchCall(fetchMock);
+        expect(url).toBe('https://api.github.com/gists/g1');
+        expect(init.method).toBe('PATCH');
+        const body = JSON.parse(init.body as string);
+        expect(body.files['haha-newtab-sync.json'].content).toBe('{"a":1}');
+        expect(body.files['haha-asset-abc-0.txt'].content).toBe('AAAA');
+        // null 是 Gist API 的删除语义
+        expect(body.files['haha-asset-old-0.txt']).toBeNull();
+    });
+
+    it('createGist 内容超过 GitHub 单文件 10MB 时抛错且不发请求', async () => {
+        const fetchMock = vi.fn();
+        vi.stubGlobal('fetch', fetchMock);
+
+        await expect(
+            provider.createGist(TEST_TOKEN, 'sync.json', 'x'.repeat(11 * 1024 * 1024), '描述')
+        ).rejects.toThrow('10MB');
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('maxFileBytes 供资源通道换算分片大小', () => {
+        expect(provider.maxFileBytes).toBe(10 * 1024 * 1024);
     });
 
     it('createGist 以 POST 创建并返回 Gist id', async () => {
@@ -232,6 +314,63 @@ describe('Gitee provider', () => {
         const body = JSON.parse(init.body as string);
         expect(body.files['sync.json'].content).toBe('{"b":2}');
         expect(body.files['sync.json'].filename).toBe('sync.json');
+    });
+
+    it('updateGistFiles 一次 PATCH 写主文件与分片，并忽略删除请求', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(createResponse({ id: 'g1' }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        await provider.updateGistFiles(TEST_TOKEN, 'g1', {
+            'haha-newtab-sync.json': '{"a":1}',
+            'haha-asset-abc-0.txt': 'AAAA'
+        }, ['haha-asset-old-0.txt']);
+
+        const [, init] = lastFetchCall(fetchMock);
+        expect(init.method).toBe('PATCH');
+        const body = JSON.parse(init.body as string);
+        expect(body.files['haha-asset-abc-0.txt'].content).toBe('AAAA');
+        // Gitee 没有删除单个文件的语义：既不能把它写成 null，也不能凭空造一个删除项
+        expect(body.files['haha-asset-old-0.txt']).toBeUndefined();
+    });
+
+    it('updateGistFiles 对分片同样做 emoji 转义', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(createResponse({ id: 'g1' }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        await provider.updateGistFiles(TEST_TOKEN, 'g1', { 'sync.json': '{"name":"工具 🚀"}' }, []);
+
+        const content = JSON.parse(lastFetchCall(fetchMock)[1].body as string).files['sync.json'].content as string;
+        expect(content).not.toContain('🚀');
+        expect(content).toContain('\\ud83d\\ude80');
+        expect(JSON.parse(content).name).toBe('工具 🚀');
+    });
+
+    it('updateGistFiles 分片超过 Gitee 单文件 1MB 时抛错且不发请求', async () => {
+        const fetchMock = vi.fn();
+        vi.stubGlobal('fetch', fetchMock);
+
+        await expect(
+            provider.updateGistFiles(TEST_TOKEN, 'g1', { 'haha-asset-a-0.txt': 'x'.repeat(1024 * 1024 + 1) }, [])
+        ).rejects.toThrow('1MB');
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('readFileFromMap 走 raw_url 时不带 access_token（Gitee 直链免鉴权）', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(createResponse('{"full":true}'));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const content = await provider.readFileFromMap(TEST_TOKEN, {
+            content: '{"trunca',
+            truncated: true,
+            raw_url: 'https://gitee.com/gist/raw/abc'
+        });
+
+        expect(content).toBe('{"full":true}');
+        expect(lastFetchCall(fetchMock)[0]).toBe('https://gitee.com/gist/raw/abc');
+    });
+
+    it('maxFileBytes 为 Gitee 的 1MB 单文件上限', () => {
+        expect(provider.maxFileBytes).toBe(1024 * 1024);
     });
 });
 

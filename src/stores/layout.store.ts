@@ -9,7 +9,7 @@
 import { ref } from 'vue';
 import { defineStore } from 'pinia';
 import { usePersistentSlice } from '@/composables/usePersistentSlice';
-import { STORAGE_KEYS, type LayoutSettings, type LinkOpenMode } from '@/types/storage';
+import { STORAGE_KEYS, type LayoutSettings, type LinkOpenMode, type StorageValue } from '@/types/storage';
 import { DEFAULT_OPEN_MODE, isLinkOpenMode } from '@/utils/navigation.util';
 
 const DEFAULT_COLUMNS: number | 'auto' = 'auto';
@@ -184,6 +184,11 @@ export const useLayoutStore = defineStore('layout', () => {
         });
     }
 
+    /** 应用云同步下发的布局设置（只认本 store 归属的键） */
+    async function applyCloudValues(values: Record<string, StorageValue | null>): Promise<boolean> {
+        return slice.applyRemote(values);
+    }
+
     return {
         columns,
         paginate,
@@ -204,5 +209,6 @@ export const useLayoutStore = defineStore('layout', () => {
         setShowIconBackground,
         setMinimalMode,
         setOpenMode,
+        applyCloudValues,
     };
 });

@@ -8,6 +8,12 @@ import {
 import { pushCrossDeviceAuth, pullCrossDeviceAuth, getCrossDeviceState } from '@/services/crossDeviceSync.service';
 import { deepEqual, mergeSnapshots } from '@/utils/syncMerge.util';
 import type { MergeTieBreak, SyncSnapshot } from '@/utils/syncMerge.util';
+import {
+    externalizeAssets,
+    internalizeAssets,
+    isAssetFileName,
+    manifestFileNames
+} from '@/utils/syncAssets.util';
 import { createGistProvider, SyncProviderError } from '@/services/gistProvider.service';
 import type {
     CloudSyncDependencies,
@@ -27,6 +33,18 @@ import type {
 
 const SYNC_FILE_NAME = 'haha-newtab-sync.json';
 const GIST_DESCRIPTION = 'HahaNewTab 导航数据云同步备份';
+
+/**
+ * 同步包结构版本
+ * 1.1 起 payload 里的大对象改走 `assets` 清单 + 分片文件；1.0 的老包仍能读（没有清单就是全内联）。
+ */
+const SYNC_DATA_VERSION = '1.1';
+
+/**
+ * 单个资源分片占平台上限的比例
+ * 留两成余量：Base64 之外还有文件名与请求体本身的开销，贴着上限写容易被拒。
+ */
+const ASSET_CHUNK_RATIO = 0.8;
 
 /** 默认同步平台（老用户有 token 但无 provider 记录时按 GitHub 处理） */
 const DEFAULT_PROVIDER: CloudSyncProviderId = 'github';
@@ -575,20 +593,34 @@ export class CloudSyncService {
         }
     }
 
-    /** 按注册表收集本地需要同步的数据 */
+    /**
+     * 按注册表收集本地需要同步的数据
+     *
+     * 只收本机真正写过的键：内核对于从没落盘的键返回 null，而另一端压根没带这个键，
+     * null 参与比较会把每次同步都判成「本地有更新」，白白上传一遍。
+     */
     private async collectLocalSnapshot(): Promise<SyncSnapshot> {
-        return await this.storage.getMany(CLOUD_SYNC_DATA_KEYS);
+        const values = await this.storage.getMany(CLOUD_SYNC_DATA_KEYS);
+        const snapshot: SyncSnapshot = {};
+        for (const [key, value] of Object.entries(values)) {
+            if (value !== null && value !== undefined) {
+                snapshot[key] = value;
+            }
+        }
+        return snapshot;
     }
 
     /**
      * 从任意数据里挑出注册表登记的同步键
-     * 云端 data 可能带着旧版本、别的分支写过的多余键，收进来前先按表过滤。
+     * 云端 data 可能带着旧版本、别的分支写过的多余键，收进来前先按表过滤；
+     * null 与「键不存在」同义（另一端没有这份数据），一并丢掉。
      */
     private pickCloudSyncData(data: Record<string, unknown>): SyncSnapshot {
         const snapshot: SyncSnapshot = {};
         for (const key of CLOUD_SYNC_DATA_KEYS) {
-            if (Object.prototype.hasOwnProperty.call(data, key)) {
-                snapshot[key] = data[key];
+            const value = data[key];
+            if (value !== undefined && value !== null) {
+                snapshot[key] = value;
             }
         }
         return snapshot;
@@ -618,37 +650,71 @@ export class CloudSyncService {
 
     /**
      * 下载并解析远端同步数据
+     * 主文件与被引用的资源分片共用同一次文件表请求；资源还原成 data URL 后才交给校验与合并，
+     * 因此本地形态与 base 快照始终一致，不会出现「引用 vs 原文」永远比不相等的情况。
      */
     private async downloadSyncData(gistId: string): Promise<SyncData> {
         if (!this.token) {
             throw new Error('未配置 Token');
         }
-        const content = await this.provider.getGistFileContent(this.token, gistId, SYNC_FILE_NAME);
+        const files = await this.provider.getGistFileMap(this.token, gistId);
+        const content = files
+            ? await this.provider.readFileFromMap(this.token, files[SYNC_FILE_NAME])
+            : null;
         if (content === null) {
             throw new Error('同步文件不存在');
         }
-        return JSON.parse(content) as SyncData;
+        const syncData = JSON.parse(content) as SyncData;
+        const token = this.token;
+        syncData.data = (await internalizeAssets(
+            syncData.data,
+            syncData.assets,
+            name => this.provider.readFileFromMap(token, files?.[name])
+        )) as Record<string, unknown>;
+        return syncData;
     }
 
     /**
      * 上传合并后的数据到云端
+     *
+     * 大对象拆成 `haha-asset-*` 分片文件：分片名由内容哈希决定，云端已有同名文件就意味着
+     * 内容一致，因此只补传缺失的分片；本次不再引用的分片随后删除。
      */
     private async uploadData(gistId: string, data: SyncSnapshot): Promise<void> {
         if (!this.token) {
             throw new Error('未配置 Token');
         }
+        const externalized = await externalizeAssets(data, this.assetChunkChars());
         const syncData: SyncData = {
-            version: '1.0',
+            version: SYNC_DATA_VERSION,
             lastModified: Date.now(),
             device: this.getDeviceName(),
-            data
+            data: externalized.data as Record<string, unknown>,
+            assets: externalized.manifest
         };
-        await this.provider.updateGist(this.token, gistId, SYNC_FILE_NAME, JSON.stringify(syncData, null, 2));
+
+        const files = await this.provider.getGistFileMap(this.token, gistId) ?? {};
+        const upsert: Record<string, string> = { [SYNC_FILE_NAME]: JSON.stringify(syncData, null, 2) };
+        for (const [name, part] of Object.entries(externalized.chunks)) {
+            if (!files[name]) {
+                upsert[name] = part;
+            }
+        }
+
+        const keep = manifestFileNames(externalized.manifest);
+        const deleteFileNames = Object.keys(files).filter(name => isAssetFileName(name) && !keep.has(name));
+
+        await this.provider.updateGistFiles(this.token, gistId, upsert, deleteFileNames);
+    }
+
+    /** 单个资源分片的字符数上限，由平台单文件上限换算 */
+    private assetChunkChars(): number {
+        return Math.floor(this.provider.maxFileBytes * ASSET_CHUNK_RATIO);
     }
 
     private createEmptySyncData(): SyncData {
         return {
-            version: '1.0',
+            version: SYNC_DATA_VERSION,
             lastModified: Date.now(),
             device: this.getDeviceName(),
             data: {}
@@ -658,7 +724,7 @@ export class CloudSyncService {
     private async collectLocalData(): Promise<SyncData> {
         await this.dataManager.syncNow();
         return {
-            version: '1.0',
+            version: SYNC_DATA_VERSION,
             lastModified: Date.now(),
             device: this.getDeviceName(),
             data: await this.collectLocalSnapshot()

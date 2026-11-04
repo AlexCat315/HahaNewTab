@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CloudSyncService } from '@/services/cloudSync.service';
+import { externalizeAssets } from '@/utils/syncAssets.util';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { AppNavigatorData, AppItem } from '@/types/app';
 import type { UserUiLib } from '@/types/ui';
@@ -234,7 +235,7 @@ describe('CloudSyncService', () => {
         expect(result.message).toBe('请先配置 Token');
     });
 
-    it('applyDownloadedData 仅过滤两个同步键应用快照并更新 base', async () => {
+    it('applyDownloadedData 只应用注册表登记的同步键并更新 base', async () => {
         const { service, dataManager, storage } = createService();
         const mainData = { categories: [], apps: [] };
         const uiLib = { categories: [], items: [] };
@@ -245,23 +246,27 @@ describe('CloudSyncService', () => {
             data: {
                 [STORAGE_KEYS.MAIN_DATA]: mainData,
                 [STORAGE_KEYS.USER_UI_LIB]: uiLib,
-                // 个性化设置与未知键不参与同步
-                selectedTheme: 'material-rose',
-                unknown_key: 'should_be_ignored'
+                // 个性化设置现在也参与同步
+                [STORAGE_KEYS.SELECTED_THEME]: 'material-rose',
+                // 未登记的键与设备本地态一律忽略
+                unknown_key: 'should_be_ignored',
+                [STORAGE_KEYS.SIDEBAR_COLLAPSED]: true
             }
         };
         const result = await service.applyDownloadedData(syncData);
         expect(result).toBe(true);
-        // 仅应用两个同步键
+        // 只保留注册表登记过的同步键
         expect(dataManager.applyStorageSnapshot).toHaveBeenCalledWith({
             [STORAGE_KEYS.MAIN_DATA]: mainData,
-            [STORAGE_KEYS.USER_UI_LIB]: uiLib
+            [STORAGE_KEYS.USER_UI_LIB]: uiLib,
+            [STORAGE_KEYS.SELECTED_THEME]: 'material-rose'
         });
         // 成功后写入 base 快照与同步时间
         expect(storage.setMany).toHaveBeenCalledWith({
             [STORAGE_KEYS.CLOUD_SYNC_BASE]: {
                 [STORAGE_KEYS.MAIN_DATA]: mainData,
-                [STORAGE_KEYS.USER_UI_LIB]: uiLib
+                [STORAGE_KEYS.USER_UI_LIB]: uiLib,
+                [STORAGE_KEYS.SELECTED_THEME]: 'material-rose'
             },
             [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: 1700000000000
         });
@@ -814,5 +819,170 @@ describe('CloudSyncService', () => {
             [STORAGE_KEYS.CLOUD_TOKEN]: null,
             [STORAGE_KEYS.CLOUD_PROVIDER]: 'github'
         }));
+    });
+});
+
+/**
+ * 资源通道：大对象拆成 content-addressed 分片
+ * 主文件只留引用，图标/壁纸正文按内容哈希单独成文件，
+ * 于是同步包不再受「详情接口 1MB 内联」和单文件上限的双重挤压。
+ */
+describe('CloudSyncService 资源通道', () => {
+    const ICON = `data:image/png;base64,${'QUJDRA'.repeat(40)}`;
+
+    beforeEach(() => {
+        vi.stubGlobal('fetch', vi.fn());
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    /**
+     * 按调用次序返回 Gist 详情，并记录 PATCH 请求体。
+     * 云端主同步文件始终存在——否则 findOrCreateGist 会认为本地 gistId 已失效，
+     * 转去 listGists/createGist，测的就不是资源通道了。
+     */
+    function stubUploadFetch(remoteAssetFiles: Record<string, unknown> = {}) {
+        const patchBodies: Array<Record<string, unknown>> = [];
+        const files = {
+            [SYNC_FILE_NAME]: { content: JSON.stringify({ version: '1.0', data: {} }) },
+            ...remoteAssetFiles
+        };
+        const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+            if (init?.method === 'PATCH') {
+                patchBodies.push(JSON.parse(init.body as string).files);
+                return createResponse({ id: TEST_GIST_ID });
+            }
+            return createResponse({ id: TEST_GIST_ID, files });
+        });
+        vi.stubGlobal('fetch', fetchMock);
+        return { fetchMock, patchBodies };
+    }
+
+    /** 取 PATCH 里的主文件内容 */
+    function mainFileContent(files: Record<string, unknown>): string {
+        const entry = files[SYNC_FILE_NAME] as { content: string };
+        return entry.content;
+    }
+
+    it('upload 把 Base64 图标换成引用，正文另存为分片文件', async () => {
+        const { service, storage } = createService();
+        await seedSignedIn(service, storage, {
+            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [{ id: 'a1', name: '站点', url: 'https://a.test', icon: ICON }] },
+            [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB
+        });
+        const { patchBodies } = stubUploadFetch({});
+
+        await service.upload({ silent: true });
+
+        const files = patchBodies[0];
+        const syncData = JSON.parse(mainFileContent(files)) as {
+            version: string;
+            data: Record<string, unknown>;
+            assets?: Record<string, { mime: string; files: string[] }>;
+        };
+        expect(syncData.version).toBe('1.1');
+        expect(syncData.assets).toBeDefined();
+        expect(mainFileContent(files)).not.toContain('data:image/png;base64');
+        const [key, entry] = Object.entries(syncData.assets!)[0];
+        expect(entry.mime).toBe('image/png');
+        expect(entry.files.every(name => name.startsWith('haha-asset-'))).toBe(true);
+        expect((files[entry.files[0]] as { content: string }).content).toBe(
+            ICON.slice('data:image/png;base64,'.length)
+        );
+        expect(key).toBe(entry.files[0].replace(/^haha-asset-/, '').replace(/-0\.txt$/, ''));
+    });
+
+    it('云端已有的同内容分片不重传，不再引用的分片被删除', async () => {
+        const packed = await externalizeAssets({ icon: ICON }, 8 * 1024 * 1024);
+        const keepName = Object.keys(packed.chunks)[0];
+
+        const { service, storage } = createService();
+        await seedSignedIn(service, storage, {
+            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [{ id: 'a1', name: '站点', url: 'https://a.test', icon: ICON }] },
+            [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB
+        });
+        const { patchBodies } = stubUploadFetch({
+            [keepName]: { content: packed.chunks[keepName] },
+            'haha-asset-gone-0.txt': { content: 'STALE' }
+        });
+
+        await service.upload({ silent: true });
+
+        const files = patchBodies[0];
+        expect(keepName in files).toBe(false);
+        expect(files['haha-asset-gone-0.txt']).toBeNull();
+    });
+
+    it('sync 先把云端引用还原成 data URL，再交给校验与合并', async () => {
+        const packed = await externalizeAssets(
+            {
+                [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [{ id: 'a1', name: '站点', url: 'https://a.test', icon: ICON }] },
+                [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB
+            },
+            8 * 1024 * 1024
+        );
+        const syncData = {
+            version: '1.1',
+            lastModified: 1700000000000,
+            device: 'Chrome',
+            data: packed.data,
+            assets: packed.manifest
+        };
+        const files: Record<string, unknown> = {
+            [SYNC_FILE_NAME]: { content: JSON.stringify(syncData) }
+        };
+        for (const [name, content] of Object.entries(packed.chunks)) {
+            files[name] = { content };
+        }
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createResponse({ id: TEST_GIST_ID, files })));
+
+        const { service, storage, dataManager } = createService();
+        await seedSignedIn(service, storage, {
+            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [] },
+            [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB
+        });
+
+        const result = await service.sync({ silent: true });
+
+        expect(result.success).toBe(true);
+        expect(result.applied).toBe(true);
+        const snapshot = (dataManager.applyStorageSnapshot as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<string, AppNavigatorData>;
+        expect(snapshot[STORAGE_KEYS.MAIN_DATA].apps[0].icon).toBe(ICON);
+    });
+
+    it('分片缺失时不判坏整份数据：引用原样交给本地，同步照常完成', async () => {
+        const packed = await externalizeAssets(
+            {
+                [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [{ id: 'a1', name: '站点', url: 'https://a.test', icon: ICON }] },
+                [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB
+            },
+            8 * 1024 * 1024
+        );
+        const files: Record<string, unknown> = {
+            [SYNC_FILE_NAME]: {
+                content: JSON.stringify({
+                    version: '1.1',
+                    lastModified: 1700000000000,
+                    device: 'Chrome',
+                    data: packed.data,
+                    assets: packed.manifest
+                })
+            }
+        };
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createResponse({ id: TEST_GIST_ID, files })));
+
+        const { service, storage, dataManager } = createService();
+        await seedSignedIn(service, storage, {
+            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [] },
+            [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB
+        });
+
+        const result = await service.sync({ silent: true });
+
+        expect(result.success).toBe(true);
+        const snapshot = (dataManager.applyStorageSnapshot as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<string, AppNavigatorData>;
+        expect(String(snapshot[STORAGE_KEYS.MAIN_DATA].apps[0].icon).startsWith('haha-asset://')).toBe(true);
     });
 });

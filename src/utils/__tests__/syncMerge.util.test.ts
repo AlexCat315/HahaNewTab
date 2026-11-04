@@ -3,6 +3,7 @@
  * 覆盖合并规则表全部分支：仅一端修改、双改冲突（本地优先）、删除 vs 修改、
  * 新增并集、顺序保持、拖动排序（纯顺序变更）的顺序归属，忽略键序的深比较，
  * 以及按注册表策略逐键合并快照。
+ * 设置类键另有三条策略：整体替换（scalar）、逐字段（fieldwise）、搜索历史（并集 + 尊重删除）。
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -12,6 +13,9 @@ import {
     mergeAppList,
     mergeAppNavigatorData,
     mergeUserUiLib,
+    mergeScalarSnapshot,
+    mergeFieldwiseSnapshot,
+    mergeSearchHistorySnapshot,
     mergeSnapshots
 } from '@/utils/syncMerge.util';
 import { CLOUD_SYNC_KEY_STRATEGIES } from '@/services/storageSchema.service';
@@ -528,5 +532,140 @@ describe('mergeSnapshots 按注册表策略逐键合并', () => {
         const data = merged[STORAGE_KEYS.MAIN_DATA] as AppNavigatorData;
         expect(data.apps).toHaveLength(1);
         expect(merged[STORAGE_KEYS.USER_UI_LIB]).toEqual({ categories: [], items: [] });
+    });
+});
+
+describe('mergeScalarSnapshot 整体替换型键', () => {
+    it('只有一端相对 base 改过时用改过那端', () => {
+        expect(mergeScalarSnapshot('old', 'new', 'old')).toBe('new');
+        expect(mergeScalarSnapshot('old', 'old', 'new')).toBe('new');
+    });
+
+    it('两端都相对 base 改过时本机优先，tieBreak 为 remote 时改用云端', () => {
+        expect(mergeScalarSnapshot('old', '本地', '云端')).toBe('本地');
+        expect(mergeScalarSnapshot('old', '本地', '云端', 'remote')).toBe('云端');
+    });
+
+    it('某一端没有这个键不算「那一端删掉了它」', () => {
+        expect(mergeScalarSnapshot('old', undefined, '云端')).toBe('云端');
+        expect(mergeScalarSnapshot('old', '本地', undefined)).toBe('本地');
+    });
+
+    it('两端都没有时返回 undefined，不凭空造值', () => {
+        expect(mergeScalarSnapshot(undefined, undefined, undefined)).toBeUndefined();
+        expect(mergeScalarSnapshot(undefined, null, undefined)).toBeUndefined();
+    });
+});
+
+describe('mergeFieldwiseSnapshot 设置类对象逐字段合并', () => {
+    const wallpaper = (url: string, blur: number) => ({ url, blur });
+
+    it('一台改地址、另一台改模糊度，两处改动都保留', () => {
+        const merged = mergeFieldwiseSnapshot(
+            wallpaper('a', 0),
+            wallpaper('b', 0),
+            wallpaper('a', 8)
+        ) as ReturnType<typeof wallpaper>;
+
+        expect(merged).toEqual({ url: 'b', blur: 8 });
+    });
+
+    it('两端改同一个字段时本机优先', () => {
+        const merged = mergeFieldwiseSnapshot(
+            wallpaper('a', 0),
+            wallpaper('本机', 0),
+            wallpaper('云端', 0)
+        ) as ReturnType<typeof wallpaper>;
+
+        expect(merged.url).toBe('本机');
+    });
+
+    it('一端没写过的字段取另一端，不因为另一端的 base 值而回滚', () => {
+        const merged = mergeFieldwiseSnapshot(
+            { url: 'a' },
+            { url: 'a' },
+            { url: 'a', blur: 4 }
+        ) as ReturnType<typeof wallpaper>;
+
+        expect(merged).toEqual({ url: 'a', blur: 4 });
+    });
+
+    it('任一端不是普通对象时退回整体合并', () => {
+        expect(mergeFieldwiseSnapshot({ a: 1 }, undefined, { a: 2 })).toEqual({ a: 2 });
+        expect(mergeFieldwiseSnapshot('标量', '标量', '另一值')).toBe('另一值');
+    });
+
+    it('两端都没有该键时返回 undefined，避免每次同步都判成本机有更新', () => {
+        expect(mergeFieldwiseSnapshot(undefined, undefined, undefined)).toBeUndefined();
+    });
+});
+
+describe('mergeSearchHistorySnapshot 搜索历史', () => {
+    const entry = (query: string, time: number) => ({ query, time });
+
+    it('两端各自新增的查询取并集，按时间倒序', () => {
+        const merged = mergeSearchHistorySnapshot(
+            [entry('老查询', 1)],
+            [entry('老查询', 1), entry('本机搜的', 3)],
+            [entry('老查询', 1), entry('云端搜的', 2)]
+        ) as Array<{ query: string }>;
+
+        expect(merged.map(item => item.query)).toEqual(['本机搜的', '云端搜的', '老查询']);
+    });
+
+    it('同一查询两端都有时保留更晚的时间戳', () => {
+        const merged = mergeSearchHistorySnapshot(
+            [entry('q', 1)],
+            [entry('q', 5)],
+            [entry('q', 9)]
+        ) as Array<{ time: number }>;
+
+        expect(merged).toEqual([entry('q', 9)]);
+    });
+
+    it('本机清掉的历史不会被云端原样推回来', () => {
+        const merged = mergeSearchHistorySnapshot(
+            [entry('删掉的', 1), entry('留下的', 2)],
+            [entry('留下的', 2)],
+            [entry('删掉的', 1), entry('留下的', 2)]
+        ) as Array<{ query: string }>;
+
+        expect(merged.map(item => item.query)).toEqual(['留下的']);
+    });
+
+    it('另一端删掉的同样不再保留，两端都删的也不复活', () => {
+        const remoteDeleted = mergeSearchHistorySnapshot(
+            [entry('x', 1)],
+            [entry('x', 1)],
+            []
+        );
+        expect(remoteDeleted).toEqual([]);
+
+        const bothDeleted = mergeSearchHistorySnapshot([entry('x', 1)], [], []);
+        expect(bothDeleted).toEqual([]);
+    });
+
+    it('新设备（本机没有该键）采纳云端全部历史', () => {
+        const merged = mergeSearchHistorySnapshot(
+            undefined,
+            undefined,
+            [entry('云端历史', 7)]
+        ) as Array<{ query: string }>;
+
+        expect(merged).toEqual([entry('云端历史', 7)]);
+    });
+
+    it('两端都没这份数据时返回 undefined，不造出空数组', () => {
+        expect(mergeSearchHistorySnapshot(undefined, undefined, undefined)).toBeUndefined();
+    });
+
+    it('忽略空白查询与非条目', () => {
+        const merged = mergeSearchHistorySnapshot(
+            null,
+            [entry('  ', 1), { query: 1, time: 2 } as unknown as { query: string }, entry('有效', 3)],
+            null
+        ) as Array<{ query: string }>;
+
+        expect(merged).toEqual([entry('有效', 3)]);
     });
 });

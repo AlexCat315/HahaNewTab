@@ -11,7 +11,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { storageManager } from '@/services/storage.service';
 import { usePersistentSlice } from '@/composables/usePersistentSlice';
-import { STORAGE_KEYS } from '@/types/storage';
+import { STORAGE_KEYS, type StorageValue } from '@/types/storage';
 
 /** 搜索历史最大保留条数 */
 const MAX_HISTORY_SIZE = 10;
@@ -76,7 +76,10 @@ export const useSearchStore = defineStore('search', () => {
 
                 return null;
             })
-            .filter((item): item is SearchHistoryItem => item !== null);
+            .filter((item): item is SearchHistoryItem => item !== null)
+            // 云端合并只负责并集与排序，条数上限是本 store 的策略：
+            // 不在这里裁剪，合并下发的历史就会比本机已有的更长。
+            .slice(0, MAX_HISTORY_SIZE);
     }
 
     const slice = usePersistentSlice({
@@ -177,6 +180,11 @@ export const useSearchStore = defineStore('search', () => {
         });
     }
 
+    /** 应用云同步下发的搜索历史（只认本 store 归属且出现在快照里的键） */
+    async function applyCloudValues(values: Record<string, StorageValue | null>): Promise<boolean> {
+        return slice.applyRemote(values);
+    }
+
     return {
         selectedEngineIndex,
         history,
@@ -188,5 +196,6 @@ export const useSearchStore = defineStore('search', () => {
         addHistory,
         removeHistory,
         clearHistory,
+        applyCloudValues,
     };
 });

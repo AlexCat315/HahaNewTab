@@ -14,8 +14,20 @@ import { isAppNavigatorData } from '@/types/app';
 import type { AppNavigatorData } from '@/types/app';
 import { isUserUiLib } from '@/types/ui';
 import type { UserUiLib } from '@/types/ui';
+import {
+    isLayoutSettings,
+    isThemeSettings,
+    isWallpaperImageData,
+    isWallpaperSettings
+} from '@/types/storage';
 import type { MediaCacheSettings } from '@/types/storage';
-import { mergeMainDataSnapshot, mergeUserUiLibSnapshot } from '@/utils/syncMerge.util';
+import {
+    mergeFieldwiseSnapshot,
+    mergeMainDataSnapshot,
+    mergeScalarSnapshot,
+    mergeSearchHistorySnapshot,
+    mergeUserUiLibSnapshot
+} from '@/utils/syncMerge.util';
 import type { CloudSyncKeyStrategy } from '@/utils/syncMerge.util';
 
 /** 存储后端：local = 扩展本地存储；sync = 浏览器账号同步区 */
@@ -80,6 +92,26 @@ export const BOOT_SNAPSHOT_KEY = '__boot__';
  */
 export const BOOT_SNAPSHOT_VERSION = 1;
 
+/**
+ * 搜索历史的结构判据
+ *
+ * 条目形状由 search store 定义，这里只负责云端下发的值能不能作为它。
+ * 空数组是合法的（本机清空过），非数组或条目缺字段才算非法。
+ */
+function isSearchHistoryList(value: unknown): boolean {
+    return Array.isArray(value) && value.every(item =>
+        item !== null &&
+        typeof item === 'object' &&
+        typeof (item as { query?: unknown }).query === 'string' &&
+        typeof (item as { time?: unknown }).time === 'number'
+    );
+}
+
+/** 主题标识：非空字符串（从未选过则该键缺席，不算非法） */
+function isThemeId(value: unknown): boolean {
+    return typeof value === 'string' && value.length > 0;
+}
+
 /** 全部已登记的存储键 */
 export const STORAGE_SCHEMA = {
     mainData: defineKey<AppNavigatorData>({
@@ -111,19 +143,37 @@ export const STORAGE_SCHEMA = {
         id: STORAGE_KEYS.SELECTED_THEME,
         backend: 'local',
         boot: true,
-        owner: 'theme'
+        owner: 'theme',
+        cloud: {
+            validate: isThemeId,
+            rejectMessage: '主题选择格式无效',
+            merge: mergeScalarSnapshot
+        }
     }),
     themeSettings: defineKey({
         id: STORAGE_KEYS.THEME_SETTINGS,
         backend: 'local',
         boot: true,
-        owner: 'theme'
+        owner: 'theme',
+        cloud: {
+            validate: isThemeSettings,
+            rejectMessage: '主题偏好格式无效',
+            merge: mergeFieldwiseSnapshot
+        }
     }),
     layoutSettings: defineKey({
         id: STORAGE_KEYS.LAYOUT_SETTINGS,
         backend: 'local',
         boot: true,
-        owner: 'layout'
+        owner: 'layout',
+        // 逐字段合并 + 冲突本机优先：列数这类跟屏幕绑定的设置，
+        // 本机手动设定过就一直是本机的值，另一台设备改的不覆盖过来；
+        // 没设定过（出厂值沿用）的新设备则跟随云端。
+        cloud: {
+            validate: isLayoutSettings,
+            rejectMessage: '布局设置格式无效',
+            merge: mergeFieldwiseSnapshot
+        }
     }),
     sidebarCollapsed: defineKey<boolean>({
         id: STORAGE_KEYS.SIDEBAR_COLLAPSED,
@@ -132,6 +182,11 @@ export const STORAGE_SCHEMA = {
         owner: 'layout',
         defaultValue: false
     }),
+    /**
+     * 搜索引擎选择：存的是内置列表里的数组下标，不是标识。
+     * 列表顺序一改，跨设备同步过去就会静默选中另一个引擎，
+     * 因此它不参与云同步；要同步得先改成存引擎 id。
+     */
     selectedSearchEngine: defineKey({
         id: STORAGE_KEYS.SELECTED_SEARCH_ENGINE,
         backend: 'local',
@@ -143,7 +198,12 @@ export const STORAGE_SCHEMA = {
         backend: 'local',
         boot: true,
         owner: 'search',
-        defaultValue: []
+        defaultValue: [],
+        cloud: {
+            validate: isSearchHistoryList,
+            rejectMessage: '搜索历史格式无效',
+            merge: mergeSearchHistorySnapshot
+        }
     }),
     mediaCache: defineKey<MediaCacheSettings>({
         id: STORAGE_KEYS.MEDIA_CACHE,
@@ -155,12 +215,25 @@ export const STORAGE_SCHEMA = {
     wallpaper: defineKey({
         id: STORAGE_KEYS.WALLPAPER,
         backend: 'local',
-        owner: 'wallpaper'
+        owner: 'wallpaper',
+        cloud: {
+            validate: isWallpaperSettings,
+            rejectMessage: '壁纸设置格式无效',
+            merge: mergeFieldwiseSnapshot
+        }
     }),
     wallpaperImage: defineKey({
         id: STORAGE_KEYS.WALLPAPER_IMAGE,
         backend: 'local',
-        owner: 'wallpaper'
+        owner: 'wallpaper',
+        // 整体替换而不是逐字段：图片内容与文件名/尺寸是同一张照片的属性，
+        // 混着两端字段拼出来的是一张「元数据对不上」的壁纸。
+        // Base64 正文在上传前由资源通道换成 haha-asset:// 引用，不占主文件体积。
+        cloud: {
+            validate: isWallpaperImageData,
+            rejectMessage: '本地壁纸图片格式无效',
+            merge: mergeScalarSnapshot
+        }
     }),
     cloudToken: defineKey({
         id: STORAGE_KEYS.CLOUD_TOKEN,
@@ -257,7 +330,13 @@ const CLOUD_KEY_DEFINITIONS = Object.values(STORAGE_SCHEMA).filter(
     definition => definition.cloud !== undefined
 );
 
-/** 云同步需要收集的本地数据键（仅站点数据与用户图标库，个性化设置不同步） */
+/**
+ * 云同步需要收集的本地数据键
+ *
+ * 站点数据、图标库，加上个性化设置（主题、布局、壁纸、搜索历史）。
+ * 不参与同步的是设备本地态：侧栏折叠、媒体缓存开关、搜索引擎选择（存的是下标）、
+ * 云同步自身的凭据与快照。
+ */
 export const CLOUD_SYNC_DATA_KEYS: string[] = CLOUD_KEY_DEFINITIONS.map(
     definition => definition.id
 );

@@ -14,12 +14,7 @@ import type { ComputedRef, Ref } from 'vue';
 import { useWallpaperStore, DEFAULT_WALLPAPER_SETTINGS } from '@/stores/wallpaper.store';
 import { mediaCacheService } from '@/services/mediaCache.service';
 import type { WallpaperSettings, WallpaperImageData } from '@/types/storage';
-import {
-    isImageFile,
-    validateFileSize,
-    DEFAULT_MAX_FILE_SIZE,
-    formatFileSize
-} from '@/utils/file.util';
+import { isImageFile } from '@/utils/file.util';
 
 /** Composable 配置项 */
 export interface UseWallpaperOptions {
@@ -287,17 +282,11 @@ export function useWallpaper(options: UseWallpaperOptions = {}): UseWallpaperRet
 
     /**
      * 上传本地图片并设为壁纸
-     * 先校验文件类型与大小，再交给 store 持久化。
+     * 校验文件类型后交给 store 持久化；大小不设上限（存储区已申请 unlimitedStorage）。
      */
     async function setLocalImage(file: File): Promise<void> {
         if (!isImageFile(file)) {
             const message = '请选择图片文件';
-            error.value = message;
-            throw new Error(message);
-        }
-
-        if (!validateFileSize(file, DEFAULT_MAX_FILE_SIZE)) {
-            const message = `本地图片大小不能超过 ${formatFileSize(DEFAULT_MAX_FILE_SIZE)}`;
             error.value = message;
             throw new Error(message);
         }

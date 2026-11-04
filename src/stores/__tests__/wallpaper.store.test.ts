@@ -112,7 +112,7 @@ describe('useWallpaperStore', () => {
         expect(persisted).toBeNull();
     });
 
-    it('setLocalImage 应校验文件大小并持久化 Base64 图片', async () => {
+    it('setLocalImage 应持久化 Base64 图片', async () => {
         const store = useWallpaperStore();
         const file = createMockFile('bg.png', 'image/png', 100);
 
@@ -130,13 +130,14 @@ describe('useWallpaperStore', () => {
         expect(store.effectiveUrl).toBe('data:image/png;base64,mocked');
     });
 
-    it('setLocalImage 应拒绝超过 5MB 的图片', async () => {
+    it('setLocalImage 不再限制图片大小', async () => {
         const store = useWallpaperStore();
         const file = createMockFile('big.png', 'image/png', 6 * 1024 * 1024);
 
-        await expect(store.setLocalImage(file)).rejects.toThrow('不能超过');
-        expect(store.imageData).toBeNull();
-        expect(store.settings.isLocalImage).toBe(false);
+        await store.setLocalImage(file);
+
+        expect(store.imageData).toMatchObject({ name: 'big.png', size: 6 * 1024 * 1024 });
+        expect(store.settings.isLocalImage).toBe(true);
     });
 
     it('setLocalImageData 应直接持久化图片数据', async () => {

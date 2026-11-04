@@ -52,6 +52,14 @@ export interface PersistentSlice {
     mutate(change: () => void, writeKeys?: string[]): Promise<void>;
     /** 应用外部变更，返回是否有键命中 */
     applyExternalChanges(changes: StorageChanges): boolean;
+    /**
+     * 应用云同步下发的值：只处理 values 里出现且属于本 slice 的键
+     *
+     * 落盘但不盖「本机改过」时间戳——把云端结果写回本地不是本机编辑，
+     * 盖了戳下次同步就会被判成「本机也改过」，同一条改动会在两台设备之间来回推。
+     * @returns 是否有键被应用
+     */
+    applyRemote(values: Record<string, StorageValue | null>): Promise<boolean>;
     /** 订阅外部变更，返回取消函数 */
     subscribe(): () => void;
 }
@@ -167,9 +175,30 @@ export function usePersistentSlice(options: PersistentSliceOptions): PersistentS
         return applied;
     }
 
+    async function applyRemote(values: Record<string, StorageValue | null>): Promise<boolean> {
+        const selected = keys.filter(sliceKey => Object.prototype.hasOwnProperty.call(values, sliceKey.key));
+        if (!selected.length) {
+            return false;
+        }
+
+        const previous = selected.map(sliceKey => plainValue(sliceKey.read()));
+        selected.forEach(sliceKey => {
+            sliceKey.apply(values[sliceKey.key] as StorageValue | null);
+        });
+        try {
+            await write(selected, false);
+        } catch (error) {
+            selected.forEach((sliceKey, index) => {
+                sliceKey.apply(previous[index] as StorageValue);
+            });
+            throw error;
+        }
+        return true;
+    }
+
     function subscribe(): () => void {
         return storageManager.subscribe(applyExternalChanges);
     }
 
-    return { applyBoot, load, persist, mutate, applyExternalChanges, subscribe };
+    return { applyBoot, load, persist, mutate, applyExternalChanges, applyRemote, subscribe };
 }

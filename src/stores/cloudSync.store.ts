@@ -1,7 +1,7 @@
 /**
  * 云同步 Store
  * 管理 GitHub Gist 云同步相关状态：token、gistId、autoSync、userInfo、lastSyncTime。
- * 注入 CloudSyncService 与 appData store 实现上传、下载、恢复功能。
+ * 注入 CloudSyncService 与按注册表分发的数据管理器，实现上传、下载、恢复功能。
  */
 
 import { defineStore } from 'pinia';
@@ -18,7 +18,7 @@ import {
     getStoredPassphrase
 } from '@/services/crossDeviceSync.service';
 import type { EnableCrossDeviceResult, CrossDeviceRemoteMeta } from '@/services/crossDeviceSync.service';
-import { useAppDataStore } from './appData.store';
+import { createCloudSyncDataManager } from './cloudSyncDataManager';
 import type {
     ICloudSyncUIAdapter,
     CloudSyncProviderId,
@@ -46,7 +46,6 @@ export interface EnableCrossDeviceOutcome extends EnableCrossDeviceResult {
 }
 
 export const useCloudSyncStore = defineStore('cloudSync', () => {
-    const appData = useAppDataStore();
     const uiAdapter = ref<ICloudSyncUIAdapter>(DEFAULT_UI_ADAPTER);
 
     /** GitHub Token */
@@ -89,7 +88,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         if (!cloudSyncService) {
             cloudSyncService = createCloudSyncService({
                 storage: storageManager,
-                dataManager: appData,
+                dataManager: createCloudSyncDataManager(),
                 ui: uiAdapter.value
             });
         }

@@ -1,11 +1,11 @@
 /**
  * 应用数据 Store
  * 管理应用分类与站点数据（MAIN_DATA）。
- * 作为 CloudSyncService 的 ICloudSyncDataManager 适配器实现 syncNow / applyStorageSnapshot。
+ * 云同步落盘由 cloudSyncDataManager 按注册表归属派发过来，本 store 只认领 MAIN_DATA。
  *
  * 持久化走 usePersistentSlice：写穿 + 失败回滚 + DATA_UPDATED_AT 盖章都由它统一做。
  * 用户图标库（USER_UI_LIB）不归这里存——owner 是 uiLib store，
- * 导入 / 云端快照涉及图标库时转交 uiLib store 落盘，避免出现第二份内存副本和第二次写。
+ * 导入时转交 uiLib store 落盘，避免出现第二份内存副本和第二次写。
  */
 
 import { defineStore } from 'pinia';
@@ -19,7 +19,6 @@ import { normalizeUrl, getUrlKey } from '@/utils/url.util';
 import { normalizeNameKey } from '@/utils/name.util';
 import type { AppNavigatorData, AppItem, Category, AppInput, CategoryInput } from '@/types/app';
 import { isAppNavigatorData } from '@/types/app';
-import type { UserUiLib } from '@/types/ui';
 import { isUserUiLib } from '@/types/ui';
 import type { BackupData } from '@/types/storage';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -304,37 +303,20 @@ export const useAppDataStore = defineStore('appData', () => {
 
     /**
      * 将云端快照应用到本地
+     *
+     * 走 slice.applyRemote 而不是 commitMain：拉云端不算本机用户改动，
+     * 不能盖 DATA_UPDATED_AT——首次同步要靠它判断本机到底有没有编辑过数据。
+     * 图标库不归这里，注册表里它的 owner 是 uiLib store。
      */
     async function applyStorageSnapshot(snapshot: Record<string, unknown>): Promise<boolean> {
-        const nextMain = snapshot[STORAGE_KEYS.MAIN_DATA];
-        const nextUi = snapshot[STORAGE_KEYS.USER_UI_LIB];
-        const hasMain = Object.prototype.hasOwnProperty.call(snapshot, STORAGE_KEYS.MAIN_DATA);
-        const hasUi = Object.prototype.hasOwnProperty.call(snapshot, STORAGE_KEYS.USER_UI_LIB);
-
-        if (hasMain && !isAppNavigatorData(nextMain)) {
-            throw new TypeError('云端应用数据格式无效');
-        }
-        if (hasUi && !isUserUiLib(nextUi)) {
-            throw new TypeError('云端图标库格式无效');
-        }
-        if (!hasMain && !hasUi) {
+        if (!Object.prototype.hasOwnProperty.call(snapshot, STORAGE_KEYS.MAIN_DATA)) {
             return false;
         }
-
-        const previousMain = data.value;
-
-        try {
-            if (hasMain) {
-                await commitMain(clone(nextMain) as AppNavigatorData);
-            }
-            if (hasUi) {
-                await uiLibStore.saveUserUiLib(clone(nextUi) as UserUiLib);
-            }
-            return true;
-        } catch (e) {
-            if (hasMain) data.value = previousMain;
-            throw e;
+        const nextMain = snapshot[STORAGE_KEYS.MAIN_DATA];
+        if (!isAppNavigatorData(nextMain)) {
+            throw new TypeError('云端应用数据格式无效');
         }
+        return slice.applyRemote({ [STORAGE_KEYS.MAIN_DATA]: clone(nextMain) });
     }
 
     /**

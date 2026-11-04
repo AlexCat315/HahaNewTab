@@ -36,16 +36,43 @@ export interface ISyncProvider {
     readonly name: string;
     /** Token 获取地址提示（登录面板展示） */
     readonly tokenHint: string;
+    /**
+     * 单个文件的写入上限（字节）
+     * 上传前按它自检，资源分片也按它切块，避免撞上限后只拿到一个含糊的 422。
+     */
+    readonly maxFileBytes: number;
     /** 验证 Token 并返回用户信息，失败时抛出错误 */
     validateToken(token: string): Promise<GitHubUserInfo>;
     /** 列出用户 Gist（含 files 元数据） */
     listGists(token: string): Promise<Gist[]>;
     /** 读取指定 Gist 中文件的内容；Gist 或文件不存在时返回 null */
     getGistFileContent(token: string, gistId: string, fileName: string): Promise<string | null>;
+    /**
+     * 读取指定 Gist 的完整文件表（文件名 → 文件元数据，含 raw_url）
+     * 资源分片要靠它拿到每个分片的下载地址；Gist 不存在时返回 null。
+     */
+    getGistFileMap(token: string, gistId: string): Promise<Record<string, GistFile> | null>;
+    /** 按 raw_url 读取单个文件全文；不存在返回 null */
+    readRawFile(token: string, rawUrl: string): Promise<string | null>;
+    /**
+     * 从已经取到的文件表里读单个文件全文
+     * 内联内容超过平台上限时只会给回前半截，这里负责识别并改走 raw_url。
+     */
+    readFileFromMap(token: string, file: GistFile | null | undefined): Promise<string | null>;
     /** 创建 Gist，返回其 id */
     createGist(token: string, fileName: string, content: string, description: string): Promise<string>;
     /** 更新 Gist 中指定文件的内容 */
     updateGist(token: string, gistId: string, fileName: string, content: string): Promise<void>;
+    /**
+     * 一次请求内批量写入与删除文件
+     * 未出现在 upsert / deleteFileNames 里的文件保持原样。
+     */
+    updateGistFiles(
+        token: string,
+        gistId: string,
+        upsert: Record<string, string>,
+        deleteFileNames: string[]
+    ): Promise<void>;
 }
 
 /**
@@ -75,15 +102,32 @@ export interface Gist {
 }
 
 /**
+ * 同步资源清单条目
+ * 一个 data URL 对应一条：MIME + 分片文件名（按顺序拼接即为完整 Base64）。
+ */
+export interface SyncAssetEntry {
+    mime: string;
+    /** Base64 文本长度 */
+    bytes: number;
+    files: string[];
+}
+
+/** 资源清单：内容哈希 → 条目 */
+export type SyncAssetManifest = Record<string, SyncAssetEntry>;
+
+/**
  * 同步数据包结构
- * data 仅包含站点数据（appNavigator_data）与用户图标库（appNavigator_user_uiLib），
- * 个性化设置（主题、壁纸、搜索、布局等）不参与同步
+ * data 是存储键注册表里登记了云同步策略的键值快照；
+ * 其中的大对象（Base64 站点图标、本地壁纸图片）在上传前换成 `haha-asset://{哈希}` 引用，
+ * 原文按内容哈希分片写进同一个 Gist，清单记在 assets；下载时再还原回 data URL。
  */
 export interface SyncData {
     version: string;
     lastModified: number;
     device: string;
     data: Record<string, unknown>;
+    /** 本次 payload 的资源清单；没有大对象时缺省 */
+    assets?: SyncAssetManifest;
 }
 
 /**

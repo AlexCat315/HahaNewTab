@@ -196,6 +196,7 @@ describe('cloudSync store', () => {
 
         mockFetchSequence([
             createGistResponse(), // findOrCreateGist -> getGist
+            createGistResponse(), // uploadData -> 读取远端文件表（判断哪些资源分片已存在）
             createGistResponse() // PATCH /gists
         ]);
         const result = await store.upload({ silent: true });
@@ -223,6 +224,7 @@ describe('cloudSync store', () => {
         await store.login(TEST_TOKEN);
 
         mockFetchSequence([
+            createGistResponse(),
             createGistResponse(),
             createGistResponse()
         ]);
@@ -358,14 +360,19 @@ describe('cloudSync store', () => {
         try {
             store.startAutoSyncWatch();
 
-            // 个性化设置不参与云同步，落盘不该排期同步
-            await storageManager.set(STORAGE_KEYS.SELECTED_THEME, 'material-rose');
+            // 设备本地态（侧栏折叠）不在同步范围，落盘不该排期同步
+            await storageManager.set(STORAGE_KEYS.SIDEBAR_COLLAPSED, true);
             vi.advanceTimersByTime(5000);
             expect(syncSpy).not.toHaveBeenCalled();
 
-            await storageManager.set(STORAGE_KEYS.MAIN_DATA, { categories: [], apps: [] });
+            // 个性化设置（主题）已登记进同步范围
+            await storageManager.set(STORAGE_KEYS.SELECTED_THEME, 'material-rose');
             vi.advanceTimersByTime(5000);
             expect(syncSpy).toHaveBeenCalledTimes(1);
+
+            await storageManager.set(STORAGE_KEYS.MAIN_DATA, { categories: [], apps: [] });
+            vi.advanceTimersByTime(5000);
+            expect(syncSpy).toHaveBeenCalledTimes(2);
         } finally {
             store.stopAutoSyncWatch();
             syncSpy.mockRestore();

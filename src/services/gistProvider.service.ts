@@ -1,8 +1,8 @@
 /**
  * 同步平台适配器（GitHub / Gitee Gist）
  * 封装两个平台的 Gist CRUD 与 Token 验证差异：
- * - GitHub：Header Bearer 认证，无文件大小限制；
- * - Gitee：Query access_token 认证，单文件 1MB 限制，数据库不支持 4 字节 UTF-8 字符（需无损转义）。
+ * - GitHub：Header Bearer 认证，单文件 10MB；
+ * - Gitee：Query access_token 认证，单文件 1MB，数据库不支持 4 字节 UTF-8 字符（需无损转义）。
  * 所有请求带 10s 超时，错误按网络/401/频率限制分类为中文提示。
  */
 
@@ -15,6 +15,12 @@ import type {
 } from '@/types/cloudSync.types';
 
 const REQUEST_TIMEOUT_MS = 10000;
+
+/**
+ * API 详情响应里内联返回的文件内容上限
+ * 超过这个大小的文件，`content` 只会给回前半截（见 readGistFile），必须改走 raw_url。
+ */
+export const INLINE_CONTENT_BYTES = 1024 * 1024;
 
 /**
  * 平台错误，status 用于 CloudSyncService 识别 401（Token 失效）
@@ -65,23 +71,45 @@ async function throwForStatus(providerName: string, response: Response, fallback
     throw new SyncProviderError(`${message} (${response.status})`, response.status);
 }
 
-/** 从 Gist 详情中提取文件内容（content 缺失时回退 raw_url） */
-async function extractFileContent(
+/**
+ * 读取 Gist 里的单个文件全文
+ *
+ * 详情接口对每个文件最多内联 1MB，超出时不是「不给 content」而是「只给前 1MB 并置
+ * `truncated: true`」。直接把这份截断体当全文交给 JSON.parse，得到的是一句看不懂的
+ * 「Unexpected end of JSON input」，所以 truncated 必须优先于 content 判断。
+ */
+async function readGistFile(
     providerName: string,
     networkHint: string,
-    file: GistFile | undefined,
+    file: GistFile | null | undefined,
     headers?: Record<string, string>
 ): Promise<string | null> {
     if (!file) return null;
-    if (file.content != null) return file.content;
-    if (file.raw_url) {
-        const response = await request(providerName, networkHint, file.raw_url, { headers });
-        if (!response.ok) {
-            await throwForStatus(providerName, response, '获取文件内容失败');
-        }
-        return await response.text();
+
+    const inline = file.content ?? '';
+    const inlineBytes = new TextEncoder().encode(inline).length;
+    if (file.truncated !== true && file.content != null && inlineBytes < INLINE_CONTENT_BYTES) {
+        return file.content;
     }
-    return null;
+    if (!file.raw_url) return file.content ?? null;
+
+    const response = await request(providerName, networkHint, file.raw_url, { headers });
+    if (response.status === 404) return null;
+    if (!response.ok) {
+        await throwForStatus(providerName, response, '获取文件内容失败');
+    }
+    return await response.text();
+}
+
+/** 上传前按平台上限自检单文件体积，超限给出可直接照做的提示 */
+function assertFileBytes(providerName: string, maxFileBytes: number, content: string): void {
+    const bytes = new TextEncoder().encode(content).length;
+    if (bytes > maxFileBytes) {
+        const limit = maxFileBytes / 1024 / 1024;
+        throw new SyncProviderError(
+            `数据大小约 ${(bytes / 1024 / 1024).toFixed(2)}MB，超过 ${providerName} 单文件 ${limit}MB 限制`
+        );
+    }
 }
 
 // ==================== GitHub ====================
@@ -89,6 +117,8 @@ async function extractFileContent(
 const GITHUB_API_BASE = 'https://api.github.com';
 const GITHUB_API_VERSION = '2022-11-28';
 const GITHUB_NETWORK_HINT = '请检查网络或代理（国内可能需代理访问）';
+/** GitHub 单个 Gist 文件的写入上限 */
+const GITHUB_MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 function githubHeaders(token: string): Record<string, string> {
     return {
@@ -99,10 +129,27 @@ function githubHeaders(token: string): Record<string, string> {
     };
 }
 
+/** 批量写文件的请求体：值为 null 表示删除该文件 */
+function buildFilesPayload(
+    upsert: Record<string, string>,
+    deleteFileNames: string[],
+    escape?: (content: string) => string
+): Record<string, { content: string } | null> {
+    const payload: Record<string, { content: string } | null> = {};
+    for (const [name, content] of Object.entries(upsert)) {
+        payload[name] = { content: escape ? escape(content) : content };
+    }
+    for (const name of deleteFileNames) {
+        payload[name] = null;
+    }
+    return payload;
+}
+
 const githubProvider: ISyncProvider = {
     id: 'github',
     name: 'GitHub',
     tokenHint: 'github.com/settings/tokens（需要 gist 权限）',
+    maxFileBytes: GITHUB_MAX_FILE_BYTES,
 
     async validateToken(token: string): Promise<GitHubUserInfo> {
         const response = await request('GitHub', GITHUB_NETWORK_HINT, `${GITHUB_API_BASE}/user`, {
@@ -126,6 +173,11 @@ const githubProvider: ISyncProvider = {
     },
 
     async getGistFileContent(token: string, gistId: string, fileName: string): Promise<string | null> {
+        const files = await githubProvider.getGistFileMap(token, gistId);
+        return files ? readGistFile('GitHub', GITHUB_NETWORK_HINT, files[fileName], githubHeaders(token)) : null;
+    },
+
+    async getGistFileMap(token: string, gistId: string): Promise<Record<string, GistFile> | null> {
         const response = await request('GitHub', GITHUB_NETWORK_HINT, `${GITHUB_API_BASE}/gists/${gistId}`, {
             headers: githubHeaders(token)
         });
@@ -134,10 +186,24 @@ const githubProvider: ISyncProvider = {
             await throwForStatus('GitHub', response, '获取 Gist 失败');
         }
         const gist = (await response.json()) as Gist;
-        return extractFileContent('GitHub', GITHUB_NETWORK_HINT, gist.files?.[fileName], githubHeaders(token));
+        return gist.files ?? {};
+    },
+
+    async readRawFile(token: string, rawUrl: string): Promise<string | null> {
+        const response = await request('GitHub', GITHUB_NETWORK_HINT, rawUrl, { headers: githubHeaders(token) });
+        if (response.status === 404) return null;
+        if (!response.ok) {
+            await throwForStatus('GitHub', response, '获取文件内容失败');
+        }
+        return await response.text();
+    },
+
+    async readFileFromMap(token: string, file: GistFile | null | undefined): Promise<string | null> {
+        return readGistFile('GitHub', GITHUB_NETWORK_HINT, file, githubHeaders(token));
     },
 
     async createGist(token: string, fileName: string, content: string, description: string): Promise<string> {
+        assertFileBytes('GitHub', GITHUB_MAX_FILE_BYTES, content);
         const response = await request('GitHub', GITHUB_NETWORK_HINT, `${GITHUB_API_BASE}/gists`, {
             method: 'POST',
             headers: githubHeaders(token),
@@ -155,12 +221,22 @@ const githubProvider: ISyncProvider = {
     },
 
     async updateGist(token: string, gistId: string, fileName: string, content: string): Promise<void> {
+        await githubProvider.updateGistFiles(token, gistId, { [fileName]: content }, []);
+    },
+
+    async updateGistFiles(
+        token: string,
+        gistId: string,
+        upsert: Record<string, string>,
+        deleteFileNames: string[]
+    ): Promise<void> {
+        for (const content of Object.values(upsert)) {
+            assertFileBytes('GitHub', GITHUB_MAX_FILE_BYTES, content);
+        }
         const response = await request('GitHub', GITHUB_NETWORK_HINT, `${GITHUB_API_BASE}/gists/${gistId}`, {
             method: 'PATCH',
             headers: githubHeaders(token),
-            body: JSON.stringify({
-                files: { [fileName]: { content } }
-            })
+            body: JSON.stringify({ files: buildFilesPayload(upsert, deleteFileNames) })
         });
         if (!response.ok) {
             await throwForStatus('GitHub', response, '上传失败');
@@ -210,6 +286,7 @@ const giteeProvider: ISyncProvider = {
     id: 'gitee',
     name: 'Gitee',
     tokenHint: 'gitee.com/profile/personal_access_tokens（私人令牌，勾选 gists 权限）',
+    maxFileBytes: GITEE_MAX_FILE_BYTES,
 
     async validateToken(token: string): Promise<GitHubUserInfo> {
         const response = await request('Gitee', GITEE_NETWORK_HINT, giteeUrl('/user', token), {});
@@ -229,13 +306,33 @@ const giteeProvider: ISyncProvider = {
     },
 
     async getGistFileContent(token: string, gistId: string, fileName: string): Promise<string | null> {
+        const files = await giteeProvider.getGistFileMap(token, gistId);
+        return files ? readGistFile('Gitee', GITEE_NETWORK_HINT, files[fileName]) : null;
+    },
+
+    async getGistFileMap(token: string, gistId: string): Promise<Record<string, GistFile> | null> {
         const response = await request('Gitee', GITEE_NETWORK_HINT, giteeUrl(`/gists/${gistId}`, token), {});
         if (response.status === 404) return null;
         if (!response.ok) {
             await throwForStatus('Gitee', response, '获取代码片段失败');
         }
         const gist = (await response.json()) as Gist;
-        return extractFileContent('Gitee', GITEE_NETWORK_HINT, gist.files?.[fileName]);
+        return gist.files ?? {};
+    },
+
+    // Gitee 的 raw_url 是免鉴权的公开直链，令牌在这里用不上
+    async readRawFile(_token: string, rawUrl: string): Promise<string | null> {
+        const response = await request('Gitee', GITEE_NETWORK_HINT, rawUrl, {});
+        if (response.status === 404) return null;
+        if (!response.ok) {
+            await throwForStatus('Gitee', response, '获取文件内容失败');
+        }
+        return await response.text();
+    },
+
+    // Gitee 的 raw_url 是免鉴权的公开直链，不需要令牌
+    async readFileFromMap(_token: string, file: GistFile | null | undefined): Promise<string | null> {
+        return readGistFile('Gitee', GITEE_NETWORK_HINT, file);
     },
 
     async createGist(token: string, fileName: string, content: string, description: string): Promise<string> {
@@ -258,14 +355,29 @@ const giteeProvider: ISyncProvider = {
     },
 
     async updateGist(token: string, gistId: string, fileName: string, content: string): Promise<void> {
-        const safeContent = escapeForGitee(content);
-        assertGiteeSize(safeContent);
+        await giteeProvider.updateGistFiles(token, gistId, { [fileName]: content }, []);
+    },
+
+    async updateGistFiles(
+        token: string,
+        gistId: string,
+        upsert: Record<string, string>,
+        deleteFileNames: string[]
+    ): Promise<void> {
+        const files: Record<string, { content: string; filename: string } | null> = {};
+        for (const [name, content] of Object.entries(upsert)) {
+            const safeContent = escapeForGitee(content);
+            assertGiteeSize(safeContent);
+            files[name] = { content: safeContent, filename: name };
+        }
+        // Gitee 的更新接口没有公开的「删除单个文件」语义，删除请求只能忽略：
+        // 本端不再引用的历史资源会留在云端，靠 GitHub 端才做真正的清理。
+        void deleteFileNames;
+
         const response = await request('Gitee', GITEE_NETWORK_HINT, giteeUrl(`/gists/${gistId}`, token), {
             method: 'PATCH',
             headers: GITEE_JSON_HEADERS,
-            body: JSON.stringify({
-                files: { [fileName]: { content: safeContent, filename: fileName } }
-            })
+            body: JSON.stringify({ files })
         });
         if (!response.ok) {
             await throwForStatus('Gitee', response, '上传失败');

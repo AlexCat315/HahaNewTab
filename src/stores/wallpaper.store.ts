@@ -10,9 +10,9 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { usePersistentSlice } from '@/composables/usePersistentSlice';
-import { STORAGE_KEYS } from '@/types/storage';
-import type { WallpaperSettings, WallpaperImageData } from '@/types/storage';
-import { fileToBase64, validateFileSize, DEFAULT_MAX_FILE_SIZE } from '@/utils/file.util';
+import { STORAGE_KEYS, isWallpaperImageData } from '@/types/storage';
+import type { StorageValue, WallpaperSettings, WallpaperImageData } from '@/types/storage';
+import { fileToBase64 } from '@/utils/file.util';
 
 /** 默认壁纸设置 */
 export const DEFAULT_WALLPAPER_SETTINGS: WallpaperSettings = {
@@ -22,9 +22,6 @@ export const DEFAULT_WALLPAPER_SETTINGS: WallpaperSettings = {
     overlayOpacity: 0,
     isLocalImage: false
 };
-
-/** 本地图片最大限制（与原项目一致：5MB） */
-export const MAX_LOCAL_IMAGE_SIZE = DEFAULT_MAX_FILE_SIZE;
 
 /** 深拷贝辅助
  * 兼容 Vue reactive proxy：structuredClone 无法克隆 Proxy，
@@ -58,20 +55,6 @@ function normalizeSettings(value: unknown): WallpaperSettings {
             ? settings.isLocalImage
             : DEFAULT_WALLPAPER_SETTINGS.isLocalImage
     };
-}
-
-/** 校验本地图片元数据格式 */
-function isValidImageData(value: unknown): value is WallpaperImageData {
-    const data = value as Partial<WallpaperImageData>;
-    return (
-        typeof data === 'object' &&
-        data !== null &&
-        typeof data.data === 'string' &&
-        typeof data.name === 'string' &&
-        typeof data.type === 'string' &&
-        typeof data.size === 'number' &&
-        typeof data.timestamp === 'number'
-    );
 }
 
 /** 将 Partial 应用到完整对象，忽略显式传入的 undefined */
@@ -126,7 +109,7 @@ export const useWallpaperStore = defineStore('wallpaper', () => {
             {
                 key: STORAGE_KEYS.WALLPAPER_IMAGE,
                 apply: raw => {
-                    imageData.value = isValidImageData(raw) ? clone(raw) : null;
+                    imageData.value = isWallpaperImageData(raw) ? clone(raw) : null;
                 },
                 read: () => imageData.value
             }
@@ -175,14 +158,11 @@ export const useWallpaperStore = defineStore('wallpaper', () => {
 
     /**
      * 上传本地图片并设为壁纸
-     * 文件会被读取为 Base64 Data URL 后持久化。
+     * 文件会被读取为 Base64 Data URL 后持久化；大小不设上限，
+     * 云同步侧由资源通道分片上传，不受单个 Gist 文件体积限制。
      */
     async function setLocalImage(file: File): Promise<void> {
         await init();
-
-        if (!validateFileSize(file, MAX_LOCAL_IMAGE_SIZE)) {
-            throw new Error(`本地图片大小不能超过 ${MAX_LOCAL_IMAGE_SIZE / 1024 / 1024}MB`);
-        }
 
         const data = await fileToBase64(file);
 
@@ -260,6 +240,11 @@ export const useWallpaperStore = defineStore('wallpaper', () => {
         });
     }
 
+    /** 应用云同步下发的壁纸值：壁纸设置与本地图片一并落盘，无本机覆盖逻辑 */
+    async function applyCloudValues(values: Record<string, StorageValue | null>): Promise<boolean> {
+        return slice.applyRemote(values);
+    }
+
     return {
         // state
         settings,
@@ -274,6 +259,7 @@ export const useWallpaperStore = defineStore('wallpaper', () => {
         setUrl,
         setLocalImage,
         setLocalImageData,
+        applyCloudValues,
         setOpacity,
         setBlur,
         setOverlayOpacity,

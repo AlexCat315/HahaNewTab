@@ -430,6 +430,34 @@ export const useThemeStore = defineStore('theme', () => {
     }
 
     /**
+     * 应用云同步下发的主题选择与偏好。
+     * 值已由 slice 落盘，这里只按 initialize 同一套解析规则重绘一次 DOM；
+     * 不能走 setTheme——那是用户动作，会把「跟随系统」开关强行改成关闭。
+     */
+    async function applyCloudValues(values: Record<string, StorageValue | null>): Promise<boolean> {
+        const applied = await slice.applyRemote(values);
+        if (!applied) {
+            return false;
+        }
+
+        const settingsFamilyValid = themeFamilies.value.some(
+            family => family.id === preferredFamilyId.value
+        );
+        const targetId = followSystem.value
+            ? findVariantId(
+                settingsFamilyValid ? preferredFamilyId.value : currentFamilyId.value,
+                systemPrefersDark.value ? 'dark' : 'light'
+            ) ?? resolveDefaultThemeId()
+            : normalizeThemeId(selectedThemeId.value) ?? resolveDefaultThemeId();
+
+        // 主题配置还没加载时不重绘：initialize() 读同一份存储值，会按同样的规则上色
+        if (themes.value.length > 0) {
+            applyThemeToDom(targetId);
+        }
+        return true;
+    }
+
+    /**
      * 切换当前主题的明/暗模式（保持主题族不变）
      * 对应「同一个主题的两套配色」——换模式不换色系。
      */
@@ -526,6 +554,7 @@ export const useThemeStore = defineStore('theme', () => {
         setTheme,
         setMode,
         followSystemTheme,
+        applyCloudValues,
         refreshThemes,
         cycleTheme,
         resolveDefaultThemeId,

@@ -187,6 +187,7 @@ describe('useCloudSync composable', () => {
 
         mockFetchSequence([
             createGistResponse(),
+            createGistResponse(),
             createGistResponse()
         ]);
 
@@ -319,7 +320,7 @@ describe('useCloudSync composable', () => {
         expect(wrapper.vm.cloud.lastSyncTime.value).toBeGreaterThan(0);
     });
 
-    it('个性化设置变更不触发自动同步', async () => {
+    it('个性化设置变更触发自动同步', async () => {
         vi.useFakeTimers();
 
         mockFetchSequence([
@@ -338,6 +339,32 @@ describe('useCloudSync composable', () => {
         const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
 
         await storageManager.setMany({ [STORAGE_KEYS.SELECTED_THEME]: 'material-rose' });
+        vi.advanceTimersByTime(3000);
+        await flushPromises();
+
+        expect(fetchMock).toHaveBeenCalled();
+    });
+
+    it('设备本地态变更不触发自动同步', async () => {
+        vi.useFakeTimers();
+
+        mockFetchSequence([
+            createResponse(TEST_USER_API),
+            createResponse([]),
+            createResponse({ id: TEST_GIST_ID, files: {} })
+        ]);
+
+        const wrapper = mount(createTestComponent());
+        await flushPromises();
+        await wrapper.vm.cloud.login(TEST_TOKEN);
+        await wrapper.vm.cloud.setAutoSync(true);
+        await flushPromises();
+
+        globalThis.fetch = vi.fn();
+        const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+
+        // 侧栏折叠跟着屏幕走，不进同步范围
+        await storageManager.setMany({ [STORAGE_KEYS.SIDEBAR_COLLAPSED]: true });
         vi.advanceTimersByTime(3000);
         await flushPromises();
 
@@ -487,6 +514,7 @@ describe('useCloudSync composable', () => {
         expect(wrapper.vm.cloud.formattedLastSyncTime.value).toBe('从未同步');
 
         mockFetchSequence([
+            createGistResponse(),
             createGistResponse(),
             createGistResponse()
         ]);

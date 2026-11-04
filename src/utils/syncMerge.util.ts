@@ -378,6 +378,129 @@ export function mergeUserUiLibSnapshot(
     return mergeUserUiLib(asUserUiLib(base), asUserUiLib(local), asUserUiLib(remote), tieBreak);
 }
 
+/**
+ * 标量 / 整体替换型键的三方合并
+ *
+ * - 只有一端与 base 不同 → 用改过那端；
+ * - 两端都改过 → 本机优先，与站点数据的冲突方向保持一致；
+ * - 某一端压根没有这个键（新装设备、老版本 payload）不算「本机删掉了」，直接取另一端。
+ *
+ * 首次同步没有 base 时，「本机出厂默认值」与「云端已改过的值」谁都不占优，
+ * 由调用方按「最后一次写入更晚」给出 tieBreak。
+ */
+export function mergeScalarSnapshot(
+    base: unknown,
+    local: unknown,
+    remote: unknown,
+    tieBreak: MergeTieBreak = 'local'
+): unknown {
+    const hasLocal = local !== undefined && local !== null;
+    const hasRemote = remote !== undefined && remote !== null;
+    if (!hasLocal && !hasRemote) return undefined;
+    if (!hasLocal) return remote;
+    if (!hasRemote) return local;
+
+    if (deepEqual(local, base)) return remote;
+    if (deepEqual(remote, base)) return local;
+    return tieBreak === 'remote' ? remote : local;
+}
+
+/** 是否为可以做逐字段合并的普通对象（数组与 null 走整体替换） */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 设置类对象键的逐字段三方合并
+ *
+ * 一台设备改壁纸模糊度、另一台改壁纸地址，整体替换必然丢掉一边；
+ * 按字段各自三方合并后，只有「两端都改过同一个字段」才冲突，冲突仍然本机优先。
+ * 任一端不是普通对象时退回整体合并，坏数据不至于让整次同步失败。
+ */
+export function mergeFieldwiseSnapshot(
+    base: unknown,
+    local: unknown,
+    remote: unknown,
+    tieBreak: MergeTieBreak = 'local'
+): unknown {
+    if (!isPlainRecord(local) || !isPlainRecord(remote)) {
+        return mergeScalarSnapshot(base, local, remote, tieBreak);
+    }
+    const ancestor = isPlainRecord(base) ? base : {};
+
+    const merged: Record<string, unknown> = {};
+    for (const field of new Set([...Object.keys(local), ...Object.keys(remote), ...Object.keys(ancestor)])) {
+        const value = mergeScalarSnapshot(ancestor[field], local[field], remote[field], tieBreak);
+        if (value !== undefined) {
+            merged[field] = value;
+        }
+    }
+    return merged;
+}
+
+/** 把任意值收窄成搜索历史条目数组（{query, time}） */
+function asHistory(value: unknown): Array<{ query: string; time: number }> {
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is { query: string; time: number } =>
+        isPlainRecord(item) && typeof item.query === 'string' && typeof item.time === 'number'
+    );
+}
+
+/**
+ * 搜索历史的合并：以查询词为键做三方合并
+ *
+ * - 两端都有 → 保留，时间戳取更晚的一次
+ * - 只有一端有，且 base 里没有 → 那一端新增的，保留
+ * - 只有一端有，但 base 里有过 → 另一端删掉了它，按删除处理
+ * - 两端都没有（base 里有） → 都删了
+ *
+ * 条数上限属于 owner store 的落盘策略，这里不裁剪，
+ * 否则合并结果会比本机已有的还短，被误判成「本机删过」。
+ * 两端压根没这份数据时返回 undefined，不能凭空造出一个空数组——
+ * 那会让每次同步都以为本地有更新而白上传一遍。
+ */
+export function mergeSearchHistorySnapshot(
+    base: unknown,
+    local: unknown,
+    remote: unknown
+): unknown {
+    const hasLocal = Array.isArray(local);
+    const hasRemote = Array.isArray(remote);
+    if (!hasLocal && !hasRemote) {
+        return undefined;
+    }
+
+    const localItems = asHistory(local);
+    const remoteItems = asHistory(remote);
+    const baseItems = asHistory(base);
+    const pick = (items: Array<{ query: string; time: number }>, query: string) =>
+        items.find(item => item.query.trim() === query);
+
+    const queries = new Set(
+        [...localItems, ...remoteItems, ...baseItems]
+            .map(item => item.query.trim())
+            .filter(Boolean)
+    );
+
+    const merged: Array<{ query: string; time: number }> = [];
+    for (const query of queries) {
+        const localItem = pick(localItems, query);
+        const remoteItem = pick(remoteItems, query);
+        if (localItem && remoteItem) {
+            merged.push(remoteItem.time > localItem.time ? remoteItem : localItem);
+        } else if (localItem || remoteItem) {
+            // 只有一端有：base 里也有过就说明另一端把它删了，否则是这一端新增的
+            if (!pick(baseItems, query)) {
+                const kept = (localItem ?? remoteItem) as { query: string; time: number };
+                merged.push({ query, time: kept.time });
+            }
+        }
+        // 两端都没有（base 里有）→ 都删了，不保留
+    }
+
+    return merged.sort((a, b) => b.time - a.time);
+}
+
 /** 单个同步键的合并策略（由存储键注册表提供） */
 export interface CloudSyncKeyStrategy {
     /** 存储键名 */

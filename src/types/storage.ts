@@ -144,6 +144,56 @@ export interface WallpaperImageData {
     timestamp: number;
 }
 
+/**
+ * 设置类键的结构判据
+ *
+ * 云同步会把云端下发的同名键直接写回本地，坏结构一旦落盘就盖掉了本机的好数据，
+ * 所以每个参与同步的键都要能回答「这个值能不能作为我」——和站点数据、图标库同一套路。
+ * 可选字段缺失是合法的（老版本 payload 没写过它），出现但类型不对才算非法。
+ */
+export function isWallpaperSettings(value: unknown): value is WallpaperSettings {
+    const item = value as Partial<WallpaperSettings> | null;
+    if (!item || typeof item !== 'object') return false;
+    return typeof item.url === 'string' &&
+        typeof item.opacity === 'number' &&
+        typeof item.blur === 'number' &&
+        typeof item.overlayOpacity === 'number' &&
+        (item.isLocalImage === undefined || typeof item.isLocalImage === 'boolean');
+}
+
+export function isWallpaperImageData(value: unknown): value is WallpaperImageData {
+    const item = value as Partial<WallpaperImageData> | null;
+    if (!item || typeof item !== 'object') return false;
+    return typeof item.data === 'string' &&
+        typeof item.name === 'string' &&
+        typeof item.type === 'string' &&
+        typeof item.size === 'number' &&
+        typeof item.timestamp === 'number';
+}
+
+export function isThemeSettings(value: unknown): value is ThemeSettings {
+    const item = value as Partial<ThemeSettings> | null;
+    if (!item || typeof item !== 'object') return false;
+    return typeof item.followSystem === 'boolean' &&
+        typeof item.familyId === 'string';
+}
+
+export function isLayoutSettings(value: unknown): value is LayoutSettings {
+    const item = value as Partial<LayoutSettings> | null;
+    if (!item || typeof item !== 'object') return false;
+    const columnsOk = item.columns === 'auto' || (typeof item.columns === 'number' && item.columns >= 1);
+    const openModeOk = item.openMode === undefined ||
+        item.openMode === 'new-tab' || item.openMode === 'current-tab';
+    return columnsOk &&
+        typeof item.paginate === 'boolean' &&
+        typeof item.pageSize === 'number' &&
+        typeof item.showAllCategory === 'boolean' &&
+        typeof item.allViewFlat === 'boolean' &&
+        typeof item.showIconBackground === 'boolean' &&
+        (item.minimalMode === undefined || typeof item.minimalMode === 'boolean') &&
+        openModeOk;
+}
+
 /** GitHub 用户信息缓存 */
 export interface CloudSyncUserInfo {
     login: string;

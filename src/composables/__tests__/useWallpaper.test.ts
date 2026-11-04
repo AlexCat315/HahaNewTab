@@ -129,15 +129,16 @@ describe('useWallpaper', () => {
         expect(result.loading.value).toBe(false);
     });
 
-    it('超过 5MB 的图片应被拒绝并记录错误', async () => {
+    it('超过 5MB 的图片不再被拒绝', async () => {
         const { result, wrapper } = useSetup({ autoInit: false });
         wrappers.push(wrapper);
 
         await result.init();
         const file = createMockFile('big.png', 'image/png', 6 * 1024 * 1024);
 
-        await expect(result.setLocalImage(file)).rejects.toThrow('不能超过');
-        expect(result.error.value).toContain('不能超过');
+        await expect(result.setLocalImage(file)).resolves.toBeUndefined();
+        expect(result.error.value).toBeNull();
+        expect(result.imageData.value).toMatchObject({ name: 'big.png' });
     });
 
     it('setLocalImageData 应直接持久化图片数据', async () => {

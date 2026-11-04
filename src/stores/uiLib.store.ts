@@ -3,9 +3,10 @@
  * 管理系统 UI（来自 public/config/defaultData.json）与用户 UI 的合并，
  * 提供 UI 分类 / 图标的 CRUD。
  *
- * 用户图标库（USER_UI_LIB）只有这里能写：持久化走 usePersistentSlice，
+ * 用户图标库（USER_UI_LIB）只有这里能写：本机改动走 usePersistentSlice.mutate，
  * 每次写入顺带把 DATA_UPDATED_AT 刷成当前时间，云同步靠它区分「本机编辑过」和「出厂默认」。
- * appData store 不再持有第二份副本，导入 / 云端快照都转交本 store 落盘。
+ * 云端下发的图标库走 applyCloudValues，它不盖章——拉云端不算本机编辑。
+ * appData store 不持有第二份副本，导入时转交本 store 落盘。
  */
 
 import { defineStore } from 'pinia';
@@ -20,6 +21,7 @@ import type {
 } from '@/types/ui';
 import { isUserUiLib } from '@/types/ui';
 import { STORAGE_KEYS } from '@/types/storage';
+import type { StorageValue } from '@/types/storage';
 import { storageManager } from '@/services/storage.service';
 import { usePersistentSlice } from '@/composables/usePersistentSlice';
 import { loadDefaultData } from '@/services/config.service';
@@ -214,6 +216,20 @@ export const useUiLibStore = defineStore('uiLib', () => {
         await saveUserUiLib({ categories: [], items: [] });
     }
 
+    /**
+     * 应用云同步下发的图标库
+     *
+     * 走 slice.applyRemote 而不是 saveUserUiLib：拉云端不算本机编辑，
+     * 顺手盖了 DATA_UPDATED_AT 会让首次同步误判「本机改得更晚」，把出厂数据推上云。
+     */
+    async function applyCloudValues(values: Record<string, StorageValue | null>): Promise<boolean> {
+        const raw = values[USER_UI_LIB_KEY];
+        if (raw !== undefined && raw !== null && !isUserUiLib(raw)) {
+            throw new TypeError('云端图标库格式无效');
+        }
+        return slice.applyRemote(values);
+    }
+
     // ----- 分类 CRUD -----
     /** 添加用户分类 */
     async function addCategory(input: UiCategoryInput): Promise<UiCategory> {
@@ -393,6 +409,7 @@ export const useUiLibStore = defineStore('uiLib', () => {
         loadSystemUiLib,
         saveUserUiLib,
         resetUserUiLib,
+        applyCloudValues,
         addCategory,
         updateCategory,
         deleteCategory,
