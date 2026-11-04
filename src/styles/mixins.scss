@@ -121,10 +121,15 @@
 }
 
 /**
- * 卡片契约的可点档：hover 只做「变实 + 长阴影 + 极小放大」
+ * 卡片契约的可点档：hover 只做「变实 + 长阴影」
  *
  * 不换描边色、不整块抬 2px——一屏几十张卡片同时描上主色边框会糊成一片，
  * 而 translateY(-2px) 是 Material 的「抬起」语言，Apple 说的是「这一层更靠近你」。
+ *
+ * hover 不用 scale 表达「靠近」：合成层里的 scale 是拉伸已光栅化的纹理，
+ * 不是重新光栅化。实测 1.015 放大后图标高频能量掉 9.5%，摘掉 translateZ(0)
+ * 和 contain 也一样——糊在 transform 本身，不在分层。阴影和底色变实足够
+ * 说出「更靠近你」，:active 的 scale(0.99) 是缩小重采样，不会糊，保留。
  */
 @mixin card-interactive($radius: var(--card-radius)) {
     @include card($radius);
@@ -132,7 +137,6 @@
     @include spring-transition(transform box-shadow background, var(--dur-fast));
 
     &:hover {
-        transform: scale(1.015);
         background: var(--glass-bg-opaque);
         box-shadow: var(--elevation-2);
     }

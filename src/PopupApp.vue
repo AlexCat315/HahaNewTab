@@ -11,6 +11,7 @@ import { useToast } from '@/composables/useToast';
 import { getSystemIconUrl } from '@/utils/image.util';
 import { getBrandLogo } from '@/utils/browser.util';
 import { normalizeUrl } from '@/utils/url.util';
+import { resolveIconSource } from '@/utils/iconSource.util';
 
 import BaseInput from '@/components/common/BaseInput.vue';
 import BaseButton from '@/components/common/BaseButton.vue';
@@ -49,8 +50,8 @@ const form = ref<FormState>({
 
 const errors = ref<Record<string, string>>({});
 const isSubmitting = ref(false);
-/** 自动获取图标时是否请求高清图（favicon.im larger=true） */
-const fetchLargerIcon = ref(false);
+/** 图标源探测中：多个候选地址 + 首页 HTML，最坏几秒，需要挡住重复点击 */
+const isFetchingIcon = ref(false);
 
 const isNewCategory = computed(() => form.value.category === NEW_CATEGORY_VALUE);
 const categoryOptions = computed(() => dataManager.userCategories.value);
@@ -75,31 +76,27 @@ const duplicateCategoryName = computed(() => {
     return dataManager.getCategoryById(duplicate.category)?.name ?? '未分类';
 });
 
-/** 根据 URL 生成 favicon 服务地址，larger 为 true 时请求高清图 */
-function buildFaviconUrl(url: string, larger = false): string | null {
-    try {
-        const normalized = normalizeUrl(url);
-        const urlObj = new URL(normalized);
-        return `https://favicon.im/${urlObj.hostname}?l=${Date.now()}${larger ? '&larger=true' : ''}`;
-    } catch {
-        return null;
-    }
-}
-
-/** 自动获取 favicon */
+/** 自动获取图标：探测该站点能拿到的最大源图 */
 async function autoFetchIcon(): Promise<void> {
     const url = form.value.url.trim();
     if (!url) {
         toast.error('请先输入网站链接');
         return;
     }
-    const favicon = buildFaviconUrl(url, fetchLargerIcon.value);
-    if (!favicon) {
-        toast.error('无法解析网站链接');
-        return;
+    if (isFetchingIcon.value) return;
+
+    isFetchingIcon.value = true;
+    try {
+        const icon = await resolveIconSource(url);
+        if (!icon) {
+            toast.error('无法解析网站链接');
+            return;
+        }
+        form.value.icon = icon;
+        toast.success('图标已自动获取');
+    } finally {
+        isFetchingIcon.value = false;
     }
-    form.value.icon = favicon;
-    toast.success('图标已自动获取');
 }
 
 /** URL 失焦且图标为空时自动获取图标 */
@@ -117,7 +114,7 @@ function clearIcon(): void {
 /** 重置表单 */
 function resetForm(): void {
     errors.value = {};
-    fetchLargerIcon.value = false;
+    isFetchingIcon.value = false;
     form.value = {
         name: tabTitle.value,
         url: tabUrl.value,
@@ -309,13 +306,7 @@ watch(
                 />
 
                 <div class="form-group">
-                    <div class="form-label-row">
-                        <label class="form-label">图标预览</label>
-                        <label class="icon-larger-toggle">
-                            <input v-model="fetchLargerIcon" type="checkbox" />
-                            <span>高清图标</span>
-                        </label>
-                    </div>
+                    <label class="form-label">图标预览</label>
 
                     <div class="icon-selector">
                         <div class="icon-preview">
@@ -338,6 +329,7 @@ watch(
                             type="button"
                             variant="outlined"
                             size="small"
+                            :loading="isFetchingIcon"
                             @click="autoFetchIcon"
                         >
                             <template #icon>
@@ -510,14 +502,6 @@ watch(
     color: var(--label);
 }
 
-// 标签与它自己的选项同行：360px 宽的 popup 里，行尾放个「高清图标」比挤到
-// 按钮行末尾稳得多 —— 按钮行一旦放不下会整行溢出，标签行只会少一点留白。
-.form-label-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-}
-
 .popup-warning {
     display: flex;
     align-items: flex-start;
@@ -562,20 +546,6 @@ watch(
     display: flex;
     gap: var(--space-2);
     align-items: center;
-}
-
-.icon-larger-toggle {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    font-size: var(--text-sm);
-    color: var(--label);
-    cursor: pointer;
-    margin-left: auto;
-
-    input[type='checkbox'] {
-        @include apple-checkbox;
-    }
 }
 
 .popup-footer {

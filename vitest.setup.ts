@@ -91,3 +91,10 @@ for (const name of ['localStorage', 'sessionStorage'] as const) {
         enumerable: true
     });
 }
+
+/**
+ * 断网：Node 24 在全局挂了真实 fetch，图标源解析这类工具一旦在测试里被调用就会
+ * 真的去访问外网，结果随网络与站点响应漂移。这里统一让它失败，被测代码走
+ * 「探测不到就降级」的分支，用例才有确定性。需要探测行为的用例自行 vi.stubGlobal。
+ */
+globalThis.fetch = (() => Promise.reject(new TypeError('fetch is disabled in tests'))) as typeof fetch;

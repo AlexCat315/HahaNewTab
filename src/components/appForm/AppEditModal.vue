@@ -23,6 +23,7 @@ import { useToast } from '@/composables/useToast';
 import { storageManager } from '@/services/storage.service';
 import { STORAGE_KEYS } from '@/types/storage';
 import { normalizeUrl } from '@/utils/url.util';
+import { resolveIconSource } from '@/utils/iconSource.util';
 import type { AppItem, AppInput } from '@/types/app';
 
 /** 新建分类选项的特殊值 */
@@ -85,8 +86,8 @@ const errors = ref<Record<string, string>>({});
 const isSubmitting = ref(false);
 const showIconPicker = ref(false);
 const hiddenTipOpen = ref(false);
-/** 自动获取图标时是否请求高清图（favicon.im larger=true） */
-const fetchLargerIcon = ref(false);
+/** 图标源探测中：多个候选地址 + 首页 HTML，最坏几秒，需要挡住重复点击 */
+const isFetchingIcon = ref(false);
 
 const isEdit = computed(() => !!props.app?.id);
 const modalTitle = computed(() => (isEdit.value ? '编辑网站' : '添加网站'));
@@ -117,22 +118,11 @@ const duplicateCategoryName = computed(() => {
     return getCategoryById(duplicate.category)?.name ?? '未分类';
 });
 
-/** 根据 URL 生成 favicon 服务地址，larger 为 true 时请求高清图 */
-function buildFaviconUrl(url: string, larger = false): string | null {
-    try {
-        const normalized = normalizeUrl(url);
-        const urlObj = new URL(normalized);
-        return `https://favicon.im/${urlObj.hostname}?l=${Date.now()}${larger ? '&larger=true' : ''}`;
-    } catch {
-        return null;
-    }
-}
-
 /** 重置表单状态 */
 function resetForm(): void {
     errors.value = {};
     showIconPicker.value = false;
-    fetchLargerIcon.value = false;
+    isFetchingIcon.value = false;
     newCategoryName.value = '';
 
     if (props.app) {
@@ -161,20 +151,27 @@ function close(): void {
     emit('update:modelValue', false);
 }
 
-/** 自动获取 favicon */
+/** 自动获取图标：探测该站点能拿到的最大源图 */
 async function autoFetchIcon(): Promise<void> {
     const url = form.value.url.trim();
     if (!url) {
         error('请先输入网站链接');
         return;
     }
-    const favicon = buildFaviconUrl(url, fetchLargerIcon.value);
-    if (!favicon) {
-        error('无法解析网站链接');
-        return;
+    if (isFetchingIcon.value) return;
+
+    isFetchingIcon.value = true;
+    try {
+        const icon = await resolveIconSource(url);
+        if (!icon) {
+            error('无法解析网站链接');
+            return;
+        }
+        form.value.icon = icon;
+        success('图标已自动获取');
+    } finally {
+        isFetchingIcon.value = false;
     }
-    form.value.icon = favicon;
-    success('图标已自动获取');
 }
 
 /** URL 输入框失焦且图标为空时自动获取图标 */
@@ -431,6 +428,7 @@ watch(
                             type="button"
                             variant="outlined"
                             size="small"
+                            :loading="isFetchingIcon"
                             @click="autoFetchIcon"
                         >
                             <template #icon>
@@ -446,10 +444,6 @@ watch(
                         >
                             清除
                         </BaseButton>
-                        <label class="icon-larger-toggle">
-                            <input v-model="fetchLargerIcon" type="checkbox" />
-                            <span>获取高清图标</span>
-                        </label>
                     </div>
 
                     <div v-if="showIconPicker" class="icon-picker">
@@ -593,20 +587,6 @@ watch(
     display: flex;
     gap: var(--space-2);
     align-items: center;
-}
-
-.icon-larger-toggle {
-    display: flex;
-    align-items: center;
-    gap: var(--space-1);
-    font-size: var(--text-sm);
-    color: var(--label);
-    cursor: pointer;
-    margin-left: auto;
-
-    input[type='checkbox'] {
-        @include apple-checkbox;
-    }
 }
 
 .icon-picker {
