@@ -569,7 +569,6 @@ function close(): void {
 
     &__content {
         flex: 1;
-        overflow-y: auto;
         padding: var(--space-4) var(--space-6);
         @include scrollable;
     }

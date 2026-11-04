@@ -145,7 +145,6 @@ const deleteIconPath = 'M18 6L6 18M6 6l12 12';
 @use '@/styles/mixins' as *;
 
 .search-history {
-    overflow-y: auto;
     background: transparent;
     @include scrollable;
 

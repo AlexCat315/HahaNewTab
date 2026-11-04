@@ -406,7 +406,6 @@ const modalBodyStyle = {
     &__main {
         flex: 1;
         min-height: 0;
-        overflow-y: auto;
         overflow-x: hidden;
         @include scrollable;
     }

@@ -410,7 +410,6 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
 
 .mnt-modal-body {
     padding: var(--space-5);
-    overflow-y: auto;
     flex: 1;
     min-height: 0;
     @include scrollable;

@@ -455,9 +455,8 @@ onBeforeUnmount(() => {
     margin: var(--space-1) 0 var(--space-1) var(--space-2);
     padding-left: var(--space-1);
     border-left: 1px solid var(--card-border);
-    @include scrollable;
     // 分类展开时列表要在菜单内部滚起来（max-height 已在上面约束）
-    overflow-y: auto;
+    @include scrollable;
 }
 
 .site-menu__divider {

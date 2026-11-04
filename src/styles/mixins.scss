@@ -265,7 +265,7 @@
  * 仍可直接用 hide-scrollbar，但正文/列表滚动区一律走这个。
  */
 @mixin scrollable($axis: y) {
-    overflow: #{$axis};
+    overflow-#{$axis}: auto;
     overscroll-behavior: contain;
     scrollbar-width: thin;
     scrollbar-color: var(--fill) transparent;

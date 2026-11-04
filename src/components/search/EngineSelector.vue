@@ -294,7 +294,6 @@ const searchIconPath = 'M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z';
         min-width: var(--pop-w-min);
         max-width: var(--pop-w-max);
         max-height: 320px;
-        overflow-y: auto;
         // 几乎实心 + 背景模糊双保险：极简模式下磁贴紧贴搜索框下方，
         // 下拉展开时盖住磁贴是预期行为，但不能让磁贴「穿透」面板显示出来
         @include glass-surface(var(--glass-bg-opaque), var(--radius-lg));

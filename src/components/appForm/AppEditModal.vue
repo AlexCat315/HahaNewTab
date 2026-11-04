@@ -614,7 +614,6 @@ watch(
     grid-template-columns: repeat(6, 1fr);
     gap: var(--space-2);
     max-height: 140px;
-    overflow-y: auto;
     @include scrollable;
     padding: var(--space-2);
     border: 1px solid var(--separator);

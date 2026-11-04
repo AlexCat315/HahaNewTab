@@ -479,7 +479,6 @@ const activePresetIcon = computed(() =>
         grid-template-columns: repeat(6, 1fr);
         gap: var(--space-2);
         max-height: 200px;
-        overflow-y: auto;
         @include scrollable;
     }
 

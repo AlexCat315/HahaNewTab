@@ -173,7 +173,6 @@ function highlightMatch(suggestion: string): string {
 @use '@/styles/mixins' as *;
 
 .search-suggestions {
-    overflow-y: auto;
     background: transparent;
     @include scrollable;
 

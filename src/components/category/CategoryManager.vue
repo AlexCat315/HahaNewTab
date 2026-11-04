@@ -238,7 +238,6 @@ function formatCount(categoryId: string): string {
         flex-direction: column;
         gap: var(--space-2);
         max-height: 400px;
-        overflow-y: auto;
         @include scrollable;
     }
 

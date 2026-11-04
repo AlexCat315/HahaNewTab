@@ -151,8 +151,7 @@ watch(
     padding: var(--space-3);
     border-right: 1px solid var(--separator);
     // 栏目多到超出可视高度时左栏自己滚：标题和右栏都不会跟着被带走
-    overflow-y: auto;
-    overscroll-behavior: contain;
+    @include scrollable;
 
     &__item {
         @include button-reset;
@@ -194,7 +193,6 @@ watch(
     // 内容列比外壳暗一档，分组卡才读得出是浮在面上的一层
     background: var(--fill-tertiary);
     // 只有这一列滚：滚动条贴右边缘，标题栏与左栏保持不动
-    overflow-y: auto;
     @include scrollable;
 }
 
