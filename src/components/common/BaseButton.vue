@@ -75,11 +75,14 @@ const spinnerPath = 'M12 2v4m0 12v4M2 12h4m12 0h4';
     align-items: center;
     justify-content: center;
     gap: var(--space-2);
-    border-radius: var(--radius-full);
-    font-weight: var(--weight-semibold);
+    // Apple 的按钮是圆角矩形，不是胶囊：胶囊是给开关、分段控件、chip 的。
+    border-radius: var(--control-radius);
+    font-weight: var(--weight-medium);
+    letter-spacing: -0.01em;
     line-height: 1;
     white-space: nowrap;
-    @include md-transition(all, var(--md-transition-fast));
+    @include spring-transition(transform opacity background box-shadow color, var(--dur-fast));
+    @include pressable;
 
     // 尺寸用 height + 横向 padding 定义，不再靠上下 padding 撑：
     // 同一排按钮里有单行文字也有图标时，垂直 padding 会让它们视觉不等高。
@@ -107,47 +110,46 @@ const spinnerPath = 'M12 2v4m0 12v4M2 12h4m12 0h4';
     }
 
     &--primary {
-        background: var(--md-sys-color-primary);
-        color: var(--md-sys-color-on-primary);
+        @include accent-fill;
 
         &:not(:disabled):hover {
-            transform: translateY(-1px);
             // 混 12% 到 on-primary：浅色主题变亮、深色主题变暗，两种都成立，
             // 不必像以前那样写死一个玫瑰色投影（换个主题就穿帮）
-            background: color-mix(in srgb, var(--md-sys-color-primary) 88%, var(--md-sys-color-on-primary));
+            background: color-mix(in srgb, var(--accent) 88%, var(--on-accent));
             box-shadow: var(--elevation-2);
         }
     }
 
+    // 次按钮 = macOS 的 .bordered：一层极淡的中性填充 + 软阴影，不描边。
+    // 以前 hover 会把描边染成主色，那是 Material 的「聚焦即描边」；
+    // Apple 的 hover 只让这层填充变浓一点。
     &--secondary {
-        background: var(--md-sys-color-surface-variant);
-        color: var(--md-sys-color-on-surface);
-        border: 1px solid var(--card-border);
+        background: var(--fill-tertiary);
+        color: var(--label);
+        box-shadow: var(--elevation-1);
 
         &:not(:disabled):hover {
-            background: var(--hover-bg);
-            border-color: var(--md-sys-color-primary);
+            background: var(--fill-secondary);
         }
     }
 
     &--outlined {
         background: transparent;
-        color: var(--md-sys-color-primary);
-        border: 1px solid var(--card-border);
+        color: var(--accent);
+        border: 1px solid var(--separator);
 
         &:not(:disabled):hover {
-            background: var(--md-sys-color-primary-container);
-            color: var(--md-sys-color-on-primary-container);
-            border-color: var(--md-sys-color-primary);
+            background: var(--tint-primary);
+            color: var(--on-tint);
         }
     }
 
     &--text {
         background: transparent;
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
 
         &:not(:disabled):hover {
-            color: var(--md-sys-color-on-surface);
+            color: var(--label);
             background: var(--hover-bg);
         }
     }

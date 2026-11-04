@@ -121,7 +121,7 @@ function handleFocus(event: FocusEvent): void {
         gap: var(--space-1);
         font-size: var(--text-base);
         font-weight: var(--weight-medium);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
     }
 
     &__required {
@@ -130,6 +130,8 @@ function handleFocus(event: FocusEvent): void {
 
     // 高度取 --control-h-md 而不是靠上下 padding 撑：与同排的单选项
     // （BaseButton medium、SelectField、SwitchField 行）严格等高。
+    // Apple 的输入框是「一层灰填充 + 无描边」，靠焦点光晕而不是描边变色表达焦点——
+    // 描边一圈主色是 Material 的写法，在一列字段里会显得每格都在喊。
     &__wrapper {
         display: flex;
         align-items: center;
@@ -137,11 +139,11 @@ function handleFocus(event: FocusEvent): void {
         width: 100%;
         height: var(--control-h-md);
         padding: 0 var(--space-3);
-        border: 1px solid var(--card-border);
-        border-radius: var(--radius-sm);
-        background: color-mix(in srgb, var(--md-sys-color-on-surface) 5%, transparent);
-        color: var(--md-sys-color-on-surface);
-        @include md-transition(border-color, var(--md-transition-fast));
+        border: none;
+        border-radius: var(--control-radius);
+        background: var(--fill-tertiary);
+        color: var(--label);
+        @include spring-transition(box-shadow background, var(--dur-fast));
     }
 
     &__field {
@@ -155,8 +157,7 @@ function handleFocus(event: FocusEvent): void {
         outline: none;
 
         &::placeholder {
-            color: var(--md-sys-color-on-surface-variant);
-            opacity: 0.55;
+            color: var(--label-tertiary);
         }
 
         // type=search 的原生清除按钮由 UA 绘制，永远是系统蓝，换任何一套主题都不跟随。
@@ -189,7 +190,7 @@ function handleFocus(event: FocusEvent): void {
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
     }
 
     &__messages {
@@ -206,7 +207,7 @@ function handleFocus(event: FocusEvent): void {
     }
 
     &__hint {
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         opacity: 0.85;
     }
 
@@ -214,23 +215,24 @@ function handleFocus(event: FocusEvent): void {
         color: var(--color-error);
     }
 
-    // 焦点环由当前主题色派生：以前写死的玫红阴影在薄荷绿/午夜蔷薇等主题下完全跑色
+    // 焦点：一圈由强调色派生的柔光（--focus-ring 已混过 alpha），不换描边。
+    // 写死主色阴影在薄荷绿/午夜蔷薇等主题下会跑色，所以始终从 token 现混。
     &:focus-within &__wrapper {
-        border-color: var(--md-sys-color-primary);
-        box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent);
+        background: var(--fill-secondary);
+        box-shadow: 0 0 0 4px var(--focus-ring);
     }
 
     &--error &__wrapper {
-        border-color: var(--color-error);
+        box-shadow: 0 0 0 1px var(--color-error);
     }
 
     &--error:focus-within &__wrapper {
-        box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-error) 18%, transparent);
+        box-shadow: 0 0 0 4px var(--tint-error);
     }
 
     &--disabled &__wrapper {
-        background: var(--md-sys-color-surface-variant);
-        opacity: 0.65;
+        background: var(--fill-tertiary);
+        opacity: 0.55;
         cursor: not-allowed;
     }
 }

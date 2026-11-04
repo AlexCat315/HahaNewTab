@@ -304,16 +304,16 @@ function formatPx(value: number): string {
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
-    border: 2px solid var(--md-sys-color-outline-variant);
-    @include md-transition(all, var(--md-transition-fast));
+    border: 2px solid var(--separator);
+    @include spring-transition(all, var(--dur-fast));
 
     &:hover {
-        border-color: var(--md-sys-color-primary);
-        transform: translateY(-1px);
+        border-color: var(--label-tertiary);
+        transform: scale(1.02);
     }
 
     &.active {
-        border-color: var(--md-sys-color-primary);
+        border-color: var(--accent);
         box-shadow: var(--elevation-2);
     }
 }
@@ -350,6 +350,6 @@ function formatPx(value: number): string {
 .wallpaper-status {
     margin-right: auto;
     font-size: var(--text-sm);
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--label-secondary);
 }
 </style>

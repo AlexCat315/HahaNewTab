@@ -172,12 +172,11 @@ defineExpose({ focusInput, clearSuggestions });
     padding: 0 var(--space-2);
     // 压在壁纸上的输入外壳：玻璃底 + 模糊 + 描边由混入给全
     @include glass-surface(var(--glass-bg-strong), var(--radius-full));
-    @include md-transition(all, var(--md-transition-fast));
+    @include spring-transition(all, var(--dur-fast));
 
     &:focus-within {
         background: var(--glass-bg-opaque);
-        border-color: var(--md-sys-color-primary);
-        box-shadow: var(--elevation-2);
+        box-shadow: var(--elevation-2), 0 0 0 4px var(--focus-ring);
     }
 }
 
@@ -188,11 +187,11 @@ defineExpose({ focusInput, clearSuggestions });
         border-radius: var(--radius-full);
         font-size: var(--text-sm);
         font-weight: var(--weight-semibold);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
 
         &:hover:not(:disabled) {
-            background: var(--md-sys-color-surface-variant);
-            color: var(--md-sys-color-primary);
+            background: var(--fill);
+            color: var(--label);
         }
     }
 
@@ -228,14 +227,14 @@ defineExpose({ focusInput, clearSuggestions });
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--label-secondary);
     opacity: 0.75;
-    @include md-transition(all, var(--md-transition-fast));
+    @include spring-transition(all, var(--dur-fast));
 
     &:hover:not(:disabled) {
         opacity: 1;
-        color: var(--md-sys-color-on-primary-container);
-        background: var(--md-sys-color-primary-container);
+        color: var(--label);
+        background: var(--fill-secondary);
     }
 
     &:disabled {
@@ -253,10 +252,10 @@ defineExpose({ focusInput, clearSuggestions });
     background: transparent;
     font-family: inherit;
     font-size: var(--text-md);
-    color: var(--md-sys-color-on-surface);
+    color: var(--label);
 
     &::placeholder {
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         opacity: 0.6;
     }
 }

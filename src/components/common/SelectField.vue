@@ -2,8 +2,9 @@
 /**
  * SelectField - 下拉选择控件
  *
- * AppEditModal 与 UiLibPanel 曾各自复制过一份带硬编码玫红 focus 阴影的
- * 原生 select，这里合并为一个主题无关的实现。
+ * API 与 BaseInput 对齐（label / required / hint / error），这样表单里两类控件
+ * 的标签、必填星号、错误文案长得一样，不必每个面板再各写一套原生 select：
+ * popup、AppEditModal、UiLibPanel 都曾复制过一份带硬编码 focus 阴影的实现。
  */
 import { computed } from 'vue';
 
@@ -22,6 +23,10 @@ interface Props {
     placeholder?: string;
     disabled?: boolean;
     required?: boolean;
+    /** 校验失败文案；有值时描边转错误色，并取代 hint 显示在控件下方 */
+    error?: string;
+    /** 覆盖自动生成的控件 id：需要被外部 label 或测试稳定引用时传入 */
+    id?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -32,7 +37,7 @@ const emit = defineEmits<{
     (e: 'update:modelValue', value: string): void;
 }>();
 
-const selectId = computed(() => `mnt-select-${Math.random().toString(36).slice(2, 9)}`);
+const selectId = computed(() => props.id ?? `mnt-select-${Math.random().toString(36).slice(2, 9)}`);
 
 const normalized = computed<SelectOption[]>(() =>
     props.options.map((option) =>
@@ -48,7 +53,10 @@ function onChange(event: Event): void {
 </script>
 
 <template>
-    <div class="mnt-select" :class="{ 'mnt-select--disabled': disabled }">
+    <div
+        class="mnt-select"
+        :class="{ 'mnt-select--disabled': disabled, 'mnt-select--error': !!error }"
+    >
         <label v-if="label" class="mnt-select__label" :for="selectId">
             {{ label }}
             <span v-if="required" class="mnt-select__required" aria-hidden="true">*</span>
@@ -87,7 +95,10 @@ function onChange(event: Event): void {
             </svg>
         </div>
 
-        <p v-if="hint" class="mnt-select__hint">{{ hint }}</p>
+        <div v-if="error || hint" class="mnt-select__messages">
+            <p v-if="error" class="mnt-select__error">{{ error }}</p>
+            <p v-else-if="hint" class="mnt-select__hint">{{ hint }}</p>
+        </div>
     </div>
 </template>
 
@@ -105,7 +116,7 @@ function onChange(event: Event): void {
         gap: var(--space-1);
         font-size: var(--text-base);
         font-weight: var(--weight-medium);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
     }
 
     &__required {
@@ -118,24 +129,21 @@ function onChange(event: Event): void {
         align-items: center;
     }
 
+    // 与 BaseInput 同构：一层灰填充、无描边、圆角矩形，焦点用柔光。
     &__field {
         width: 100%;
         height: var(--control-h-md);
         padding: 0 var(--space-8) 0 var(--space-3);
-        border: 1px solid var(--card-border);
-        border-radius: var(--radius-sm);
-        background: color-mix(in srgb, var(--md-sys-color-on-surface) 5%, transparent);
-        color: var(--md-sys-color-on-surface);
+        border: none;
+        border-radius: var(--control-radius);
+        background: var(--fill-tertiary);
+        color: var(--label);
         font-family: inherit;
         font-size: var(--text-base);
         appearance: none;
         -webkit-appearance: none;
         cursor: pointer;
-        @include md-transition(border-color background, var(--md-transition-fast));
-
-        &:hover:not(:disabled) {
-            border-color: var(--md-sys-color-primary);
-        }
+        @include spring-transition(box-shadow background, var(--dur-fast));
     }
 
     &__chevron {
@@ -144,18 +152,44 @@ function onChange(event: Event): void {
         width: var(--icon-xs);
         height: var(--icon-xs);
         pointer-events: none;
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
+    }
+
+    &__messages {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-1);
     }
 
     &__hint {
         margin: 0;
         font-size: var(--text-sm);
         line-height: var(--leading-normal);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
+    }
+
+    &__error {
+        margin: 0;
+        font-size: var(--text-sm);
+        line-height: var(--leading-normal);
+        color: var(--color-error);
+    }
+
+    &:focus-within &__field {
+        background: var(--fill-secondary);
+        box-shadow: 0 0 0 4px var(--focus-ring);
+    }
+
+    &--error &__field {
+        box-shadow: 0 0 0 1px var(--color-error);
+    }
+
+    &--error &__box:focus-within &__field {
+        box-shadow: 0 0 0 4px var(--tint-error);
     }
 
     &--disabled &__field {
-        opacity: 0.6;
+        opacity: 0.55;
         cursor: not-allowed;
     }
 }

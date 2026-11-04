@@ -308,19 +308,19 @@ onUnmounted(() => {
     padding: var(--space-1) var(--space-3);
     border-radius: var(--radius-full);
     font-size: var(--text-xs);
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--label-secondary);
     opacity: 0.55;
-    @include md-transition(all, var(--md-transition-fast));
+    @include spring-transition(all, var(--dur-fast));
 
     &:hover {
         opacity: 0.9;
-        background: var(--md-sys-color-surface-variant);
+        background: var(--fill);
     }
 
     &.active {
         opacity: 1;
-        background: var(--md-sys-color-primary-container);
-        color: var(--md-sys-color-on-primary-container);
+        background: var(--tint-primary);
+        color: var(--on-tint);
         font-weight: var(--weight-semibold);
     }
 }
@@ -345,11 +345,11 @@ onUnmounted(() => {
     flex-direction: column;
     align-items: center;
     gap: var(--space-2);
-    @include md-transition(all, var(--md-transition-fast));
+    @include spring-transition(all, var(--dur-fast));
     @include focus-ring;
 
     &:hover {
-        background: var(--md-sys-color-primary-container);
+        background: var(--fill-tertiary);
 
         .minimal-tile__more {
             opacity: 1;
@@ -379,7 +379,7 @@ onUnmounted(() => {
         bottom: 10%;
         width: 2px;
         border-radius: var(--radius-full);
-        background: var(--md-sys-color-primary);
+        background: var(--accent);
     }
 }
 
@@ -400,7 +400,7 @@ onUnmounted(() => {
     max-width: 100%;
     font-size: var(--text-xs);
     line-height: var(--leading-tight);
-    color: var(--md-sys-color-on-surface);
+    color: var(--label);
     text-align: center;
     @include line-clamp(2);
 }
@@ -417,13 +417,13 @@ onUnmounted(() => {
     justify-content: center;
     background: var(--glass-bg-opaque);
     border: 1px solid var(--card-border);
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--label-secondary);
     opacity: 0;
-    @include md-transition(opacity, var(--md-transition-fast));
+    @include spring-transition(opacity, var(--dur-fast));
 
     &:hover {
-        background: var(--md-sys-color-primary);
-        color: var(--md-sys-color-on-primary);
+        background: var(--accent);
+        color: var(--on-accent);
         border-color: transparent;
     }
 }
@@ -432,13 +432,13 @@ onUnmounted(() => {
 .minimal-hint {
     margin: var(--space-6) 0 0;
     font-size: var(--text-sm);
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--label-secondary);
     opacity: 0.6;
 }
 
 .minimal-hint__link {
     @include button-reset;
-    color: var(--md-sys-color-primary);
+    color: var(--accent);
     text-decoration: underline;
     margin-left: var(--space-1);
 }
@@ -452,13 +452,13 @@ onUnmounted(() => {
     padding: var(--space-1) var(--space-3);
     border-radius: var(--radius-full);
     font-size: var(--text-xs);
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--label-secondary);
     opacity: 0.6;
-    @include md-transition(all, var(--md-transition-fast));
+    @include spring-transition(all, var(--dur-fast));
 
     &:hover {
         opacity: 1;
-        background: var(--md-sys-color-surface-variant);
+        background: var(--fill);
     }
 }
 

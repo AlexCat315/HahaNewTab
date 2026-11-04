@@ -72,7 +72,7 @@ const ghostStyle = computed(() => ({
     // 与 AppCard 同一几何契约：inline 的 minHeight 是实测卡高，
     // 这里补 token 高，保证拿起的瞬间不会先塌回内容高再被撑开
     height: var(--card-row-height);
-    border-color: var(--md-sys-color-primary);
+    border-color: var(--accent);
     box-shadow: var(--elevation-3);
     pointer-events: none;
     transform: scale(1.03);
@@ -84,8 +84,8 @@ const ghostStyle = computed(() => ({
         display: flex;
         align-items: center;
         justify-content: center;
-        background: var(--md-sys-color-primary-container);
-        color: var(--md-sys-color-on-primary-container);
+        background: var(--tint-primary);
+        color: var(--on-tint);
         flex-shrink: 0;
         overflow: hidden;
     }
@@ -108,14 +108,14 @@ const ghostStyle = computed(() => ({
         font-size: var(--text-base);
         font-weight: var(--weight-semibold);
         line-height: var(--leading-tight);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
         @include text-ellipsis;
     }
 
     &__description {
         margin: 0;
         font-size: var(--text-xs);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         opacity: 0.85;
         line-height: var(--leading-normal);
         @include line-clamp(2);

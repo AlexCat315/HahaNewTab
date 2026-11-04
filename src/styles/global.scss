@@ -15,6 +15,12 @@
 
 html {
     scroll-behavior: smooth;
+
+    // 未勾选的 checkbox、<select> 展开的下拉列表、自动填充高亮、时间控件弹层都由 UA 绘制，
+    // 它们不吃任何 CSS 变量，只认 color-scheme。不声明的话，切到任何深色变体主题，这些部位
+    // 仍按系统浅色画 —— 白底下拉贴在深色面板上，是「主题没跟随」最容易漏的一类。
+    // 深色由下方 html.dark-mode 覆盖；accent-color 只能染选中态，救不了未勾选的框。
+    color-scheme: light;
 }
 
 // html 只承载主题变量，绝不承载背景色。
@@ -27,16 +33,37 @@ html {
 }
 
 body {
-    font-family: 'Noto Sans SC', 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: var(--font-ui);
     background-color: var(--md-sys-color-background);
-    color: var(--md-sys-color-on-surface);
+    color: var(--label);
     line-height: var(--leading-normal);
     min-height: 100vh;
     transition:
-        background-color var(--md-transition-medium) var(--md-easing),
-        color var(--md-transition-medium) var(--md-easing);
+        background-color var(--dur-med) var(--ease-spring),
+        color var(--dur-med) var(--ease-spring);
     font-size: var(--text-base);
     overflow-x: hidden;
+
+    // Apple 的字体渲染三件套：抗锯齿走灰度（不是「加粗一阶」）、字距微调打开、
+    // 长文换行不再出现半个字被切开。少了这几行，同样的字号在 macOS 上会比系统界面重一档。
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-kerning: normal;
+}
+
+// 标题收紧字距：SF Pro 的大字默认间距偏松，Apple 自己的界面对标题做了负字距，
+// 这是「看着像系统界面」最容易被忽略的一格。
+h1,
+h2,
+h3 {
+    letter-spacing: -0.02em;
+    font-weight: var(--weight-semibold);
+}
+
+// 选中文本：强调色的一层薄底，而不是浏览器默认的整块实心蓝
+::selection {
+    background: color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 // ==================== 全局焦点环 ====================
@@ -44,14 +71,16 @@ body {
 // 键盘焦点必须可见，且由这一处统一负责：组件里再各写一份 focus-ring 是以前
 // 「几十个按钮完全没有焦点轮廓」的根因。需要换色的场合（比如压在主题主色上的
 // 顶栏按钮）在局部覆盖 --focus-ring 即可，不另开规则。
+// Apple 的焦点是「强调色的一圈柔光」：--focus-ring 已混过 alpha、宽度取 3px，
+// 视觉上是光晕而不是一圈描线，但仍走 outline（box-shadow 被组件的投影占着）。
 :focus-visible {
     outline: var(--focus-ring-width) solid var(--focus-ring);
     outline-offset: var(--focus-ring-offset);
 }
 
-// 压在主题主色/深色玻璃上的元素，焦点环改用反色，否则环和底同色等于没有
+// 压在主题主色/深色材质上的元素，焦点环改用反色，否则环和底同色等于没有
 [data-focus-ring='on-primary'] {
-    --focus-ring: var(--md-sys-color-on-primary);
+    --focus-ring: var(--on-accent);
 }
 
 // ==================== 防止主题闪烁 (FOUC) ====================
@@ -60,18 +89,18 @@ html[data-theme-loading] {
 }
 
 html[data-theme-loading] body {
-    background-color: var(--md-sys-color-background, #FFF8F9);
+    background-color: var(--md-sys-color-background, #FBFBFB);
     opacity: 0;
 }
 
 html[data-theme-loaded] {
     visibility: visible;
-    animation: themeFadeIn 0.2s ease-out;
+    animation: themeFadeIn var(--dur-fast) var(--ease-decel);
 }
 
 html[data-theme-loaded] body {
     opacity: 1;
-    transition: opacity 0.15s ease-out;
+    transition: opacity var(--dur-fast) var(--ease-decel);
 }
 
 @keyframes themeFadeIn {
@@ -84,7 +113,11 @@ html[data-theme-loaded] body {
     }
 }
 
-// ==================== 自定义滚动条 ====================
+// ==================== 滚动条 ====================
+//
+// macOS 的覆盖式滚动条：轨道全透，滑块是一根中性灰胶囊，静止时几乎不存在，
+// 悬停才提浓。灰阶用 --fill（明暗两套由 html.dark-mode 给），所以这里不需要
+// 再写一份深色覆盖 —— 以前那一份正是「深色主题被糊成同一种灰」的来源。
 ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -92,25 +125,25 @@ html[data-theme-loaded] body {
 
 ::-webkit-scrollbar-track {
     background: transparent;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
 }
 
 ::-webkit-scrollbar-thumb {
-    background: var(--md-sys-color-outline);
-    border-radius: 4px;
+    background: var(--fill-secondary);
+    border-radius: var(--radius-full);
     border: 2px solid transparent;
     background-clip: padding-box;
-    transition: background var(--md-transition-fast) ease;
+    transition: background var(--dur-fast) var(--ease-spring);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: var(--md-sys-color-on-surface-variant);
+    background: var(--fill);
     border: 2px solid transparent;
     background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:active {
-    background: var(--md-sys-color-primary);
+    background: var(--fill);
 }
 
 ::-webkit-scrollbar-corner {
@@ -120,29 +153,18 @@ html[data-theme-loaded] body {
 // Firefox 滚动条
 * {
     scrollbar-width: thin;
-    scrollbar-color: var(--md-sys-color-outline) transparent;
+    scrollbar-color: var(--fill-secondary) transparent;
 }
 
-// 深色模式滚动条：色值跟随主题的 on-surface，不再写死白色
+// 深色模式：让 UA 绘制的控件部位也换到深色配色。
+// 未勾选的 checkbox、<select> 展开的下拉列表、自动填充高亮、时间控件弹层都由 UA 绘制，
+// 它们不吃任何 CSS 变量，只认 color-scheme。
+// 灰阶与材质本身的深色值在 variables.scss 的 html.dark-mode 里。
 html.dark-mode {
-    ::-webkit-scrollbar-thumb {
-        background: color-mix(in srgb, var(--md-sys-color-on-surface) 22%, transparent);
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-        background: color-mix(in srgb, var(--md-sys-color-on-surface) 35%, transparent);
-    }
-
-    ::-webkit-scrollbar-thumb:active {
-        background: var(--md-sys-color-primary);
-    }
-
-    * {
-        scrollbar-color: color-mix(in srgb, var(--md-sys-color-on-surface) 22%, transparent) transparent;
-    }
+    color-scheme: dark;
 }
 
-// 深色模式不再单独覆盖各组件表面色。
-// 表面色一律来自主题 token（--md-sys-color-surface / --card-bg / --hover-bg），
+// 中性层（文字、分隔线、填充、材质）由 variables.scss 的 html.dark-mode 给另一套 alpha；
+// 表面色一律来自 --card-bg / --glass-bg-* / --hover-bg 这些契约 token。
 // 在这里写死 rgba(40, 40, 40, .98) 会把 12 套深色主题统一糊成同一种灰，
 // 弹窗 / FAB 菜单 / 图标库面板也就丢掉了主题色。

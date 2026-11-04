@@ -27,6 +27,7 @@ import { dirname, resolve } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SEEDS_PATH = resolve(__dirname, '../public/config/theme-seeds.json');
 const THEMES_PATH = resolve(__dirname, '../public/config/themes.json');
+const VARIABLES_PATH = resolve(__dirname, '../src/styles/variables.scss');
 
 // ==================== 颜色工具 ====================
 
@@ -457,6 +458,38 @@ const output = {
     themes,
 };
 
+/**
+ * variables.scss 的 :root 是「主题预加载生效之前」的兜底配色，必须等于 defaultTheme。
+ * 这里曾经残留着早已废弃的玫瑰色（#B14A6B），而默认主题早就换成了墨魂银骨 ——
+ * 预加载失败的那一帧就会闪出一套不属于任何主题的配色，肉眼 review 根本发现不了。
+ */
+function checkScssFallback() {
+    const defaultTheme = themes.find((t) => t.id === output.defaultTheme);
+    if (!defaultTheme || !existsSync(VARIABLES_PATH)) {
+        return ['找不到 src/styles/variables.scss 或默认主题'];
+    }
+    const source = readFileSync(VARIABLES_PATH, 'utf8');
+    const problems = [];
+    for (const [token, expected] of Object.entries(defaultTheme.colors)) {
+        const pattern = new RegExp(`${token.replace(/-/g, '\\-')}\\s*:\\s*(#[0-9a-fA-F]{3,8})\\s*;`);
+        const matched = source.match(pattern);
+        if (!matched) {
+            problems.push(`${token}：:root 里没有兜底值`);
+        } else if (matched[1].toUpperCase() !== expected.toUpperCase()) {
+            problems.push(`${token}：兜底值 ${matched[1]} ≠ 默认主题 ${expected}`);
+        }
+    }
+    return problems;
+}
+
+const fallbackProblems = checkScssFallback();
+if (fallbackProblems.length > 0) {
+    console.log(`\nvariables.scss 兜底色与默认主题不一致 ${fallbackProblems.length} 项：`);
+    for (const problem of fallbackProblems) {
+        console.log(`  ${problem}`);
+    }
+}
+
 // ==================== 体检报告 ====================
 
 const ratio = (v) => v.toFixed(2).padStart(7);
@@ -521,6 +554,10 @@ if (checkOnly) {
     }
     if (readFileSync(THEMES_PATH, 'utf8') !== serialized) {
         console.log('\n✗ themes.json 与 seeds 不一致（改过 seeds 却没重新生成）。');
+        process.exit(1);
+    }
+    if (fallbackProblems.length > 0) {
+        console.log('\n✗ variables.scss 的兜底色没跟上默认主题。');
         process.exit(1);
     }
     console.log(`\n✓ themes.json 与 seeds 一致，${report.length} 个变体全部达标。`);

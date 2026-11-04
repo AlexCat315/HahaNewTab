@@ -93,7 +93,7 @@ describe('PopupApp.vue', () => {
         expect(wrapper.find('.popup-title').text()).toContain('添加到 Haha新标签页');
         expect(wrapper.find('input[placeholder="例如：GitHub"]').exists()).toBe(true);
         expect(wrapper.find('input[type="url"]').exists()).toBe(true);
-        expect(wrapper.find('#popup-category').exists()).toBe(true);
+        expect(wrapper.find('.mnt-select__field').exists()).toBe(true);
     });
 
     it('自动填充当前标签页信息', async () => {
@@ -128,7 +128,7 @@ describe('PopupApp.vue', () => {
         mountPopup();
         await flushPromises();
 
-        const categorySelect = document.querySelector('#popup-category') as HTMLSelectElement;
+        const categorySelect = document.querySelector('.mnt-select__field') as HTMLSelectElement;
         categorySelect.value = '__new__';
         categorySelect.dispatchEvent(new Event('change'));
         await flushPromises();
@@ -142,7 +142,7 @@ describe('PopupApp.vue', () => {
 
         const nameInput = document.querySelector('input[placeholder="例如：GitHub"]') as HTMLInputElement;
         const urlInput = document.querySelector('input[type="url"]') as HTMLInputElement;
-        const categorySelect = document.querySelector('#popup-category') as HTMLSelectElement;
+        const categorySelect = document.querySelector('.mnt-select__field') as HTMLSelectElement;
 
         nameInput.value = 'V2EX';
         nameInput.dispatchEvent(new Event('input'));
@@ -188,7 +188,7 @@ describe('PopupApp.vue', () => {
         // 自动填充的当前标签页就是 GitHub，进来就应提示重复
         expect(document.body.textContent).toContain('该网站已存在');
 
-        const categorySelect = document.querySelector('#popup-category') as HTMLSelectElement;
+        const categorySelect = document.querySelector('.mnt-select__field') as HTMLSelectElement;
         categorySelect.value = 'dev';
         categorySelect.dispatchEvent(new Event('change'));
         await flushPromises();
@@ -207,7 +207,7 @@ describe('PopupApp.vue', () => {
 
         const nameInput = document.querySelector('input[placeholder="例如：GitHub"]') as HTMLInputElement;
         const urlInput = document.querySelector('input[type="url"]') as HTMLInputElement;
-        const categorySelect = document.querySelector('#popup-category') as HTMLSelectElement;
+        const categorySelect = document.querySelector('.mnt-select__field') as HTMLSelectElement;
 
         nameInput.value = 'Example';
         nameInput.dispatchEvent(new Event('input'));

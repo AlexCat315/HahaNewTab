@@ -205,13 +205,13 @@ async function handleFollowSystem(): Promise<void> {
 
     &__loading {
         font-size: var(--text-sm);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         padding: var(--space-2) 0;
     }
 
     &__follow {
         margin-top: var(--space-3);
-        color: var(--md-sys-color-primary);
+        color: var(--accent);
     }
 }
 
@@ -230,22 +230,22 @@ async function handleFollowSystem(): Promise<void> {
     gap: var(--space-2);
     padding: var(--space-2);
     border-radius: var(--card-radius);
-    color: var(--md-sys-color-on-surface);
+    color: var(--label);
     text-align: left;
     width: 100%;
     border: 1px solid transparent;
-    @include md-transition(all, var(--md-transition-fast));
+    @include spring-transition(all, var(--dur-fast));
 
     &:hover {
         background: var(--hover-bg);
-        border-color: var(--md-sys-color-outline-variant);
+        border-color: var(--separator);
     }
 
     // 选中态用 tint 底 + 主色描边，不用 primary-container 实底：
     // 卡面已经铺了该族的颜色，整行再压一层实底会把预览读成「另一套配色」。
     &.active {
         background: var(--tint-primary);
-        color: var(--md-sys-color-primary);
+        color: var(--accent);
         border-color: var(--tint-primary-strong);
     }
 
@@ -266,7 +266,7 @@ async function handleFollowSystem(): Promise<void> {
         border-radius: var(--radius-sm);
         border: 1px solid var(--pv-variant);
         background: var(--pv-surface);
-        @include md-transition(box-shadow, var(--md-transition-fast));
+        @include spring-transition(box-shadow, var(--dur-fast));
     }
 
     &__preview-bar {
@@ -339,14 +339,14 @@ async function handleFollowSystem(): Promise<void> {
         font-size: var(--text-xs);
         padding: var(--space-1) var(--space-2);
         border-radius: var(--radius-full);
-        background: var(--md-sys-color-surface-variant);
-        color: var(--md-sys-color-on-surface-variant);
+        background: var(--fill);
+        color: var(--label-secondary);
         flex-shrink: 0;
         line-height: var(--leading-tight);
     }
 
     &__check {
-        color: var(--md-sys-color-primary);
+        color: var(--accent);
         flex-shrink: 0;
     }
 }

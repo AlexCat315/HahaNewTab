@@ -157,17 +157,17 @@ function onClear() {
     &__box {
         border-radius: var(--radius-md);
         border: 2px solid var(--card-border);
-        background: var(--md-sys-color-surface-variant);
+        background: var(--fill);
         display: flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
         overflow: hidden;
-        @include md-transition(border-color box-shadow);
+        @include spring-transition(border-color box-shadow);
 
         &:focus-within {
-            border-color: var(--md-sys-color-primary);
-            box-shadow: 0 0 0 2px var(--tint-primary);
+            border-color: var(--label-tertiary);
+            box-shadow: 0 0 0 4px var(--focus-ring);
         }
     }
 
@@ -184,7 +184,7 @@ function onClear() {
 
     &__label {
         font-size: var(--text-xs);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         line-height: var(--leading-tight);
     }
 
@@ -201,19 +201,17 @@ function onClear() {
         border-radius: var(--radius-sm);
         font-size: var(--text-xs);
         font-weight: var(--weight-medium);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         background: var(--hover-bg);
         border: 1px solid var(--card-border);
-        @include md-transition(background-color color border-color, var(--md-transition-fast));
+        @include spring-transition(background-color color border-color, var(--dur-fast));
 
         &:hover {
             background: var(--pressed-bg);
-            color: var(--md-sys-color-on-surface);
-            border-color: var(--md-sys-color-primary);
+            color: var(--label);
         }
 
         &--danger:hover {
-            border-color: var(--color-error);
             color: var(--color-error);
             background: var(--tint-error);
         }

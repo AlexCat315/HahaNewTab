@@ -110,13 +110,13 @@ function handleKeydown(event: KeyboardEvent): void {
         align-items: center;
         gap: var(--space-2);
         font-size: var(--text-sm);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         font-weight: var(--weight-medium);
         line-height: var(--leading-normal);
     }
 
     &__value {
-        color: var(--md-sys-color-primary);
+        color: var(--accent);
         font-weight: var(--weight-semibold);
         font-variant-numeric: tabular-nums;
     }
@@ -136,7 +136,7 @@ function handleKeydown(event: KeyboardEvent): void {
         transform: translateY(-50%);
         height: 4px;
         border-radius: var(--radius-full);
-        background: var(--md-sys-color-primary);
+        background: var(--accent);
         pointer-events: none;
     }
 
@@ -158,8 +158,8 @@ function handleKeydown(event: KeyboardEvent): void {
             height: var(--control-h-sm);
             border-radius: var(--radius-full);
             background: linear-gradient(
-                var(--md-sys-color-surface-variant),
-                var(--md-sys-color-surface-variant)
+                var(--fill),
+                var(--fill)
             ) center / 100% 4px no-repeat;
         }
 
@@ -170,10 +170,10 @@ function handleKeydown(event: KeyboardEvent): void {
             // Blink 不自动垂直居中滑块，需按 (轨道高 - 滑块高)/2 下推
             margin-top: calc((var(--control-h-sm) - var(--icon-xs)) / 2);
             border-radius: var(--radius-full);
-            background: var(--md-sys-color-primary);
+            background: var(--material-thick);
             cursor: pointer;
             box-shadow: var(--elevation-1);
-            @include md-transition(transform, var(--md-transition-fast));
+            @include spring-transition(transform, var(--dur-fast));
         }
 
         &::-moz-range-track {
@@ -181,8 +181,8 @@ function handleKeydown(event: KeyboardEvent): void {
             height: var(--control-h-sm);
             border-radius: var(--radius-full);
             background: linear-gradient(
-                var(--md-sys-color-surface-variant),
-                var(--md-sys-color-surface-variant)
+                var(--fill),
+                var(--fill)
             ) center / 100% 4px no-repeat;
         }
 
@@ -191,10 +191,10 @@ function handleKeydown(event: KeyboardEvent): void {
             height: var(--icon-xs);
             border: none;
             border-radius: var(--radius-full);
-            background: var(--md-sys-color-primary);
+            background: var(--material-thick);
             cursor: pointer;
             box-shadow: var(--elevation-1);
-            @include md-transition(transform, var(--md-transition-fast));
+            @include spring-transition(transform, var(--dur-fast));
         }
 
         &::-webkit-slider-thumb:hover,

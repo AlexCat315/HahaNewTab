@@ -15,6 +15,7 @@ import { ref, computed, watch } from 'vue';
 import ModalOverlay from '@/components/common/ModalOverlay.vue';
 import BaseInput from '@/components/common/BaseInput.vue';
 import BaseButton from '@/components/common/BaseButton.vue';
+import SelectField from '@/components/common/SelectField.vue';
 import IconSvg from '@/components/icon/IconSvg.vue';
 import HiddenTipModal from '@/components/appForm/HiddenTipModal.vue';
 import { useDataManager } from '@/composables/useDataManager';
@@ -92,6 +93,11 @@ const modalTitle = computed(() => (isEdit.value ? '编辑网站' : '添加网站
 const isNewCategory = computed(() => form.value.category === NEW_CATEGORY_VALUE);
 const effectiveIcon = computed(() => form.value.icon?.trim() || DEFAULT_ICON);
 const categoryOptions = computed(() => userCategories.value);
+/** 下拉项：已有分类 + 「新建分类」；placeholder 由 SelectField 渲染 */
+const categorySelectOptions = computed(() => [
+    ...categoryOptions.value.map((category) => ({ value: category.id, label: category.name })),
+    { value: NEW_CATEGORY_VALUE, label: '+ 新建分类' },
+]);
 const iconItems = computed(() => uiItems.value);
 
 /**
@@ -322,7 +328,7 @@ watch(
         <form class="app-edit-form" @submit.prevent="handleSubmit">
             <section class="form-section">
                 <header class="form-section__header">
-                    <IconSvg name="edit" size="var(--icon-xs)" color="var(--md-sys-color-primary)" monochrome />
+                    <IconSvg name="edit" size="var(--icon-xs)" color="var(--accent)" monochrome />
                     <h3 class="form-section__title">基本信息</h3>
                 </header>
 
@@ -355,29 +361,15 @@ watch(
                     </p>
                 </div>
 
-                <div class="form-group">
-                    <label class="form-label" for="app-edit-category">
-                        所属分类
-                        <span class="form-required" aria-hidden="true">*</span>
-                    </label>
-                    <select
-                        id="app-edit-category"
-                        v-model="form.category"
-                        class="form-select"
-                        :class="{ 'form-select--error': errors.category }"
-                    >
-                        <option value="" disabled>请选择分类</option>
-                        <option
-                            v-for="category in categoryOptions"
-                            :key="category.id"
-                            :value="category.id"
-                        >
-                            {{ category.name }}
-                        </option>
-                        <option :value="NEW_CATEGORY_VALUE">+ 新建分类</option>
-                    </select>
-                    <p v-if="errors.category" class="form-error">{{ errors.category }}</p>
-                </div>
+                <SelectField
+                    id="app-edit-category"
+                    v-model="form.category"
+                    label="所属分类"
+                    required
+                    placeholder="请选择分类"
+                    :options="categorySelectOptions"
+                    :error="errors.category"
+                />
 
                 <div v-if="isNewCategory" class="form-group">
                     <BaseInput
@@ -400,7 +392,7 @@ watch(
 
             <section class="form-section">
                 <header class="form-section__header">
-                    <IconSvg name="picture" size="var(--icon-xs)" color="var(--md-sys-color-primary)" monochrome />
+                    <IconSvg name="picture" size="var(--icon-xs)" color="var(--accent)" monochrome />
                     <h3 class="form-section__title">图标设置</h3>
                 </header>
 
@@ -526,7 +518,7 @@ watch(
 
     &__title {
         // 表单区块标题：主色 eyebrow，与 CloudSyncPanel / SettingsSection 同一档
-        @include section-label(var(--md-sys-color-primary));
+        @include section-label(var(--accent));
     }
 }
 
@@ -540,50 +532,6 @@ watch(
         align-items: center;
         gap: var(--space-2);
     }
-}
-
-.form-label {
-    display: flex;
-    align-items: center;
-    gap: var(--space-1);
-    font-size: var(--text-sm);
-    font-weight: var(--weight-semibold);
-    color: var(--md-sys-color-on-surface);
-}
-
-.form-required {
-    color: var(--color-error);
-}
-
-// 描边给出焦点态的即时反馈，键盘焦点环由 global.scss 的 :focus-visible 统一提供，
-// 组件不再自写 rgba 光圈。
-.form-select {
-    width: 100%;
-    padding: var(--space-2) var(--space-3);
-    border: 1px solid var(--md-sys-color-outline);
-    border-radius: var(--radius-sm);
-    background: var(--md-sys-color-surface);
-    color: var(--md-sys-color-on-surface);
-    font-size: var(--text-base);
-    font-family: inherit;
-    outline: none;
-    cursor: pointer;
-    @include md-transition(border-color, var(--md-transition-fast));
-
-    &:focus {
-        border-color: var(--md-sys-color-primary);
-    }
-
-    &--error {
-        border-color: var(--color-error);
-    }
-}
-
-.form-error {
-    margin: 0;
-    font-size: var(--text-xs);
-    color: var(--color-error);
-    line-height: var(--leading-normal);
 }
 
 .form-warning {
@@ -625,8 +573,8 @@ watch(
     height: var(--icon-2xl);
     flex-shrink: 0;
     border-radius: var(--radius-md);
-    background: var(--md-sys-color-surface);
-    border: 1px solid var(--md-sys-color-outline);
+    background: var(--fill-tertiary);
+    border: 1px solid var(--separator);
     @include flex-center(row, 0);
 }
 
@@ -652,15 +600,12 @@ watch(
     align-items: center;
     gap: var(--space-1);
     font-size: var(--text-sm);
-    color: var(--md-sys-color-on-surface);
+    color: var(--label);
     cursor: pointer;
     margin-left: auto;
 
     input[type='checkbox'] {
-        width: 16px;
-        height: 16px;
-        cursor: pointer;
-        accent-color: var(--md-sys-color-primary);
+        @include apple-checkbox;
     }
 }
 
@@ -672,9 +617,9 @@ watch(
     overflow-y: auto;
     @include scrollable;
     padding: var(--space-2);
-    border: 1px solid var(--md-sys-color-outline-variant);
+    border: 1px solid var(--separator);
     border-radius: var(--radius-sm);
-    background: var(--md-sys-color-surface);
+    background: var(--fill-tertiary);
 }
 
 .icon-picker-item {
@@ -682,14 +627,14 @@ watch(
     width: var(--icon-xl);
     height: var(--icon-xl);
     border-radius: var(--radius-sm);
-    background: var(--md-sys-color-surface);
-    border: 1px solid var(--md-sys-color-outline);
+    background: var(--fill-tertiary);
+    border: 1px solid var(--separator);
     @include flex-center(row, 0);
-    @include md-transition(all, var(--md-transition-fast));
+    @include spring-transition(all, var(--dur-fast));
 
     &:hover {
-        border-color: var(--md-sys-color-primary);
-        background: var(--md-sys-color-primary-container);
+        background: var(--fill-secondary);
+        box-shadow: var(--elevation-1);
     }
 }
 
@@ -699,13 +644,10 @@ watch(
     gap: var(--space-2);
     cursor: pointer;
     font-size: var(--text-base);
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--label-secondary);
 
     input[type='checkbox'] {
-        width: 18px;
-        height: 18px;
-        cursor: pointer;
-        accent-color: var(--md-sys-color-primary);
+        @include apple-checkbox;
     }
 }
 

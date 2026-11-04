@@ -368,7 +368,7 @@ const activePresetIcon = computed(() =>
     &__label {
         font-size: var(--text-sm);
         font-weight: var(--weight-semibold);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
     }
 
     &__restore-btn {
@@ -384,7 +384,7 @@ const activePresetIcon = computed(() =>
 
     &__icon-label {
         font-size: var(--text-xs);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         text-align: right;
     }
 
@@ -408,31 +408,33 @@ const activePresetIcon = computed(() =>
         display: flex;
         align-items: center;
         justify-content: center;
-        border: 1px solid var(--md-sys-color-outline-variant);
+        border: 1px solid var(--separator);
         box-shadow: var(--elevation-1);
         overflow: hidden;
-        @include md-transition(box-shadow, var(--md-transition-fast));
+        @include spring-transition(box-shadow, var(--dur-fast));
 
         &:hover {
             box-shadow: var(--elevation-2);
         }
 
         &--light {
-            background: var(--md-sys-color-surface);
+            background: var(--fill-tertiary);
         }
 
         // 反色表面给出「与当前主题相反的那一档」预览底，不再写死深底：
         // 内置单色图标走 CSS mask，颜色取 currentColor，所以深色预览盒
         // 用反色前景就够了，不依赖 --icon-filter 反转。
         &--dark {
-            background: var(--md-sys-color-inverse-surface);
-            color: var(--md-sys-color-inverse-on-surface);
+            // 预览盒要的就是「与当前主题相反的那一档」，Apple 中性层给不出这个语义，
+            // 所以这里豁免「组件只准引用观感层 token」这条护栏。
+            background: var(--md-sys-color-inverse-surface); // token-allow
+            color: var(--md-sys-color-inverse-on-surface); // token-allow
         }
     }
 
     &__preview-label {
         font-size: var(--text-xs);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
     }
 
     &__checkbox {
@@ -441,13 +443,10 @@ const activePresetIcon = computed(() =>
         gap: var(--space-2);
         cursor: pointer;
         font-size: var(--text-sm);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
 
         input[type='checkbox'] {
-            width: 18px;
-            height: 18px;
-            cursor: pointer;
-            accent-color: var(--md-sys-color-primary);
+            @include apple-checkbox;
         }
     }
 
@@ -457,8 +456,8 @@ const activePresetIcon = computed(() =>
         gap: var(--space-2);
         padding: var(--space-3) var(--space-4) var(--space-4);
         border-radius: var(--radius-md);
-        background: color-mix(in srgb, var(--md-sys-color-primary) 6%, transparent);
-        border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent);
+        background: color-mix(in srgb, var(--accent) 6%, transparent);
+        border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
     }
 
     &__presets-title {
@@ -472,7 +471,7 @@ const activePresetIcon = computed(() =>
     &__presets-target {
         font-size: var(--text-xs);
         font-weight: var(--weight-regular);
-        color: var(--md-sys-color-primary);
+        color: var(--accent);
     }
 
     &__presets-grid {
@@ -488,31 +487,31 @@ const activePresetIcon = computed(() =>
         padding: var(--space-6) 0;
         text-align: center;
         font-size: var(--text-xs);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
     }
 
     &__picker-item {
         @include button-reset;
         aspect-ratio: 1;
         border-radius: var(--radius-sm);
-        background: var(--md-sys-color-surface);
-        border: 1px solid var(--md-sys-color-outline-variant);
-        color: var(--md-sys-color-on-surface-variant);
+        background: var(--fill-tertiary);
+        border: 1px solid var(--separator);
+        color: var(--label-secondary);
         @include flex-center(row, 0);
-        @include md-transition(all, var(--md-transition-fast));
+        @include spring-transition(all, var(--dur-fast));
 
         &:hover {
-            border-color: var(--md-sys-color-primary);
-            color: var(--md-sys-color-primary);
-            transform: translateY(-1px);
+            border-color: var(--label-tertiary);
+            color: var(--label);
+            transform: scale(1.02);
             box-shadow: var(--elevation-1);
         }
 
         &--active,
         &--active:hover {
-            border-color: var(--md-sys-color-primary);
+            border-color: var(--accent);
             background: var(--tint-primary);
-            color: var(--md-sys-color-primary);
+            color: var(--accent);
             transform: none;
         }
     }
@@ -520,7 +519,7 @@ const activePresetIcon = computed(() =>
 
 .mnt-category-form__presets-enter-active,
 .mnt-category-form__presets-leave-active {
-    transition: all 0.2s var(--md-easing);
+    transition: all var(--dur-fast) var(--ease-spring);
     overflow: hidden;
 }
 

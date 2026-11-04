@@ -153,7 +153,7 @@ function handleAdd(): void {
 
     &__title {
         font-size: var(--text-md);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
         margin: 0;
         font-weight: var(--weight-semibold);
         display: flex;
@@ -169,7 +169,7 @@ function handleAdd(): void {
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
     }
 
     &__name {
@@ -178,7 +178,7 @@ function handleAdd(): void {
 
     &__count {
         font-size: var(--text-xs);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         font-variant-numeric: tabular-nums;
         flex-shrink: 0;
     }
@@ -191,15 +191,15 @@ function handleAdd(): void {
         gap: var(--space-1);
         height: var(--control-h-xs);
         padding: 0 var(--space-3);
-        border-radius: var(--radius-full);
+        border-radius: var(--control-radius);
         font-size: var(--text-sm);
         font-weight: var(--weight-medium);
-        color: var(--md-sys-color-on-surface-variant);
-        @include md-transition(background color, var(--md-transition-fast));
+        color: var(--label-secondary);
+        @include spring-transition(background color, var(--dur-fast));
 
         &:hover {
             background: var(--hover-bg);
-            color: var(--md-sys-color-primary);
+            color: var(--label);
         }
     }
 }

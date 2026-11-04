@@ -192,9 +192,9 @@ function highlightMatch(suggestion: string): string {
     &__skeleton-text {
         background: linear-gradient(
             90deg,
-            color-mix(in srgb, var(--md-sys-color-on-surface) 6%, transparent) 25%,
-            color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent) 50%,
-            color-mix(in srgb, var(--md-sys-color-on-surface) 6%, transparent) 75%
+            var(--fill-tertiary) 25%,
+            var(--fill-secondary) 50%,
+            var(--fill-tertiary) 75%
         );
         background-size: 200% 100%;
         animation: mnt-skeleton-shimmer 1.4s ease infinite;
@@ -214,7 +214,7 @@ function highlightMatch(suggestion: string): string {
 
     &__list {
         padding: var(--space-1) var(--space-2) var(--space-3);
-        @include md-transition(opacity, var(--md-transition-fast));
+        @include spring-transition(opacity, var(--dur-fast));
         // 骨架换成真实列表时淡入，避免硬切
         animation: mnt-suggestions-in 0.16s ease;
     }
@@ -232,27 +232,26 @@ function highlightMatch(suggestion: string): string {
         gap: var(--space-3);
         padding: var(--space-2);
         border-radius: var(--radius-md);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
         font-size: var(--text-base);
         font-weight: var(--weight-medium);
         text-align: left;
-        @include md-transition(all, var(--md-transition-fast));
+        @include spring-transition(all, var(--dur-fast));
         @include focus-ring;
 
-        // 列表行的交互语言与全应用一致：悬停只加中性底，选中才上主色。
-        // 不用 primary-container 实底——那是「内容块」的颜色，在暗色主题下是一整块
-        // 不透明色，压在几乎实心的下拉面板上读不出「这一行是当前项」。
+        // 列表行的交互语言与全应用一致：悬停只加中性底，当前项上强调色实底 + 反白
+        // （macOS 菜单的键盘高亮就是实底，淡 tint 在一列密集行里读不出「是哪一行」）。
         &:hover {
             background: var(--hover-bg);
         }
 
         &.is-active {
-            background: var(--tint-primary);
-            color: var(--md-sys-color-primary);
+            @include accent-fill;
             font-weight: var(--weight-semibold);
 
             .search-suggestions__icon {
-                background: var(--tint-primary-strong);
+                background: color-mix(in srgb, var(--on-accent) 24%, transparent);
+                color: var(--on-accent);
             }
         }
     }
@@ -266,7 +265,7 @@ function highlightMatch(suggestion: string): string {
         justify-content: center;
         flex-shrink: 0;
         background: var(--hover-bg);
-        @include md-transition(all, var(--md-transition-fast));
+        @include spring-transition(all, var(--dur-fast));
     }
 
     &__text {
@@ -277,7 +276,7 @@ function highlightMatch(suggestion: string): string {
         // 左右留 --space-1：选中态给命中处垫底色时，行内文本宽度不随状态变化。
         :deep(mark) {
             background: transparent;
-            color: var(--md-sys-color-primary);
+            color: var(--accent);
             font-weight: var(--weight-semibold);
             padding: 0 var(--space-1);
             border-radius: var(--radius-xs);

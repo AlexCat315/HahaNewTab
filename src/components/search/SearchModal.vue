@@ -427,14 +427,13 @@ const modalBodyStyle = {
         gap: var(--space-1);
         padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
         border-radius: var(--radius-lg);
-        background: color-mix(in srgb, var(--md-sys-color-on-surface) 5%, transparent);
+        background: var(--fill-tertiary);
         border: 1px solid transparent;
-        @include md-transition(all, var(--md-transition-fast));
+        @include spring-transition(all, var(--dur-fast));
 
         &:focus-within {
             background: var(--glass-bg-strong);
-            border-color: var(--md-sys-color-primary);
-            box-shadow: 0 0 0 3px var(--tint-primary);
+            box-shadow: 0 0 0 4px var(--focus-ring);
         }
     }
 
@@ -465,7 +464,7 @@ const modalBodyStyle = {
     }
 
     &__ghost-suffix {
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         opacity: 0.55;
     }
 
@@ -505,14 +504,14 @@ const modalBodyStyle = {
         display: flex;
         align-items: center;
         justify-content: center;
-        background: var(--md-sys-color-primary);
-        color: var(--md-sys-color-on-primary);
-        @include md-transition(all, var(--md-transition-fast));
+        background: var(--accent);
+        color: var(--on-accent);
+        @include spring-transition(all, var(--dur-fast));
         @include focus-ring;
 
         &:hover {
             opacity: 0.92;
-            transform: translateY(-1px);
+            transform: scale(1.02);
             box-shadow: var(--elevation-2);
         }
 
@@ -527,7 +526,7 @@ const modalBodyStyle = {
 
         // 边长交给模板上的 size="var(--icon-sm)"（IconSvg 内联样式），这里只管颜色
         .icon-svg {
-            color: var(--md-sys-color-on-primary);
+            color: var(--on-accent);
         }
     }
 
@@ -540,8 +539,8 @@ const modalBodyStyle = {
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
-        color: var(--md-sys-color-on-surface-variant);
-        @include md-transition(all, var(--md-transition-fast));
+        color: var(--label-secondary);
+        @include spring-transition(all, var(--dur-fast));
         @include focus-ring;
 
         &:hover {
@@ -565,13 +564,13 @@ const modalBodyStyle = {
         margin: 0;
         font-size: var(--text-base);
         font-weight: var(--weight-semibold);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
     }
 
     &__empty-text {
         margin: 0;
         font-size: var(--text-xs);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         opacity: 0.8;
     }
 
@@ -582,7 +581,7 @@ const modalBodyStyle = {
         padding: var(--space-2) var(--space-4);
         background: transparent;
         font-size: var(--text-xs);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
     }
 
     &__hints {
@@ -611,7 +610,7 @@ const modalBodyStyle = {
 
     &__engine-name {
         font-weight: var(--weight-semibold);
-        color: var(--md-sys-color-primary);
+        color: var(--accent);
     }
 }
 

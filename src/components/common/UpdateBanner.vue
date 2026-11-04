@@ -79,9 +79,9 @@ const emit = defineEmits<{
     max-width: var(--panel-w-sm);
     padding: var(--space-3);
 
-    color: var(--md-sys-color-on-surface);
+    color: var(--label);
     @include glass-surface(var(--glass-bg-strong), var(--radius-lg));
-    @include md-transition(transform, var(--md-transition-fast));
+    @include spring-transition(transform, var(--dur-fast));
 
     &__icon {
         display: inline-flex;
@@ -91,8 +91,8 @@ const emit = defineEmits<{
         width: 32px;
         height: 32px;
         border-radius: var(--radius-md);
-        background: var(--md-sys-color-primary-container);
-        color: var(--md-sys-color-on-primary-container);
+        background: var(--tint-primary);
+        color: var(--on-tint);
     }
 
     &__text {
@@ -112,7 +112,7 @@ const emit = defineEmits<{
         margin: var(--space-1) 0 0;
         font-size: var(--text-xs);
         line-height: var(--leading-normal);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         @include text-ellipsis;
     }
 
@@ -121,16 +121,16 @@ const emit = defineEmits<{
         @include focus-ring;
         flex-shrink: 0;
         padding: var(--space-2) var(--space-3);
-        border-radius: var(--radius-full);
+        border-radius: var(--control-radius);
         font-size: var(--text-xs);
         font-weight: var(--weight-semibold);
         white-space: nowrap;
-        background: var(--md-sys-color-primary);
-        color: var(--md-sys-color-on-primary);
-        @include md-transition(all, var(--md-transition-fast));
+        background: var(--accent);
+        color: var(--on-accent);
+        @include spring-transition(all, var(--dur-fast));
 
         &:hover {
-            transform: translateY(-1px);
+            transform: scale(1.02);
             box-shadow: var(--elevation-2);
         }
     }
@@ -145,9 +145,9 @@ const emit = defineEmits<{
         width: 24px;
         height: 24px;
         border-radius: var(--radius-sm);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         opacity: 0.7;
-        @include md-transition(all, var(--md-transition-fast));
+        @include spring-transition(all, var(--dur-fast));
 
         &:hover {
             opacity: 1;
@@ -160,8 +160,8 @@ const emit = defineEmits<{
 .update-banner-enter-active,
 .update-banner-leave-active {
     transition:
-        opacity var(--md-transition-medium) var(--md-easing),
-        transform var(--md-transition-medium) var(--md-easing);
+        opacity var(--dur-med) var(--ease-spring),
+        transform var(--dur-med) var(--ease-spring);
 }
 
 .update-banner-enter-from,

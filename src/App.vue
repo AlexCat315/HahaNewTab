@@ -728,7 +728,7 @@ const fabItems = [
     justify-content: center;
     gap: var(--space-4);
     padding: var(--space-12) var(--space-5);
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--label-secondary);
     text-align: center;
     font-size: var(--text-md);
 }
@@ -737,7 +737,7 @@ const fabItems = [
 .section-empty-hint {
     padding: var(--space-3) 0;
     font-size: var(--text-sm);
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--label-secondary);
 }
 
 .app-loading :deep(.icon-svg) {

@@ -116,7 +116,7 @@ async function handleClear(): Promise<void> {
     &__usage {
         font-size: var(--text-base);
         font-weight: var(--weight-semibold);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
         font-variant-numeric: tabular-nums;
     }
 
@@ -124,7 +124,7 @@ async function handleClear(): Promise<void> {
         margin: 0;
         font-size: var(--text-sm);
         line-height: var(--leading-relaxed);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
     }
 }
 </style>

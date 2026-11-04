@@ -150,7 +150,7 @@ const overlayStyle: CSSProperties = {
 
 const dialogStyle: CSSProperties = {
     backgroundColor: 'var(--glass-bg-strong)',
-    color: 'var(--md-sys-color-on-surface)',
+    color: 'var(--label)',
     border: '1px solid var(--glass-border)',
     borderRadius: 'var(--radius-xl)',
     padding: 'var(--space-6)',
@@ -171,7 +171,7 @@ const iconWrapStyle: CSSProperties = {
 
 const iconInfoStyle: CSSProperties = {
     backgroundColor: 'var(--tint-primary)',
-    color: 'var(--md-sys-color-primary)',
+    color: 'var(--accent)',
 };
 
 const iconDangerStyle: CSSProperties = {
@@ -190,7 +190,7 @@ const messageStyle: CSSProperties = {
     margin: 0,
     fontSize: 'var(--text-base)',
     lineHeight: 'var(--leading-normal)',
-    color: 'var(--md-sys-color-on-surface-variant)',
+    color: 'var(--label-secondary)',
 };
 
 const inputStyle: CSSProperties = {
@@ -227,8 +227,8 @@ const baseBtnStyle: CSSProperties = {
 // （深色主题的 error 是提亮的珊瑚色，实底压白字读不出对比）
 const primaryBtnStyle: CSSProperties = {
     ...baseBtnStyle,
-    backgroundColor: 'var(--md-sys-color-primary)',
-    color: 'var(--md-sys-color-on-primary)',
+    backgroundColor: 'var(--accent)',
+    color: 'var(--on-accent)',
 };
 
 const dangerBtnStyle: CSSProperties = {
@@ -240,7 +240,7 @@ const dangerBtnStyle: CSSProperties = {
 const secondaryBtnStyle: CSSProperties = {
     ...baseBtnStyle,
     backgroundColor: 'transparent',
-    color: 'var(--md-sys-color-primary)',
+    color: 'var(--accent)',
 };
 
 // ==================== Manager 工厂 ====================

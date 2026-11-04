@@ -152,20 +152,20 @@ onUnmounted(() => {
     width: var(--fab-size);
     height: var(--fab-size);
     border-radius: var(--radius-full);
-    background: var(--md-sys-color-primary);
-    color: var(--md-sys-color-on-primary);
+    background: var(--accent);
+    color: var(--on-accent);
     box-shadow: var(--elevation-2);
     display: flex;
     align-items: center;
     justify-content: center;
-    @include md-transition(all, var(--md-transition-medium));
+    @include spring-transition(all, var(--dur-med));
     position: relative;
     // .fab-container 已自成层叠上下文，这里只在容器内压过自己的菜单
     z-index: var(--z-fab);
 
     &:hover {
         transform: scale(1.08);
-        background: color-mix(in srgb, var(--md-sys-color-primary) 88%, var(--md-sys-color-on-primary));
+        background: color-mix(in srgb, var(--accent) 88%, var(--on-accent));
         box-shadow: var(--elevation-3);
     }
 
@@ -174,7 +174,7 @@ onUnmounted(() => {
     }
 
     :deep(.icon-svg) {
-        color: var(--md-sys-color-on-primary);
+        color: var(--on-accent);
     }
 }
 
@@ -185,7 +185,7 @@ onUnmounted(() => {
     margin: 0;
     padding: var(--space-2);
     list-style: none;
-    @include glass-surface(var(--glass-bg-strong), var(--radius-lg));
+    @include glass-surface(var(--glass-bg-strong), var(--card-radius));
     box-shadow: var(--elevation-3);
     // 轻浮层档：菜单宽度不各写各的，与站点菜单 / 引擎下拉同一来源
     min-width: var(--pop-w-min);
@@ -194,7 +194,7 @@ onUnmounted(() => {
     visibility: hidden;
     transform: translateY(10px) scale(0.9);
     transform-origin: bottom right;
-    @include md-transition(all, var(--md-transition-medium));
+    @include spring-transition(all, var(--dur-med));
     z-index: var(--z-dropdown);
 
     &.show {
@@ -212,14 +212,14 @@ onUnmounted(() => {
     padding: 0 var(--space-3);
     border-radius: var(--radius-md);
     cursor: pointer;
-    color: var(--md-sys-color-on-surface);
+    color: var(--label);
     font-size: var(--text-base);
     font-weight: var(--weight-medium);
-    @include md-transition(all, var(--md-transition-fast));
+    @include spring-transition(all, var(--dur-fast));
 
     &:hover {
-        background: var(--md-sys-color-primary-container);
-        color: var(--md-sys-color-on-primary-container);
+        background: var(--fill-secondary);
+        color: var(--label);
     }
 }
 

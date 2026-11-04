@@ -106,7 +106,7 @@ function handleBrandDblclick(): void {
     left: var(--shell-inset);
     right: var(--shell-inset);
     height: var(--header-height);
-    @include glass-surface(var(--glass-bg), var(--radius-xl));
+    @include glass-surface(var(--glass-bg), var(--shell-radius));
     padding: 0 var(--space-3);
     display: flex;
     justify-content: space-between;
@@ -152,7 +152,7 @@ function handleBrandDblclick(): void {
 .brand-title {
     font-size: var(--text-lg);
     font-weight: var(--weight-semibold);
-    color: var(--md-sys-color-on-surface);
+    color: var(--label);
     letter-spacing: var(--tracking-tight);
     line-height: var(--leading-tight);
     margin: 0;

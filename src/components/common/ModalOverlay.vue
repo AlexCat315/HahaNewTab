@@ -310,13 +310,14 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
     @include absolute-fill;
     position: fixed;
     background: var(--scrim);
-    backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
     z-index: calc(var(--z-panel) + var(--modal-depth, 0) * var(--z-panel-step));
     opacity: 0;
     visibility: hidden;
     transition:
-        opacity var(--md-transition-medium) var(--md-easing),
-        visibility var(--md-transition-medium) var(--md-easing);
+        opacity var(--dur-med) var(--ease-spring),
+        visibility var(--dur-med) var(--ease-spring);
 
     &--center {
         @include flex-center(row, 0);
@@ -337,17 +338,20 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
 }
 
 .mnt-modal-content {
-    @include glass-surface(var(--glass-bg-strong), var(--radius-xl));
+    // 弹层里是密集表单，材质取几乎实心的那一档；圆角比外壳再大一档（--sheet-radius）。
+    @include glass-surface(var(--glass-bg-opaque), var(--sheet-radius));
     box-shadow: var(--elevation-3);
     width: 100%;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    transform: scale(0.96) translateY(var(--space-3));
+    // Apple 的弹层进场是「原地放大 + 淡入」，不带位移：位移会让面板看起来
+    // 像从别处飞过来，而它本来就是从脚下长出来的。
+    transform: scale(0.94);
     opacity: 0;
     transition:
-        transform var(--md-transition-medium) var(--md-easing),
-        opacity var(--md-transition-fast) var(--md-easing);
+        transform var(--dur-med) var(--ease-decel),
+        opacity var(--dur-fast) var(--ease-decel);
 
     .mnt-modal-overlay--top-right & {
         width: auto;
@@ -355,7 +359,7 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
     }
 
     .mnt-modal-overlay--active & {
-        transform: none;
+        transform: scale(1);
         opacity: 1;
     }
 
@@ -367,7 +371,7 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
 
 .mnt-modal-header {
     padding: var(--space-4) var(--space-5);
-    border-bottom: 1px solid var(--glass-border);
+    border-bottom: 1px solid var(--separator);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -386,7 +390,9 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
 .mnt-modal-title {
     font-size: var(--text-lg);
     font-weight: var(--weight-semibold);
-    color: var(--md-sys-color-on-surface);
+    // 标题收紧字距：SF Pro 大字默认偏松
+    letter-spacing: -0.02em;
+    color: var(--label);
     margin: 0;
     line-height: var(--leading-tight);
 }
@@ -394,10 +400,10 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
 .mnt-modal-close {
     @include icon-button(var(--control-h-sm));
     flex-shrink: 0;
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--label-secondary);
 
     &:hover {
-        background: var(--md-sys-color-surface-variant);
+        background: var(--fill);
         color: var(--color-error);
     }
 }
@@ -412,7 +418,7 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
 
 .mnt-modal-footer {
     padding: var(--space-4) var(--space-5);
-    border-top: 1px solid var(--glass-border);
+    border-top: 1px solid var(--separator);
     display: flex;
     gap: var(--space-3);
     justify-content: flex-end;
@@ -434,7 +440,7 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
     .mnt-modal-content {
         width: 100%;
         max-height: 82vh;
-        border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+        border-radius: var(--sheet-radius) var(--sheet-radius) 0 0;
         transform: translateY(100%);
 
         .mnt-modal-overlay--active & {
@@ -444,7 +450,7 @@ const closeIconPath = 'M18 6L6 18M6 6l12 12';
 
     .mnt-modal-overlay--top-right .mnt-modal-content {
         max-height: calc(100vh - var(--header-height));
-        border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+        border-radius: var(--shell-radius) var(--shell-radius) 0 0;
     }
 }
 </style>

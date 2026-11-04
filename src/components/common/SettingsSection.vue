@@ -66,7 +66,7 @@ defineProps<Props>();
     &__desc {
         margin: 0;
         font-size: var(--text-sm);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         line-height: var(--leading-normal);
     }
 

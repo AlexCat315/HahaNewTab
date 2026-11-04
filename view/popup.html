@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="popup-window" data-theme-loading="true">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +7,34 @@
     <!-- 同上：Firefox 需要文档内显式声明图标，否则标签栏空白 -->
     <link rel="icon" type="image/png" sizes="16x16" href="/image/logo/logo_girl-16.png" />
     <link rel="icon" type="image/png" sizes="32x32" href="/image/logo/logo_girl-32.png" />
+    <style>
+        html[data-theme-loading] body {
+            opacity: 0;
+            visibility: hidden;
+        }
+        html[data-theme-loaded] body {
+            opacity: 1;
+            visibility: visible;
+            transition: opacity 0.3s ease;
+        }
+
+        /*
+            popup 是独立窗口：背后没有壁纸，也不该透出桌面，所以底是实心的窗口色
+            而不是材质档（材质是给浮在壁纸上的面板用的）。选择器带上 html 的 class，
+            是为了压过 global.scss 里 body 那条主题底色 —— 全局样式是 JS 注入的，
+            排在后面，同特异度就轮不到这里。
+        */
+        html.popup-window body {
+            background-color: var(--window-bg);
+            color: var(--window-fg);
+        }
+    </style>
+    <!--
+        popup 里没有 Vue 主题 store，也不加载新标签页那套初始化：不引这份预加载脚本，
+        它就永远停在 variables.scss 的默认浅色 —— 用户选了深色主题，弹出的表单还是白的。
+        须为外部文件：扩展 CSP（script-src 'self'）禁止内联脚本。
+    -->
+    <script src="/theme-preload.js"></script>
 </head>
 <body>
     <div id="app"></div>

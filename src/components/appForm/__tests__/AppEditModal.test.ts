@@ -146,7 +146,7 @@ describe('AppEditModal', () => {
 
         const toast = vi.mocked(useToast).mock.results[0]?.value as ReturnType<typeof useToast>;
         expect(toast.error).toHaveBeenCalledWith('请填写必填项');
-        expect(document.querySelector('.form-error')).not.toBeNull();
+        expect(document.querySelector('.mnt-select__error')).not.toBeNull();
     });
 
     it('填写必填项后添加应用并触发 saved 事件', async () => {

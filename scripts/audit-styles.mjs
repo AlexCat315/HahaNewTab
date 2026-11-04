@@ -84,6 +84,29 @@ const CHECKS = [
         // 直连色板会让警告色这种「色板里没有的颜色」没有统一入口，
         // 也挡不住以后给语义色加主题覆盖（比如暗色下更亮的 error）。
         pattern: /var\(--md-sys-color-(?:error|success)\)/
+    },
+    {
+        id: 'raw-theme-role',
+        label: '直连主题角色色',
+        // --md-sys-color-* 是 24 套主题注入的「强调色角色」（Material 的命名与角色表）。
+        // 组件要引用的是 Apple 观感层的语义 token：--accent / --on-accent / --label* /
+        // --fill* / --separator / --card-bg / --glass-bg-*。直连角色色等于绕过中性层的
+        // 明暗两套值，切深色主题时文字与分隔线就会跟不上。
+        // 确实需要「与主题相反的那一档」（图标预览盒）或画布底（壁纸层）时，行尾标 token-allow。
+        pattern: /var\(--md-sys-color-[a-z-]+\)/
+    },
+    {
+        id: 'raw-easing',
+        label: '缓动字面量',
+        // 曲线只有 --ease-spring / --ease-decel 两条，时长只有 --dur-fast / --dur-med。
+        // 组件里再写 cubic-bezier 等于每次都有人重新发明手感。
+        pattern: /cubic-bezier\s*\(/
+    },
+    {
+        id: 'raw-blur',
+        label: '模糊字面量',
+        // 模糊半径统一走 --glass-blur，saturate 走 --glass-saturate（Apple vibrancy 的另一半）。
+        pattern: /backdrop-filter:\s*blur\(\s*[\d.]/
     }
 ];
 
@@ -195,8 +218,10 @@ if (asJson) {
             }
         }
         console.log(`\n合计 ${grandTotal} 处，分布在 ${rows.length} 个文件。`);
-        console.log('迁移方向：颜色走 var(--card-bg)/var(--glass-bg-*)/var(--tint-*)，深色差异交给暗色变体主题，'
-            + '几何走 --space/--radius/--card-*/--z-*，排版走 --text-*/--weight-*/--tracking-*/--icon-*/--control-h-*。');
+        console.log('迁移方向：强调色走 var(--accent)/var(--on-accent)/var(--tint-*)，中性层走 '
+            + 'var(--label*)/var(--fill*)/var(--separator)，表面走 var(--card-bg)/var(--glass-bg-*)，'
+            + '动效走 --dur-*/--ease-*，几何走 --space/--radius/--control-radius/--card-radius/--shell-radius/--sheet-radius/--z-*，'
+            + '排版走 --text-*/--weight-*/--icon-*/--control-h-*；深色差异交给 html.dark-mode 的中性层，不写在组件里。');
     }
 }
 

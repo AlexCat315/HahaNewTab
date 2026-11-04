@@ -128,19 +128,13 @@
                             placeholder="https://.../logo.svg"
                             hint="支持网络地址或本地路径，不支持 data URL"
                         />
-                        <div class="ui-lib-panel__form-group">
-                            <label class="ui-lib-panel__label" for="ui-lib-panel-item-category">所属分类</label>
-                            <select
-                                id="ui-lib-panel-item-category"
-                                v-model="itemCategory"
-                                class="ui-lib-panel__select"
-                            >
-                                <option value="" disabled>请选择分类</option>
-                                <option v-for="cat in categories" :key="cat.id" :value="cat.id">
-                                    {{ cat.name }}
-                                </option>
-                            </select>
-                        </div>
+                        <SelectField
+                            id="ui-lib-panel-item-category"
+                            v-model="itemCategory"
+                            label="所属分类"
+                            placeholder="请选择分类"
+                            :options="categorySelectOptions"
+                        />
                         <div class="ui-lib-panel__form-actions">
                             <BaseButton variant="text" size="small" @click="cancelAddItem">取消</BaseButton>
                             <BaseButton
@@ -198,6 +192,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import ModalOverlay from '@/components/common/ModalOverlay.vue';
 import BaseButton from '@/components/common/BaseButton.vue';
 import BaseInput from '@/components/common/BaseInput.vue';
+import SelectField from '@/components/common/SelectField.vue';
 import IconSvg from '@/components/icon/IconSvg.vue';
 import { useUiLibStore } from '@/stores/uiLib.store';
 import { useConfirm } from '@/composables/useConfirm';
@@ -246,6 +241,11 @@ const isOpen = computed({
 
 const categories = computed(() => store.categories);
 const items = computed(() => store.items);
+
+/** 新增表单的分类下拉项 */
+const categorySelectOptions = computed(() =>
+    categories.value.map((category) => ({ value: category.id, label: category.name }))
+);
 
 /** 各分类下的图标数量 */
 const countByCategory = computed(() => {
@@ -447,13 +447,13 @@ function close(): void {
         gap: var(--space-2);
         font-size: var(--text-lg);
         font-weight: var(--weight-semibold);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
     }
 
     &__footer-total {
         margin-right: auto;
         font-size: var(--text-xs);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
     }
 
     &__search {
@@ -464,7 +464,7 @@ function close(): void {
         flex: 1;
         @include flex-center(column, var(--space-3));
         padding: var(--space-12) var(--space-6);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         font-size: var(--text-base);
 
         p {
@@ -491,21 +491,20 @@ function close(): void {
         border-radius: var(--radius-full);
         border: 1px solid var(--card-border);
         background: transparent;
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
         font-size: var(--text-sm);
         white-space: nowrap;
-        @include md-transition(all, var(--md-transition-fast));
+        @include spring-transition(all, var(--dur-fast));
         @include focus-ring;
 
         &:hover {
-            border-color: var(--md-sys-color-primary);
-            color: var(--md-sys-color-primary);
+            background: var(--fill-tertiary);
         }
 
         &.is-active {
-            background: var(--md-sys-color-primary);
-            color: var(--md-sys-color-on-primary);
-            border-color: var(--md-sys-color-primary);
+            background: var(--accent);
+            color: var(--on-accent);
+            border-color: var(--accent);
         }
     }
 
@@ -514,11 +513,11 @@ function close(): void {
         padding: 0 var(--space-1);
         border-radius: var(--radius-full);
         background: var(--tint-primary);
-        color: var(--md-sys-color-primary);
+        color: var(--accent);
 
         .is-active & {
-            background: color-mix(in srgb, var(--md-sys-color-on-primary) 22%, transparent);
-            color: var(--md-sys-color-on-primary);
+            background: color-mix(in srgb, var(--on-accent) 22%, transparent);
+            color: var(--on-accent);
         }
     }
 
@@ -530,10 +529,10 @@ function close(): void {
         height: 16px;
         border-radius: var(--radius-full);
         cursor: pointer;
-        @include md-transition(background, var(--md-transition-fast));
+        @include spring-transition(background, var(--dur-fast));
 
         &:hover {
-            background: color-mix(in srgb, var(--md-sys-color-on-primary) 28%, transparent);
+            background: color-mix(in srgb, var(--on-accent) 28%, transparent);
         }
     }
 
@@ -543,16 +542,16 @@ function close(): void {
         height: 30px;
         border-radius: var(--radius-full);
         border: 1.5px dashed var(--card-border);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         flex-shrink: 0;
         @include flex-center(row, 0);
-        @include md-transition(all, var(--md-transition-fast));
+        @include spring-transition(all, var(--dur-fast));
         @include focus-ring;
 
         &:hover {
-            border-color: var(--md-sys-color-primary);
-            color: var(--md-sys-color-primary);
-            background: color-mix(in srgb, var(--md-sys-color-primary) 6%, transparent);
+            border-color: var(--label-tertiary);
+            color: var(--label);
+            background: var(--fill-tertiary);
         }
     }
 
@@ -560,9 +559,9 @@ function close(): void {
         width: 120px;
         padding: var(--space-2) var(--space-3);
         border-radius: var(--radius-full);
-        border: 1px solid var(--md-sys-color-primary);
+        border: 1px solid var(--accent);
         background: var(--card-bg);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
         font-size: var(--text-sm);
         font-family: inherit;
         flex-shrink: 0;
@@ -610,7 +609,7 @@ function close(): void {
         color: var(--color-error);
         background: var(--tint-error);
         opacity: 0;
-        @include md-transition(opacity, var(--md-transition-fast));
+        @include spring-transition(opacity, var(--dur-fast));
 
         .ui-lib-panel__item:hover &,
         .ui-lib-panel__item:focus-visible & {
@@ -630,7 +629,7 @@ function close(): void {
 
     &__item-name {
         font-size: var(--text-xs);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         text-align: center;
         @include text-ellipsis;
         width: 100%;
@@ -643,17 +642,17 @@ function close(): void {
         padding: var(--space-3) var(--space-4);
         border-radius: var(--radius-md);
         border: 1.5px dashed var(--card-border);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         font-size: var(--text-base);
         font-weight: var(--weight-medium);
         @include flex-center(row, var(--space-2));
-        @include md-transition(all, var(--md-transition-fast));
+        @include spring-transition(all, var(--dur-fast));
         @include focus-ring;
 
         &:hover {
-            border-color: var(--md-sys-color-primary);
-            color: var(--md-sys-color-primary);
-            background: color-mix(in srgb, var(--md-sys-color-primary) 6%, transparent);
+            border-color: var(--label-tertiary);
+            color: var(--label);
+            background: var(--fill-tertiary);
         }
     }
 
@@ -662,38 +661,10 @@ function close(): void {
         padding: var(--space-4);
         border-radius: var(--radius-md);
         border: 1px solid var(--tint-primary-strong);
-        background: color-mix(in srgb, var(--md-sys-color-primary) 4%, transparent);
+        background: color-mix(in srgb, var(--accent) 4%, transparent);
         display: flex;
         flex-direction: column;
         gap: var(--space-3);
-    }
-
-    &__form-group {
-        display: flex;
-        flex-direction: column;
-        gap: var(--space-1);
-    }
-
-    &__label {
-        font-size: var(--text-sm);
-        font-weight: var(--weight-semibold);
-        color: var(--md-sys-color-on-surface);
-    }
-
-    &__select {
-        width: 100%;
-        padding: var(--space-2) var(--space-3);
-        border: 1px solid var(--card-border);
-        border-radius: var(--radius-sm);
-        background: var(--card-bg);
-        color: var(--md-sys-color-on-surface);
-        font-size: var(--text-base);
-        font-family: inherit;
-
-        // 焦点环由 global.scss 的 :focus-visible 统一提供，这里只加强描边
-        &:focus-visible {
-            border-color: var(--md-sys-color-primary);
-        }
     }
 
     &__form-actions {
@@ -715,7 +686,7 @@ function close(): void {
         display: flex;
         align-items: center;
         justify-content: center;
-        background: var(--md-sys-color-surface-variant);
+        background: var(--fill);
         border: 1px solid var(--card-border);
         border-radius: var(--radius-lg);
     }
@@ -723,13 +694,13 @@ function close(): void {
     &__preview-name {
         font-size: var(--text-lg);
         font-weight: var(--weight-medium);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
         margin-bottom: var(--space-2);
     }
 
     &__preview-desc {
         font-size: var(--text-sm);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
     }
 }
 </style>

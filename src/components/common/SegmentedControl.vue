@@ -88,8 +88,9 @@ function moveFocus(event: KeyboardEvent, index: number, delta: number): void {
     display: inline-flex;
     gap: var(--space-1);
     padding: var(--space-1);
-    border-radius: var(--radius-md);
-    background: var(--md-sys-color-surface-variant);
+    // 容器和选中段都是胶囊：分段控件是 Apple 界面里少数名正言顺用 pill 的地方
+    border-radius: var(--radius-full);
+    background: var(--fill-tertiary);
     max-width: 100%;
     overflow-x: auto;
     // 横向分段条：溢出时静默滚动是设计意图，不接主题滚动条
@@ -108,22 +109,24 @@ function moveFocus(event: KeyboardEvent, index: number, delta: number): void {
         // 与同排的输入框 / 下拉 / 开关行严格等高
         height: var(--control-h-xs);
         padding: 0 var(--space-3);
-        border-radius: var(--radius-sm);
+        border-radius: var(--radius-full);
         font-size: var(--text-base);
         font-weight: var(--weight-medium);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         white-space: nowrap;
-        @include md-transition(color background, var(--md-transition-fast));
+        @include spring-transition(color background box-shadow, var(--dur-fast));
 
         &:hover:not(:disabled) {
-            color: var(--md-sys-color-on-surface);
-            background: var(--hover-bg);
+            color: var(--label);
         }
 
+        // 选中段是「浮起来的一块」，不是染成主色：Apple 的分段控件靠
+        // 材质 + 阴影表达选中，强调色留给真正的「主要操作」。
         &--active,
         &--active:hover:not(:disabled) {
-            background: var(--md-sys-color-primary);
-            color: var(--md-sys-color-on-primary);
+            background: var(--glass-bg-opaque);
+            color: var(--label);
+            box-shadow: var(--elevation-1);
         }
 
         &:disabled {

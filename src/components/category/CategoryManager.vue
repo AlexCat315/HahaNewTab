@@ -205,13 +205,13 @@ function formatCount(categoryId: string): string {
     &__summary {
         margin: 0 var(--space-1) var(--space-2);
         font-size: var(--text-xs);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
     }
 
     &__empty {
         @include flex-center(column, var(--space-3));
         padding: var(--space-8) var(--space-4);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         text-align: center;
 
         p {
@@ -222,7 +222,7 @@ function formatCount(categoryId: string): string {
 
     &__empty-title {
         font-weight: var(--weight-semibold);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
     }
 
     &__empty-hint {
@@ -249,14 +249,13 @@ function formatCount(categoryId: string): string {
         gap: var(--space-3);
         padding: var(--space-3) var(--space-4);
         border-radius: var(--radius-md);
-        background: var(--md-sys-color-surface-variant);
-        border: 1px solid var(--md-sys-color-outline-variant);
-        @include md-transition(all, var(--md-transition-fast));
+        background: var(--fill);
+        border: 1px solid var(--separator);
+        @include spring-transition(all, var(--dur-fast));
 
         &:hover {
-            background: var(--md-sys-color-surface);
-            border-color: color-mix(in srgb, var(--md-sys-color-primary) 45%, transparent);
-            transform: translateY(-1px);
+            background: var(--fill-tertiary);
+            transform: scale(1.02);
             box-shadow: var(--elevation-1);
         }
     }
@@ -277,9 +276,9 @@ function formatCount(categoryId: string): string {
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
-        background: var(--md-sys-color-primary-container);
-        color: var(--md-sys-color-on-primary-container);
-        border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent);
+        background: var(--tint-primary);
+        color: var(--on-tint);
+        border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
         overflow: hidden;
     }
 
@@ -293,7 +292,7 @@ function formatCount(categoryId: string): string {
     &__name {
         font-weight: var(--weight-semibold);
         font-size: var(--text-md);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
         line-height: var(--leading-tight);
         @include text-ellipsis;
     }
@@ -306,7 +305,7 @@ function formatCount(categoryId: string): string {
 
     &__count {
         font-size: var(--text-xs);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         line-height: var(--leading-tight);
     }
 
@@ -316,7 +315,7 @@ function formatCount(categoryId: string): string {
         padding: 0 var(--space-1);
         border-radius: var(--radius-full);
         background: var(--tint-primary);
-        color: var(--md-sys-color-primary);
+        color: var(--accent);
     }
 
     &__actions {
@@ -340,17 +339,17 @@ function formatCount(categoryId: string): string {
         width: 100%;
         padding: var(--space-3) var(--space-4);
         border-radius: var(--radius-md);
-        border: 1.5px dashed var(--md-sys-color-outline);
-        color: var(--md-sys-color-on-surface-variant);
+        border: 1.5px dashed var(--separator);
+        color: var(--label-secondary);
         font-size: var(--text-base);
         font-weight: var(--weight-medium);
         @include flex-center(row, var(--space-2));
-        @include md-transition(all, var(--md-transition-fast));
+        @include spring-transition(all, var(--dur-fast));
 
         &:hover {
-            border-color: var(--md-sys-color-primary);
-            color: var(--md-sys-color-primary);
-            background: color-mix(in srgb, var(--md-sys-color-primary) 6%, transparent);
+            border-color: var(--label-tertiary);
+            color: var(--label);
+            background: var(--fill-tertiary);
         }
     }
 }

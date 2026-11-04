@@ -240,9 +240,9 @@ function handleDelete(app: AppItem): void {
 
     &__placeholder {
         min-height: var(--card-row-height);
-        border: 2px dashed var(--md-sys-color-primary);
+        border: 2px dashed var(--accent);
         border-radius: var(--card-radius);
-        background: color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent);
+        background: color-mix(in srgb, var(--accent) 8%, transparent);
         opacity: 0.7;
     }
 
@@ -257,12 +257,12 @@ function handleDelete(app: AppItem): void {
 
     &__pager-btn {
         @include icon-button(var(--control-h-xs));
-        background: var(--md-sys-color-surface-variant);
-        color: var(--md-sys-color-on-surface-variant);
+        background: var(--fill-tertiary);
+        color: var(--label-secondary);
 
         &:hover:not(:disabled) {
-            background: var(--tint-primary);
-            color: var(--md-sys-color-primary);
+            background: var(--fill-secondary);
+            color: var(--label);
         }
 
         &:disabled {
@@ -273,7 +273,7 @@ function handleDelete(app: AppItem): void {
 
     &__pager-info {
         font-size: var(--text-xs);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         font-variant-numeric: tabular-nums;
         min-width: 44px;
         text-align: center;
@@ -283,7 +283,7 @@ function handleDelete(app: AppItem): void {
         grid-column: 1 / -1;
         text-align: center;
         padding: var(--space-10) var(--space-5);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         font-size: var(--text-md);
         display: flex;
         flex-direction: column;

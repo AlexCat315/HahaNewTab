@@ -218,12 +218,12 @@ watch(
     top: calc(var(--header-height) + var(--shell-inset) * 2);
     bottom: var(--shell-inset);
     width: var(--sidebar-width);
-    @include glass-surface(var(--glass-bg), var(--radius-xl));
+    @include glass-surface(var(--glass-bg), var(--shell-radius));
     z-index: var(--z-rail);
     display: flex;
     flex-direction: column;
     contain: layout;
-    @include md-transition(width);
+    @include spring-transition(width);
 }
 
 .nav-menu {
@@ -243,34 +243,34 @@ watch(
     padding: 0 var(--space-3);
     margin-bottom: var(--space-1);
     border-radius: var(--radius-md);
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--label-secondary);
     font-weight: var(--weight-medium);
     font-size: var(--text-base);
     position: relative;
     white-space: nowrap;
     user-select: none;
-    @include md-transition(background color, var(--md-transition-fast));
+    @include spring-transition(background color, var(--dur-fast));
 
     &:hover {
         background: var(--hover-bg);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
     }
 
+    // macOS 侧栏的选中行是「强调色实底 + 反白」，不是淡 tint：
+    // rail 只有一个当前项，实底才读得出「你在这」。on-accent 由主题配套给出，
+    // 明暗两套的对比度都在 gen-themes 里校验过。
     &.active {
-        background: var(--md-sys-color-primary-container);
-        // 落在 *-container 底上的文字用配套的 on-*-container：
-        // 重新用 primary 会掉到 2.98:1（薄荷绿那套几乎看不清）
-        color: var(--md-sys-color-on-primary-container);
+        @include accent-fill;
         font-weight: var(--weight-semibold);
     }
 
     &.pressing {
-        background: var(--md-sys-color-surface-variant);
+        background: var(--fill);
     }
 
     &.dragging {
         opacity: 0.6;
-        background: var(--md-sys-color-surface-variant);
+        background: var(--fill);
         box-shadow: var(--elevation-2);
         cursor: grabbing;
         // 只需压过同级的分类项，不必压过弹层——与应用卡拖拽态取同一档
@@ -305,7 +305,7 @@ watch(
     flex-shrink: 0;
     font-size: var(--text-xs);
     font-weight: var(--weight-medium);
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--label-secondary);
     font-variant-numeric: tabular-nums;
     opacity: 0.75;
 
@@ -330,15 +330,15 @@ watch(
     height: var(--control-h-md);
     padding: 0 var(--space-3);
     border-radius: var(--radius-md);
-    color: var(--md-sys-color-on-surface);
-    background: var(--md-sys-color-surface-variant);
+    color: var(--label);
+    background: var(--fill);
     font-weight: var(--weight-medium);
     font-size: var(--text-base);
-    @include md-transition(background color transform, var(--md-transition-fast));
+    @include spring-transition(background color transform, var(--dur-fast));
 
     &:hover {
-        background: var(--md-sys-color-primary-container);
-        color: var(--md-sys-color-on-primary-container);
+        background: var(--fill-secondary);
+        color: var(--label);
     }
 }
 
@@ -376,8 +376,8 @@ watch(
         left: calc(100% + var(--space-3));
         top: 50%;
         transform: translateY(-50%);
-        background: var(--md-sys-color-inverse-surface);
-        color: var(--md-sys-color-inverse-on-surface);
+        background: var(--tooltip-bg);
+        color: var(--tooltip-fg);
         padding: var(--space-1) var(--space-3);
         border-radius: var(--radius-sm);
         font-size: var(--text-xs);
@@ -392,7 +392,7 @@ watch(
     position: fixed;
     inset: 0;
     background: var(--scrim);
-    backdrop-filter: blur(4px);
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
     z-index: calc(var(--z-rail) - 1);
 }
 
@@ -406,7 +406,7 @@ watch(
         border-start-start-radius: 0;
         border-end-start-radius: 0;
         transform: translateX(-100%);
-        transition: transform var(--md-transition-medium) var(--md-easing);
+        transition: transform var(--dur-med) var(--ease-spring);
 
         &.open {
             transform: translateX(0);

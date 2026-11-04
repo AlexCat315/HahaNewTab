@@ -431,7 +431,7 @@ const statusClass = computed(() => {
 <template>
     <section class="cloud-sync-panel" aria-label="云同步">
         <header class="cloud-sync-panel__header">
-            <IconSvg :path="CLOUD_PATH" size="var(--icon-sm)" color="var(--md-sys-color-primary)" />
+            <IconSvg :path="CLOUD_PATH" size="var(--icon-sm)" color="var(--accent)" />
             <h3 class="cloud-sync-panel__title">{{ title }}</h3>
         </header>
 
@@ -566,7 +566,7 @@ const statusClass = computed(() => {
             }"
         >
             <div class="cloud-sync-cross__head">
-                <IconSvg :paths="LOCK_PATHS" size="var(--icon-xs)" color="var(--md-sys-color-primary)" />
+                <IconSvg :paths="LOCK_PATHS" size="var(--icon-xs)" color="var(--accent)" />
                 <span class="cloud-sync-cross__name">浏览器同步</span>
                 <span v-if="browserMode === 'enabled'" class="cloud-sync-cross__badge">已开启</span>
             </div>
@@ -693,7 +693,7 @@ const statusClass = computed(() => {
     }
 
     &__title {
-        @include section-label(var(--md-sys-color-primary));
+        @include section-label(var(--accent));
     }
 
     &__error {
@@ -706,14 +706,14 @@ const statusClass = computed(() => {
 
     &__status {
         font-size: var(--text-sm);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
 
         &.is-connected {
             color: var(--color-success);
         }
 
         &.is-loading {
-            color: var(--md-sys-color-primary);
+            color: var(--accent);
         }
     }
 
@@ -725,7 +725,7 @@ const statusClass = computed(() => {
 
     &__hint {
         font-size: var(--text-xs);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         line-height: var(--leading-normal);
         margin: 0;
     }
@@ -747,7 +747,7 @@ const statusClass = computed(() => {
         height: 32px;
         border-radius: var(--radius-full);
         object-fit: cover;
-        background: var(--md-sys-color-surface-variant);
+        background: var(--fill);
         flex-shrink: 0;
     }
 
@@ -759,13 +759,13 @@ const statusClass = computed(() => {
     &__name {
         font-size: var(--text-base);
         font-weight: var(--weight-medium);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
         @include text-ellipsis;
     }
 
     &__time {
         font-size: var(--text-xs);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
     }
 }
 
@@ -774,14 +774,11 @@ const statusClass = computed(() => {
     align-items: center;
     gap: var(--space-2);
     font-size: var(--text-sm);
-    color: var(--md-sys-color-on-surface);
+    color: var(--label);
     cursor: pointer;
 
     input {
-        width: 18px;
-        height: 18px;
-        cursor: pointer;
-        accent-color: var(--md-sys-color-primary);
+        @include apple-checkbox;
     }
 }
 
@@ -793,7 +790,7 @@ const statusClass = computed(() => {
 
     &.is-restore,
     &.is-on {
-        border-color: var(--md-sys-color-primary);
+        border-color: var(--accent);
     }
 
     &.is-unavailable {
@@ -807,7 +804,7 @@ const statusClass = computed(() => {
         gap: var(--space-1);
         font-size: var(--text-sm);
         font-weight: var(--weight-medium);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
     }
 
     &__name {
@@ -822,14 +819,14 @@ const statusClass = computed(() => {
         font-size: var(--text-xs);
         font-weight: var(--weight-semibold);
         line-height: var(--leading-tight);
-        color: var(--md-sys-color-on-surface-variant);
-        background: var(--md-sys-color-surface-variant);
+        color: var(--label-secondary);
+        background: var(--fill);
     }
 
     // 「已开启」用 tint 底 + 主色字，不用主色实底 + 白字：
     // 深色主题的 primary 是提亮过的，白字压上去读不出。
     &.is-on &__badge {
-        color: var(--md-sys-color-primary);
+        color: var(--accent);
         background: var(--tint-primary-strong);
     }
 
@@ -837,7 +834,7 @@ const statusClass = computed(() => {
         margin: 0;
         font-size: var(--text-xs);
         font-weight: var(--weight-medium);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
     }
 
     &.is-on &__status {
@@ -873,9 +870,9 @@ const statusClass = computed(() => {
         align-items: center;
         gap: var(--space-1);
         padding-top: var(--space-2);
-        border-top: 1px dashed var(--md-sys-color-outline-variant);
+        border-top: 1px dashed var(--separator);
         font-size: var(--text-xs);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         opacity: 0.9;
     }
 
@@ -888,8 +885,8 @@ const statusClass = computed(() => {
         border-radius: var(--radius-xs);
         font-size: var(--text-xs);
         font-weight: var(--weight-semibold);
-        color: var(--md-sys-color-primary);
-        @include md-transition(background-color color, var(--md-transition-fast));
+        color: var(--accent);
+        @include spring-transition(background-color color, var(--dur-fast));
 
         &:hover:not(:disabled) {
             background: var(--hover-bg);
@@ -911,18 +908,18 @@ const statusClass = computed(() => {
         // 与同面板的 BaseButton small 取同一档，切换平台按钮和「连接」按钮等高
         height: var(--control-h-sm);
         padding: 0;
-        border: 1px solid var(--md-sys-color-outline-variant);
+        border: 1px solid var(--separator);
         border-radius: var(--radius-sm);
         background: transparent;
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         font-size: var(--text-sm);
         cursor: pointer;
-        @include md-transition(background-color color border-color, var(--md-transition-medium));
+        @include spring-transition(background-color color border-color, var(--dur-med));
 
         &.is-active {
-            background: var(--md-sys-color-primary-container);
-            color: var(--md-sys-color-on-primary-container);
-            border-color: var(--md-sys-color-primary);
+            background: var(--tint-primary);
+            color: var(--on-tint);
+            border-color: var(--accent);
         }
 
         &:disabled {

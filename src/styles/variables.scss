@@ -1,62 +1,114 @@
 // =====================================================
 // variables.scss - 全局 CSS 变量与布局变量
-// 从 index.legacy.html 的 :root 与深色模式覆盖迁移而来
-// 默认值对应 material-rose，运行时会由 ThemeManager 动态覆盖
+//
+// 两层，各管一件事：
+// 1. --md-sys-color-*：主题给的「强调色角色」，24 套变体由 theme-preload.js 注入，
+//    :root 里那组只是兜底值。
+// 2. Apple 观感层：灰阶、材质、圆角、阴影、动效、字体。这套不跟主题走，
+//    明暗两套由 html.dark-mode 切换。组件一律引用这一层，不直接抓角色色。
 // =====================================================
 
 :root {
-    // Material 3 动态颜色变量
-    --md-sys-color-primary: #B14A6B;
+    // 主题注入的动态颜色角色
+    //
+    // 这一组是「兜底值」：theme-preload.js 会在首帧把 themes.json 里的实际主题注入
+    // html 的内联样式，覆盖掉这里。所以它必须等于 themes.json 的 defaultTheme
+    // （material-rose-light，即「墨魂银骨」浅色），否则预加载失败或 CSS 先于脚本
+    // 生效的那一帧，会闪出一套和任何主题都不搭的配色。
+    --md-sys-color-primary: #575B6B;
     --md-sys-color-on-primary: #FFFFFF;
-    --md-sys-color-primary-container: #FFD8E1;
-    --md-sys-color-on-primary-container: #3D001F;
-    --md-sys-color-secondary: #7D5F65;
+    --md-sys-color-primary-container: #E7E7E9;
+    --md-sys-color-on-primary-container: #373A43;
+    --md-sys-color-secondary: #666473;
     --md-sys-color-on-secondary: #FFFFFF;
-    --md-sys-color-secondary-container: #FFD8E1;
-    --md-sys-color-on-secondary-container: #2A1519;
-    --md-sys-color-tertiary: #8B6E3D;
+    --md-sys-color-secondary-container: #E5E5E6;
+    --md-sys-color-on-secondary-container: #35343C;
+    --md-sys-color-tertiary: #7E585E;
     --md-sys-color-on-tertiary: #FFFFFF;
-    --md-sys-color-tertiary-container: #FFDEA7;
-    --md-sys-color-on-tertiary-container: #2A1800;
-    --md-sys-color-surface: #FFF8F9;
-    --md-sys-color-surface-variant: #F3DDE2;
-    --md-sys-color-on-surface: #201A1A;
-    --md-sys-color-on-surface-variant: #534345;
-    --md-sys-color-background: #FFF8F9;
-    --md-sys-color-on-background: #201A1A;
-    --md-sys-color-outline: #E0D0D3;
+    --md-sys-color-tertiary-container: #E8E3E4;
+    --md-sys-color-on-tertiary-container: #422E31;
+    --md-sys-color-surface: #FBFBFB;
+    --md-sys-color-surface-variant: #EEEEEF;
+    --md-sys-color-on-surface: #1E1E1F;
+    --md-sys-color-on-surface-variant: #5A5B5E;
+    --md-sys-color-background: #FBFBFB;
+    --md-sys-color-on-background: #1E1E1F;
+    --md-sys-color-outline: #8D8D91;
     --md-sys-color-error: #BA1A1A;
     --md-sys-color-success: #376B2F;
-    --md-sys-color-inverse-surface: #201A1A;
-    --md-sys-color-inverse-on-surface: #F3DDE2;
+    --md-sys-color-inverse-surface: #1E1E1F;
+    --md-sys-color-inverse-on-surface: #EEEEEF;
 
-    // ==================== 由主题基础色派生的 token ====================
+    // ==================== Apple 观感层 ====================
     //
-    // 24 套主题（12 族 × 明/暗）只提供 Material 基础色，组件级底色一律在这里派生：
-    // 主题换了，卡片、分隔线、悬停底色自动跟着换，不再有「浅色写死一档、深色写死
-    // 另一档」的第二套值 —— 那样浅色主题会丢掉壁纸透视，深色主题会退化成通用白。
+    // 主题只负责「强调色」：上面那组 --md-sys-color-* 仍由 theme-preload.js 按 24 套
+    // 变体注入。文字、分隔线、填充、材质、圆角、阴影、动效不属于任何主题的性格，
+    // 它们决定的是「这是不是同一套系统」，所以固定成 Apple 的量纲，由 html.dark-mode
+    // 给明暗两套（暗色变体主题会打上这个 class）。
     //
-    // 描边：用 on-surface 混出 18% 的透明色。主题自带的 outline 在浅色下只有
-    // 1.1~1.2:1，贴在 surface 上基本看不见；18% 大约 1.45:1，压在壁纸上也能辨认。
-    --md-sys-color-outline-variant: color-mix(in srgb, var(--md-sys-color-on-surface) 18%, transparent);
+    // 灰阶一律半透明：压在壁纸上是 vibrancy 的观感，压在材质上也无需第二套不透明值 ——
+    // 这正是以前「浅色写死一档、深色写死另一档」会穿帮的地方。
 
-    // 卡片 / 面板底：surface 保留 22% 透明，让壁纸能透出来
-    --md-sys-color-surface-container: color-mix(in srgb, var(--md-sys-color-surface) 78%, transparent);
+    // 系统字体优先：Apple 设备上是 SF Pro，中文落到 PingFang；Windows/Linux 退回
+    // Segoe UI / 系统默认。以前 Roboto 排在 -apple-system 前面，等于全站优先 Material 的字体。
+    --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display',
+        'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
 
-    --card-bg: var(--md-sys-color-surface-container);
-    --card-border: var(--md-sys-color-outline-variant);
-    --hover-bg: color-mix(in srgb, var(--md-sys-color-on-surface) 7%, transparent);
-    --pressed-bg: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+    // 文字与分隔：Apple 的 label 系列。正文用 85% 黑而不是纯黑，
+    // 压在半透明材质上才不刺眼；separator 是「hairline」，只用于行与行之间，不给卡片描边。
+    --label: rgba(0, 0, 0, 0.85);
+    --label-secondary: rgba(60, 60, 67, 0.62);
+    --label-tertiary: rgba(60, 60, 67, 0.34);
+    --separator: rgba(60, 60, 67, 0.18);
+    // color-mix 的场合要用不透明档：拿带 alpha 的 label 去混，混出来的颜色会把
+    // 自己的透明度一起乘进去（--on-warning 混成 15% 不透明，等于看不见）。
+    --label-opaque: #1D1D1F;
 
-    // 主色底纹：选中态、图标底、hover 强调都用「 tint 底 + 主色文字」，
-    // 不用主色实底 + 白字——深色主题的 primary 是提亮过的，白字压上去读不出。
-    --tint-primary: color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent);
-    --tint-primary-strong: color-mix(in srgb, var(--md-sys-color-primary) 28%, transparent);
+    // 中性填充：输入框、胶囊、hover、按压都用「一层灰」表达，不靠描边分层。
+    // fill 最深一档给按压，fill-tertiary 轻到只能给 hover 当提示。
+    --fill: rgba(120, 120, 128, 0.2);
+    --fill-secondary: rgba(120, 120, 128, 0.14);
+    --fill-tertiary: rgba(120, 120, 128, 0.08);
 
-    // 动效变量
-    --md-easing: cubic-bezier(0.4, 0, 0.2, 1);
-    --md-transition-fast: 0.15s;
-    --md-transition-medium: 0.25s;
+    // 提示气泡：Apple 的 tooltip 两套系统都是「深灰胶囊 + 白字」，只是深色下提亮一档
+    // 才和深色面板分得开。它不跟主题走色，因为它要的是「不属于这一层」的对比。
+    --tooltip-bg: rgba(40, 40, 42, 0.94);
+    --tooltip-fg: #FFFFFF;
+
+    // 强调色 = 所选主题的 primary；on-accent 是它上面唯一读得清的字色。
+    --accent: var(--md-sys-color-primary);
+    --on-accent: var(--md-sys-color-on-primary);
+
+    // 材质三档，越靠前（越需要读密集文字）越实。模糊只给外壳用：
+    // 一屏几十张卡片同时开 backdrop-filter 会掉帧，所以卡片走 --card-bg（同色不模糊）。
+    --material-thin: rgba(255, 255, 255, 0.6);
+    --material-regular: rgba(255, 255, 255, 0.78);
+    --material-thick: rgba(255, 255, 255, 0.94);
+    --material-blur: 24px;
+    --material-saturate: 180%;
+
+    // 独立窗口底（浏览器 popup 那种背后没有壁纸、也不该透出桌面的场合）。
+    // 材质档在这里会失效：94% 白压在工作台上就是一块脏玻璃，Apple 的窗口是实心的。
+    --window-bg: #FFFFFF;
+    --window-fg: #1D1D1F;
+
+    --card-bg: var(--material-regular);
+    --card-border: var(--separator);
+    --hover-bg: var(--fill-tertiary);
+    --pressed-bg: var(--fill);
+
+    // 选中态：Apple 的列表行/标签选中是「强调色实底 + 反白」，实底档由 --accent 直接给。
+    // tint 只用在不能实底的场合：图标底板、chip、分段控件、hover 强调。
+    --tint-primary: color-mix(in srgb, var(--accent) 14%, transparent);
+    --tint-primary-strong: color-mix(in srgb, var(--accent) 24%, transparent);
+    --on-tint: var(--accent);
+
+    // 动效：Apple 的过渡更慢、收尾更长，且几乎不做「抬起 + 换阴影档」这种硬反馈。
+    // spring 近似曲线给交互反馈，decel 曲线给进场。
+    --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+    --ease-decel: cubic-bezier(0.16, 1, 0.3, 1);
+    --dur-fast: 0.2s;
+    --dur-med: 0.32s;
 
     // ==================== 排版阶（唯一合法的字号来源） ====================
     //
@@ -97,24 +149,36 @@
     --space-12: 48px;
 
     // ==================== 圆角阶 ====================
+    //
+    // Apple 的圆角比 Material 小一档、但层级更多：控件 10、卡片 14、外壳 20、弹层 24。
+    // --radius-full 不再是「按钮默认圆角」——那是 Material 的胶囊味。Apple 的按钮、
+    // 输入框都是圆角矩形，只有开关、分段控件、头像这类天生是胶囊/圆的东西才取 full。
     --radius-xs: 6px;
     --radius-sm: 8px;
-    --radius-md: 12px;
-    --radius-lg: 16px;
-    --radius-xl: 22px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 20px;
+    --radius-2xl: 24px;
     --radius-full: 999px;
+
+    // 语义档：组件写「这是个控件 / 卡片 / 外壳 / 弹层」，几何由这里给，
+    // 以后调圆角只动这一处，不用把 44 个组件翻一遍。
+    --control-radius: var(--radius-md);
+    --card-radius: var(--radius-lg);
+    --shell-radius: var(--radius-xl);
+    --sheet-radius: var(--radius-2xl);
 
     // ==================== 卡片契约 ====================
     //
     // 卡片只有三档，几何由这里给全，组件不再各写各的 padding/圆角（见 mixins 的
     // card / card-interactive / glass-surface）：
-    // - card            静态表面：分组卡、设置区块
-    // - card-interactive 可点卡片：应用卡、列表行；hover 只抬 elevation，不换描边色
-    // - glass-surface   浮在壁纸上的大外壳：顶栏、侧栏 rail、弹层
+    // - card            静态表面：分组卡、设置区块。材质底 + hairline，靠软阴影分层级
+    // - card-interactive 可点卡片：应用卡、列表行；hover 用 scale/材质变实，不换描边色
+    // - glass-surface   浮在壁纸上的大外壳：顶栏、侧栏 rail、弹层（唯一开模糊的一档）
     // 卡片档不带 backdrop-filter：一屏几十张卡片同时开模糊会掉帧，只有外壳值得。
-    --card-radius: var(--radius-md);
-    --card-pad: var(--space-3);
-    --card-pad-lg: var(--space-4);
+    // 内距比 Material 松一档：Apple 的分组卡靠留白说话，不靠描边。
+    --card-pad: var(--space-4);
+    --card-pad-lg: var(--space-5);
     --card-gap: var(--space-3);
     --card-grid-gap: var(--space-3);
     --card-row-height: 76px;
@@ -149,6 +213,11 @@
     --control-h-md: 38px;
     --control-h-lg: 46px;
 
+    // 原生 checkbox / radio 的方框尺寸。UA 画的控件不吃 padding，只能靠这一档统一；
+    // 以前 6 个地方各写 16px 或 18px，同一面板里两排勾选框大小不一。
+    // 热区不必靠方框本身撑开：勾选框始终包在 <label> 里，点文字同样能勾选。
+    --control-box: 18px;
+
     // ==================== 语义色 ====================
     //
     // 状态反馈（Toast、Banner、删除确认）只准用这几个 token。以前 Toast 写死琥珀
@@ -161,7 +230,7 @@
     --tint-error: color-mix(in srgb, var(--md-sys-color-error) 16%, transparent);
     --tint-success: color-mix(in srgb, var(--md-sys-color-success) 16%, transparent);
     --tint-warning: color-mix(in srgb, var(--color-warning) 18%, transparent);
-    --on-warning: color-mix(in srgb, var(--color-warning) 82%, var(--md-sys-color-on-surface));
+    --on-warning: color-mix(in srgb, var(--color-warning) 82%, var(--label-opaque));
 
     // ==================== 悬浮外壳几何 ====================
     // 非简洁模式的所有浮层（顶栏 / 侧栏 rail / 分组卡）共用这套尺寸语言：
@@ -206,38 +275,44 @@
     --tile-icon-size: 40px;
     --tile-gap: var(--space-2);
 
-    // ==================== 玻璃浮层 ====================
-    // 浮在壁纸上的表面：半透明 surface + 背景模糊 + 18% 描边。
-    // 透明度分三档是因为 rail/顶栏要「轻」，弹层里的文字必须有足够对比，
-    // 而菜单这类密集小行需要几乎实心，否则壁纸会把字挤糊。
-    --glass-bg: color-mix(in srgb, var(--md-sys-color-surface) 78%, transparent);
-    --glass-bg-strong: color-mix(in srgb, var(--md-sys-color-surface) 92%, transparent);
-    // 菜单/浮层里的文字不能有壁纸串扰：需要「几乎实心」时用这一档，
-    // 不要再回退到 rgba(var(--md-sys-color-surface-rgb), .98) 那种手写混色。
-    --glass-bg-opaque: color-mix(in srgb, var(--md-sys-color-surface) 98%, transparent);
-    --glass-blur: 20px;
-    --glass-border: var(--md-sys-color-outline-variant);
+    // ==================== 材质浮层 ====================
+    // 浮在壁纸上的外壳：半透明白/灰材质 + 背景模糊 + saturate（Apple 的 vibrancy：
+    // 模糊之外再把背景的颜色饱和度提上去，壁纸的色块才会「渗」进面板里），
+    // 描边退到 hairline。透明度分三档是因为 rail/顶栏要「轻」，弹层里的文字必须有
+    // 足够对比，而菜单这类密集小行需要几乎实心，否则壁纸会把字挤糊。
+    --glass-bg: var(--material-thin);
+    --glass-bg-strong: var(--material-regular);
+    // 菜单/浮层里的文字不能有壁纸串扰：需要「几乎实心」时用这一档。
+    --glass-bg-opaque: var(--material-thick);
+    --glass-blur: var(--material-blur);
+    --glass-saturate: var(--material-saturate);
+    --glass-border: var(--separator);
 
     // 遮罩层：一律用黑。以前这里想走 inverse-surface，但深色主题的 inverse-surface
     // 是浅色，混出来的「遮罩」会把弹窗后面点亮而不是压暗。
-    --scrim: rgba(0, 0, 0, 0.5);
+    // Apple 的模态压暗比 Material 轻：弹层本身够实，不需要很黑的底来撑对比。
+    --scrim: rgba(0, 0, 0, 0.32);
 
-    // 焦点环：全局 :focus-visible 用它，组件无需各自补
-    --focus-ring: var(--md-sys-color-primary);
-    --focus-ring-width: 2px;
+    // 焦点环：全局 :focus-visible 用它，组件无需各自补。
+    // Apple 的键盘焦点是「一圈半透明强调色光晕」，不是 2px 实线；
+    // 仍然走 outline 而不是 box-shadow，因为组件的 box-shadow 已被 elevation 占用，
+    // 用 box-shadow 画焦点环会把卡片投影顶掉。
+    --focus-ring: color-mix(in srgb, var(--accent) 55%, transparent);
+    --focus-ring-width: 3px;
     --focus-ring-offset: 2px;
 
     // ==================== 投影 ====================
-    // 几何只写一份，暗色主题把强度乘上去（--shadow-k）。
-    // 阴影不是主题色，不违反「不在深色里另写一套值」的约定：同一份公式，
-    // 只是深色下 5% 的黑完全看不见，必须加权。
+    // Apple 的阴影只有「软」这一种性格：单层、长模糊、大 Y 偏移，
+    // 而不是 Material 那种「近处一层紧 + 远处一层宽」的双层硬边。
+    // 几何只写一份，暗色主题把强度乘上去（--shadow-k）：阴影不是主题色，
+    // 只是深色下 4% 的黑等于没有投影，浮层会「粘」回背景，所以只加权。
     --shadow-k: 1;
-    --elevation-1: 0 1px 2px rgba(0, 0, 0, calc(0.05 * var(--shadow-k))),
-        0 2px 8px rgba(0, 0, 0, calc(0.06 * var(--shadow-k)));
-    --elevation-2: 0 2px 4px rgba(0, 0, 0, calc(0.06 * var(--shadow-k))),
-        0 8px 24px rgba(0, 0, 0, calc(0.10 * var(--shadow-k)));
-    --elevation-3: 0 8px 20px rgba(0, 0, 0, calc(0.10 * var(--shadow-k))),
-        0 24px 56px rgba(0, 0, 0, calc(0.16 * var(--shadow-k)));
+    --elevation-1: 0 1px 2px rgba(0, 0, 0, calc(0.03 * var(--shadow-k))),
+        0 4px 14px rgba(0, 0, 0, calc(0.06 * var(--shadow-k)));
+    --elevation-2: 0 2px 6px rgba(0, 0, 0, calc(0.05 * var(--shadow-k))),
+        0 12px 30px rgba(0, 0, 0, calc(0.10 * var(--shadow-k)));
+    --elevation-3: 0 8px 20px rgba(0, 0, 0, calc(0.08 * var(--shadow-k))),
+        0 32px 72px rgba(0, 0, 0, calc(0.18 * var(--shadow-k)));
 
     // ==================== 层序 ====================
     // 之前每个组件自己挑 z-index（999/1000/1003/2000/2100/2200），
@@ -274,13 +349,40 @@
 
 // 深色模式变量覆盖
 //
-// 配色本身已经由「暗色变体」主题给出（html.dark-mode 只表示当前这套是暗的），
-// 所以这里不再覆盖任何颜色 token —— 只留与主题无关的两项：
-// - --icon-filter：仍然走 <img> 的远程图标需要反色（内置图标改走 mask，用 currentColor）
-// - --shadow-k：深色底上 5% 的黑等于没有投影，浮层会「粘」回背景，只加强度，几何不变
+// 这里覆盖的只有「Apple 中性层」：灰阶、材质、阴影强度。它们按定义就不属于主题的
+// 性格——24 套变体里的暗色主题只换强调色，中性灰在黑底上要换成另一套 alpha，
+// 否则 18% 的黑分隔线在深色材质上根本不存在。
+// 主题自带的不透明配色仍然由 theme-preload.js 注入，这里一个都不覆盖。
 html.dark-mode {
+    // 深色文字阶：Apple 在暗色下用带一点蓝的白（235,235,245），不是纯白——
+    // 纯白压在半透明黑材质上会「闪」。
+    --label: rgba(255, 255, 255, 0.85);
+    --label-secondary: rgba(235, 235, 245, 0.62);
+    --label-tertiary: rgba(235, 235, 245, 0.32);
+    --separator: rgba(235, 235, 245, 0.18);
+    --label-opaque: #F2F2F7;
+
+    // 同一组灰，在暗底上要提浓才读得出「这是一层填充」
+    --fill: rgba(120, 120, 128, 0.36);
+    --fill-secondary: rgba(120, 120, 128, 0.28);
+    --fill-tertiary: rgba(120, 120, 128, 0.18);
+
+    // 暗色材质是「深灰 + 透明」，不是「黑 + 更黑」：压在壁纸上仍要看得见壁纸的色温
+    --material-thin: rgba(30, 30, 32, 0.5);
+    --material-regular: rgba(30, 30, 32, 0.72);
+    --material-thick: rgba(42, 42, 46, 0.92);
+
+    // 深色面板已经是深的，气泡要提亮一档才浮得出来
+    --tooltip-bg: rgba(98, 98, 102, 0.94);
+
+    // Apple 的窗口底：深色下是带一层蓝的黑，不是纯黑（纯黑压在半透明灰阶上会「烧」眼）
+    --window-bg: #1C1C1E;
+    --window-fg: #F2F2F7;
+
+    // - --icon-filter：仍然走 <img> 的远程图标需要反色（内置图标改走 mask，用 currentColor）
+    // - --shadow-k：深色底上 3% 的黑等于没有投影，浮层会「粘」回背景，只加强度，几何不变
     --icon-filter: invert(1) brightness(2);
-    --shadow-k: 3;
+    --shadow-k: 2;
 }
 
 // 响应式布局变量

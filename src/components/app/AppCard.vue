@@ -177,7 +177,7 @@ function handleDelete(event: MouseEvent): void {
 
     &.is-hidden {
         opacity: 0.7;
-        background: var(--md-sys-color-surface-variant);
+        background: var(--fill);
         border-style: dashed;
     }
 
@@ -190,7 +190,7 @@ function handleDelete(event: MouseEvent): void {
     }
 
     &.is-pressing {
-        background: var(--md-sys-color-surface-variant);
+        background: var(--fill);
     }
 
     &.is-draggable {
@@ -209,8 +209,8 @@ function handleDelete(event: MouseEvent): void {
         display: flex;
         align-items: center;
         justify-content: center;
-        background: var(--md-sys-color-primary-container);
-        color: var(--md-sys-color-on-primary-container);
+        background: var(--tint-primary);
+        color: var(--on-tint);
         flex-shrink: 0;
         overflow: hidden;
     }
@@ -232,7 +232,7 @@ function handleDelete(event: MouseEvent): void {
         margin: 0;
         font-size: var(--text-base);
         font-weight: var(--weight-semibold);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
         line-height: var(--leading-tight);
         @include text-ellipsis;
     }
@@ -240,7 +240,7 @@ function handleDelete(event: MouseEvent): void {
     &__description {
         margin: 0;
         font-size: var(--text-xs);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         line-height: var(--leading-normal);
         @include line-clamp(2);
         // 两行的封顶高度由 clamp 的行数推导（2 × leading × 字号），
@@ -254,9 +254,17 @@ function handleDelete(event: MouseEvent): void {
         right: var(--space-2);
         display: flex;
         align-items: center;
-        gap: var(--space-1);
+        // 悬停工具条是一整枚胶囊，图标按钮只是里面通透的一格：
+        // 材质、模糊、阴影由这层给全，按钮自身不再各画一个底
+        gap: 0;
+        padding: 2px;
+        border-radius: var(--radius-full);
+        background: var(--material-thick);
+        backdrop-filter: blur(var(--material-blur)) saturate(var(--material-saturate));
+        -webkit-backdrop-filter: blur(var(--material-blur)) saturate(var(--material-saturate));
+        box-shadow: var(--elevation-2);
         opacity: 0;
-        @include md-transition(opacity, var(--md-transition-fast));
+        @include spring-transition(opacity, var(--dur-fast));
     }
 
     &:hover &__actions,
@@ -270,13 +278,13 @@ function handleDelete(event: MouseEvent): void {
         height: var(--control-h-xs);
         min-width: auto;
         padding: 0 !important;
-        border-radius: var(--radius-xs);
-        background: var(--hover-bg);
-        color: var(--md-sys-color-on-surface-variant);
+        border-radius: var(--radius-full);
+        background: transparent;
+        color: var(--label-secondary);
 
         &:hover {
-            background: var(--tint-primary);
-            color: var(--md-sys-color-primary);
+            background: var(--fill-secondary);
+            color: var(--label);
         }
 
         // 删除用「主色底 + error 文字」而不是「error 实底 + 白字」：

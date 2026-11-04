@@ -238,17 +238,17 @@ const searchIconPath = 'M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z';
         padding: var(--space-1) var(--space-2);
         border-radius: var(--radius-sm);
         background: transparent;
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
         font-size: var(--text-base);
         font-weight: var(--weight-semibold);
         border: none;
         min-width: auto;
-        @include md-transition(all, var(--md-transition-fast));
+        @include spring-transition(all, var(--dur-fast));
         @include focus-ring;
 
         &:hover:not(:disabled) {
             background: var(--hover-bg);
-            color: var(--md-sys-color-primary);
+            color: var(--label);
         }
 
         &:disabled {
@@ -280,7 +280,7 @@ const searchIconPath = 'M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z';
         border-top: 4px solid currentColor;
         flex-shrink: 0;
         margin-left: 2px;
-        @include md-transition(transform, var(--md-transition-fast));
+        @include spring-transition(transform, var(--dur-fast));
 
         &.is-open {
             transform: rotate(180deg);
@@ -312,21 +312,20 @@ const searchIconPath = 'M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z';
         gap: var(--space-2);
         padding: var(--space-2);
         border-radius: var(--radius-sm);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
         font-size: var(--text-sm);
         font-weight: var(--weight-medium);
         text-align: left;
-        @include md-transition(all, var(--md-transition-fast));
+        @include spring-transition(all, var(--dur-fast));
         @include focus-ring;
 
-        // 与搜索建议列表同一套行语言：悬停中性底，高亮项才上主色 tint + 主色文字
+        // 与搜索建议列表同一套行语言：悬停中性底，当前项强调色实底 + 反白
         &:hover {
             background: var(--hover-bg);
         }
 
         &.is-active {
-            background: var(--tint-primary);
-            color: var(--md-sys-color-primary);
+            @include accent-fill;
         }
 
         &.is-selected {
@@ -352,8 +351,8 @@ const searchIconPath = 'M21 21l-4.35-4.35M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z';
 .engine-dropdown-enter-active,
 .engine-dropdown-leave-active {
     transition:
-        opacity 0.2s var(--md-easing),
-        transform 0.2s var(--md-easing);
+        opacity var(--dur-fast) var(--ease-spring),
+        transform var(--dur-fast) var(--ease-spring);
 }
 
 .engine-dropdown-enter-from,

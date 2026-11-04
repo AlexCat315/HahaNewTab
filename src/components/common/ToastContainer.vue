@@ -116,10 +116,9 @@ function handleClose(item: ToastItem): void {
 }
 
 .mnt-toast {
-    // 类型强调色一律走语义 token：info 用主色，success / warning / error 用对应
-    // 状态色。底色 = 强调色淡 tint 叠加在主题玻璃面上，文字用 on-surface，
-    // 切任何主题族（明/暗）都跟随。
-    --toast-accent: var(--md-sys-color-primary);
+    // 类型强调色只染图标，不染整条：Apple 的通知是「一块干净的材质 + 一个彩色符号」，
+    // 整条描边 + 整条彩色底是 Material 的 snackbar。底色仍走材质档，所以切主题照跟。
+    --toast-accent: var(--accent);
 
     pointer-events: auto;
     position: relative;
@@ -127,17 +126,17 @@ function handleClose(item: ToastItem): void {
     align-items: center;
     gap: var(--space-3);
     padding: var(--space-3) var(--space-4);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
     line-height: var(--leading-normal);
-    color: var(--md-sys-color-on-surface);
-    // 淡色整条填充：类型强调色低透明度叠加在主题 surface 玻璃面之上，边框同色稍深
-    border: 1px solid color-mix(in srgb, var(--toast-accent) 40%, transparent);
-    box-shadow: var(--elevation-2);
-    background: color-mix(in srgb, var(--toast-accent) 20%, var(--glass-bg-strong));
-    backdrop-filter: blur(var(--glass-blur));
-    @include md-transition(all, var(--md-transition-fast));
+    color: var(--label);
+    border: 1px solid var(--separator);
+    box-shadow: var(--elevation-3);
+    background: var(--glass-bg-opaque);
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    @include spring-transition(all, var(--dur-fast));
 
     &__icon {
         display: inline-flex;
@@ -199,14 +198,14 @@ function handleClose(item: ToastItem): void {
     }
 
     &--info {
-        --toast-accent: var(--md-sys-color-primary);
+        --toast-accent: var(--accent);
     }
 }
 
 // 进入/离开动画
 .mnt-toast-enter-active,
 .mnt-toast-leave-active {
-    transition: all var(--md-transition-medium) var(--md-easing);
+    transition: all var(--dur-med) var(--ease-spring);
 }
 
 .mnt-toast-enter-from,

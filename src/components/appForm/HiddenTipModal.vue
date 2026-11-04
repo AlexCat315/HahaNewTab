@@ -83,7 +83,7 @@ watch(
         margin: 0;
         font-size: var(--text-base);
         line-height: var(--leading-relaxed);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
 
         kbd {
             display: inline-block;
@@ -94,8 +94,8 @@ watch(
             font-family: monospace;
             font-size: var(--text-xs);
             text-align: center;
-            background: color-mix(in srgb, var(--md-sys-color-on-surface) 6%, transparent);
-            border: 1px solid color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+            background: var(--fill-tertiary);
+            border: 1px solid var(--separator);
             border-bottom-width: 2px;
         }
     }
@@ -106,13 +106,10 @@ watch(
         gap: var(--space-2);
         cursor: pointer;
         font-size: var(--text-base);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
 
         input[type='checkbox'] {
-            width: 18px;
-            height: 18px;
-            cursor: pointer;
-            accent-color: var(--md-sys-color-primary);
+            @include apple-checkbox;
         }
     }
 }

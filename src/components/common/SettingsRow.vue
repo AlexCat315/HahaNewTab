@@ -48,7 +48,7 @@ withDefaults(defineProps<Props>(), {
 .mnt-settings-row {
     gap: var(--space-2);
     padding: var(--space-3) 0;
-    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+    border-bottom: 1px solid var(--separator);
 
     &:last-child {
         border-bottom: none;
@@ -64,13 +64,13 @@ withDefaults(defineProps<Props>(), {
     &__label {
         font-size: var(--text-base);
         font-weight: var(--weight-medium);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
         line-height: var(--leading-normal);
     }
 
     &__hint {
         font-size: var(--text-sm);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         line-height: var(--leading-normal);
     }
 

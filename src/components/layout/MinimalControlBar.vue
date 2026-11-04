@@ -79,10 +79,10 @@ const emit = defineEmits<{
     display: flex;
     align-items: center;
     padding: var(--space-1);
-    @include glass-surface(var(--glass-bg-strong), var(--radius-full));
+    @include glass-surface(var(--glass-bg-strong), var(--shell-radius));
     // 默认灰暗隐藏
     opacity: 0.25;
-    @include md-transition(opacity, var(--md-transition-fast));
+    @include spring-transition(opacity, var(--dur-fast));
 
     &:hover,
     &:focus-within {
@@ -100,7 +100,7 @@ const emit = defineEmits<{
     overflow: hidden;
     opacity: 0;
     pointer-events: none;
-    @include md-transition(all, var(--md-transition-fast));
+    @include spring-transition(all, var(--dur-fast));
 }
 
 .minimal-controls:hover .minimal-controls__actions,
@@ -122,18 +122,17 @@ const emit = defineEmits<{
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    color: var(--md-sys-color-on-surface-variant);
-    @include md-transition(all, var(--md-transition-fast));
+    color: var(--label-secondary);
+    @include spring-transition(all, var(--dur-fast));
 
     &:hover {
-        background: var(--md-sys-color-primary-container);
-        color: var(--md-sys-color-on-primary-container);
+        background: var(--fill-secondary);
+        color: var(--label);
     }
 
     // 揭示模式开启时高亮，避免用户忘了自己还开着
     &.is-active {
-        background: var(--md-sys-color-primary-container);
-        color: var(--md-sys-color-on-primary-container);
+        @include accent-fill;
     }
 }
 

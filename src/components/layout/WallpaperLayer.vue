@@ -47,7 +47,7 @@ const hasBackground = computed(() => hasWallpaper.value);
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
-    @include md-transition(opacity filter);
+    @include spring-transition(opacity filter);
     pointer-events: none;
     will-change: transform, opacity;
 
@@ -64,8 +64,9 @@ const hasBackground = computed(() => hasWallpaper.value);
     height: 100%;
     // 与壁纸层同层：遮罩只压壁纸，不能压内容（原因见 .wallpaper-layer 上方注释）
     z-index: -1; // token-allow
-    background: var(--md-sys-color-background);
-    @include md-transition(opacity);
+    // 壁纸没加载完时的画布底必须是主题给的画布色，中性层在这里没有对应物
+    background: var(--md-sys-color-background); // token-allow
+    @include spring-transition(opacity);
     pointer-events: none;
 }
 

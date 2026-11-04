@@ -11,7 +11,8 @@
  *
  * 快照键名与结构版本要和 src/services/storageSchema.service.ts 保持一致；
  * 这里是纯手写 ES5 的外部脚本，扩展环境 CSP（script-src 'self'）禁止内联脚本，
- * 所以必须以外部文件形式放在 public/ 下，由 index.html 以 <script src> 引入。
+ * 所以必须以外部文件形式放在 public/ 下，由 index.html 与 view/popup.html 以
+ * <script src> 引入。popup 里没有 Vue 主题 store，这一份预加载就是它唯一的主题来源。
  */
 (function () {
     try {
@@ -66,7 +67,9 @@
         }
 
         var request = new XMLHttpRequest();
-        request.open('GET', 'config/themes.json', false);
+        // 必须是根绝对路径：popup 在 /view/popup.html，相对写法会去取
+        // /view/config/themes.json（404），结果 popup 永远停在默认浅色。
+        request.open('GET', '/config/themes.json', false);
         request.send(null);
         var config = JSON.parse(request.responseText || '{}');
         var themes = config.themes || [];

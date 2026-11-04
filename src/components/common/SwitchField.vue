@@ -87,14 +87,14 @@ function onChange(event: Event): void {
     &__label {
         font-size: var(--text-base);
         font-weight: var(--weight-medium);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
         line-height: var(--leading-normal);
     }
 
     &__hint {
         font-size: var(--text-sm);
         font-weight: var(--weight-regular);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         line-height: var(--leading-normal);
     }
 
@@ -103,36 +103,36 @@ function onChange(event: Event): void {
         @include visually-hidden;
     }
 
+    // iOS 开关：胶囊轨道 + 带阴影的白圆点，靠轨道换色而不是加描边。
+    // 以前那圈 2px 描边是 Material 的「未选中要有边界」，Apple 的关态是一层灰填充。
     &__track {
         position: relative;
         flex-shrink: 0;
-        width: 40px;
-        height: 22px;
+        width: 44px;
+        height: 26px;
         border-radius: var(--radius-full);
-        background: var(--md-sys-color-surface-variant);
-        border: 2px solid var(--md-sys-color-outline);
-        @include md-transition(background border-color, var(--md-transition-fast));
+        background: var(--fill);
+        @include spring-transition(background, var(--dur-med));
     }
 
     &__thumb {
         position: absolute;
         top: 50%;
-        left: 2px;
-        width: 14px;
-        height: 14px;
+        left: 3px;
+        width: 20px;
+        height: 20px;
         border-radius: var(--radius-full);
-        background: var(--md-sys-color-outline);
+        background: var(--material-thick);
+        box-shadow: var(--elevation-1);
         transform: translate(0, -50%);
-        @include md-transition(all, var(--md-transition-fast));
+        @include spring-transition(all, var(--dur-med));
     }
 
     &--on &__track {
-        background: var(--md-sys-color-primary);
-        border-color: var(--md-sys-color-primary);
+        background: var(--accent);
     }
 
     &--on &__thumb {
-        background: var(--md-sys-color-on-primary);
         transform: translate(18px, -50%);
     }
 

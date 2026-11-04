@@ -63,22 +63,41 @@
 }
 
 /**
- * Material 标准过渡动画
+ * 统一的过渡：Apple 的量纲
+ *
+ * 默认用 spring 近似曲线（起步快、收尾长），进场用 --ease-decel。
+ * Material 那套 cubic-bezier(.4,0,.2,1) + 150ms 读起来是「咔、咔」，
+ * Apple 的是「滑过去」。
  * @param {String} $properties - 过渡属性，默认 all
- * @param {String} $duration - 持续时间，默认 var(--md-transition-medium)
- * @param {String} $easing - 缓动函数，默认 var(--md-easing)
+ * @param {String} $duration - 持续时间，默认 var(--dur-med)
+ * @param {String} $easing - 缓动函数，默认 var(--ease-spring)
  */
-@mixin md-transition($properties: all, $duration: var(--md-transition-medium), $easing: var(--md-easing)) {
+@mixin spring-transition($properties: all, $duration: var(--dur-med), $easing: var(--ease-spring)) {
     transition: #{$properties} #{$duration} #{$easing};
 }
 
 /**
- * 焦点可见时的轮廓环
- * @param {String} $color - 轮廓颜色，默认 var(--md-sys-color-primary)
- * @param {Number} $width - 轮廓宽度，默认 2px
- * @param {Number} $offset - 轮廓偏移，默认 2px
+ * 按压反馈：Apple 的控件按下是「整块缩一点 + 变暗」，不是换一层 Material state layer
+ *
+ * 用在一个规则里，配合 spring 曲线，才有 iOS 那种「按进屏幕里」的手感。
  */
-@mixin focus-ring($color: var(--md-sys-color-primary), $width: 2px, $offset: 2px) {
+@mixin pressable($scale: 0.97) {
+    &:active:not(:disabled) {
+        transform: scale($scale);
+        opacity: 0.75;
+    }
+}
+
+/**
+ * 焦点可见时的轮廓环
+ *
+ * 走半透明强调色的 outline：--focus-ring 已经混过 alpha，所以它是「光晕」而不是
+ * 一圈实线；仍不用 box-shadow，因为组件的投影占了 box-shadow，画焦点会顶掉它。
+ * @param {String} $color - 轮廓颜色，默认 var(--focus-ring)
+ * @param {Number} $width - 轮廓宽度，默认 var(--focus-ring-width)
+ * @param {Number} $offset - 轮廓偏移，默认 var(--focus-ring-offset)
+ */
+@mixin focus-ring($color: var(--focus-ring), $width: var(--focus-ring-width), $offset: var(--focus-ring-offset)) {
     outline: none;
 
     &:focus-visible {
@@ -88,7 +107,7 @@
 }
 
 /**
- * 卡片契约的静态档：半透明主题表面 + 18% 描边 + elevation-1
+ * 卡片契约的静态档：中性材质底 + hairline + 软阴影
  *
  * 不带 backdrop-filter：一屏几十张卡片同时开模糊会掉帧，模糊只留给
  * glass-surface 那几块大外壳（顶栏 / rail / 弹层）。
@@ -102,42 +121,81 @@
 }
 
 /**
- * 卡片契约的可点档：在 card 之上只加「抬升」这一种反馈
+ * 卡片契约的可点档：hover 只做「变实 + 长阴影 + 极小放大」
  *
- * hover 只换 elevation，不换描边色——整屏卡片同时描上主色边框会糊成一片，
- * 反而读不出层级（AppCard 早已验证过这一点，这里把它固化成契约）。
+ * 不换描边色、不整块抬 2px——一屏几十张卡片同时描上主色边框会糊成一片，
+ * 而 translateY(-2px) 是 Material 的「抬起」语言，Apple 说的是「这一层更靠近你」。
  */
 @mixin card-interactive($radius: var(--card-radius)) {
     @include card($radius);
     cursor: pointer;
-    @include md-transition(transform box-shadow background, var(--md-transition-fast));
+    @include spring-transition(transform box-shadow background, var(--dur-fast));
 
     &:hover {
-        transform: translateY(-2px);
+        transform: scale(1.015);
+        background: var(--glass-bg-opaque);
         box-shadow: var(--elevation-2);
     }
 
     &:active {
-        transform: translateY(0);
+        transform: scale(0.99);
         box-shadow: var(--elevation-1);
-        background: var(--md-sys-color-surface-variant);
     }
 }
 
 /**
- * 分组小标题（eyebrow）：面板内每个分组的标题共用这一档
+ * 分组小标题：面板内每个分组的标题共用这一档
  *
- * 以前 5 处各写各的：12px 配 on-surface-variant、13px 配主色、字距 0.3/0.4/0.5px
- * 混着来，同一层面板里能数出两种「松」。字距统一成 --tracking-label，
- * 颜色留参数——分组标题用中性色，表单区块标题用主色，这两种确实都在用。
+ * Apple 的分组标题不做「大写 + 字距」——那是 Material 的 eyebrow。这里靠字号小一档、
+ * 次级文字色、以及和上一组之间多出来的留白来表达「这是一组的开头」。
+ * @param {String} $color - 文字色，默认 var(--label-secondary)
  */
-@mixin section-label($color: var(--md-sys-color-on-surface-variant)) {
+@mixin section-label($color: var(--label-secondary)) {
     margin: 0;
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
     font-weight: var(--weight-semibold);
-    letter-spacing: var(--tracking-label);
-    text-transform: uppercase;
+    letter-spacing: normal;
     color: $color;
+}
+
+/**
+ * 勾选框：统一尺寸 + 强调色，但保留 UA 绘制
+ *
+ * appearance:none 之后自己画方框要解决「对勾换不了色」的问题：对勾是背景图，
+ * 而外部 SVG 背景图不吃 currentColor，mask 又会让整块方框只剩对勾的形状。
+ * UA 的方框本身已经是 Apple 那种圆角方块，accent-color 是官方留的染色口子，
+ * 深浅两套由 color-scheme（global.scss 声明）自动切。所以这里只统一热区与色，不假装重画。
+ * 热区不必靠方框撑开：勾选框始终包在 <label> 里，点文字同样能勾选。
+ * @param {String} $size - 边长，默认 --control-box
+ */
+@mixin apple-checkbox($size: var(--control-box)) {
+    width: $size;
+    height: $size;
+    flex-shrink: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+/**
+ * 强调色实底的主要按钮/选中行
+ *
+ * 深色主题的 primary 是提亮过的，压 --on-accent 仍读得清（gen-themes 校验过对比度），
+ * 所以 Apple 这一档可以放心实底，不再退回 tint 底 + 主色字。
+ */
+@mixin accent-fill {
+    background: var(--accent);
+    color: var(--on-accent);
+}
+
+/**
+ * hairline 分隔线：只用于行与行、组与组之间
+ *
+ * Apple 不给每块内容描一圈边，层级靠材质和阴影；分隔线是 1px 的 separator。
+ * @param {String} $side - 画在哪条边，默认 bottom
+ */
+@mixin hairline($side: bottom) {
+    border-#{$side}: 1px solid var(--separator);
 }
 
 /**
@@ -183,21 +241,24 @@
 }
 
 /**
- * 浮在壁纸上的玻璃表面：半透明主题色 + 背景模糊 + 描边 + 投影
- * @param {String} $bg - 背景 token，默认 --glass-bg
- * @param {Number} $radius - 圆角，默认 --radius-lg
+ * 浮在壁纸上的材质外壳：半透明中性材质 + 模糊 + saturate + hairline + 软阴影
+ *
+ * saturate 是 Apple vibrancy 的另一半：只模糊不提饱和，壁纸会褪成一层灰，
+ * 面板看起来像「蒙了尘」而不是「浮在水面上」。
+ * @param {String} $bg - 材质档，默认 --glass-bg
+ * @param {Number} $radius - 圆角，默认 --shell-radius
  */
-@mixin glass-surface($bg: var(--glass-bg), $radius: var(--radius-lg)) {
+@mixin glass-surface($bg: var(--glass-bg), $radius: var(--shell-radius)) {
     background: $bg;
-    backdrop-filter: blur(var(--glass-blur));
-    -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
     border: 1px solid var(--glass-border);
     border-radius: $radius;
     box-shadow: var(--elevation-1);
 }
 
 /**
- * 可滚动区域：统一用主题化细滚动条
+ * 可滚动区域：macOS 的覆盖式滚动条——一根中性灰胶囊，平时几乎看不见
  *
  * 面板以前各自 @include hide-scrollbar，而 global.scss 定义了一套主题滚动条，
  * 结果同一个应用里两种滚动条并存。视觉需要隐藏滚动的地方（横向胶囊条）
@@ -207,7 +268,7 @@
     overflow: #{$axis};
     overscroll-behavior: contain;
     scrollbar-width: thin;
-    scrollbar-color: var(--md-sys-color-outline) transparent;
+    scrollbar-color: var(--fill) transparent;
 
     &::-webkit-scrollbar {
         width: 8px;
@@ -219,20 +280,23 @@
     }
 
     &::-webkit-scrollbar-thumb {
-        background: color-mix(in srgb, var(--md-sys-color-on-surface) 20%, transparent);
+        background: var(--fill-secondary);
         border-radius: var(--radius-full);
         border: 2px solid transparent;
         background-clip: padding-box;
     }
 
     &::-webkit-scrollbar-thumb:hover {
-        background: color-mix(in srgb, var(--md-sys-color-on-surface) 34%, transparent);
+        background: var(--fill);
         background-clip: padding-box;
     }
 }
 
 /**
- * 图标按钮：固定方形热区，hover/active 有反馈
+ * 图标按钮：固定方形热区，hover/active 只加一层中性填充
+ *
+ * Apple 的图标按钮是「圆角方块 + 一层 fill」，不是描边圆圈；按下不缩放（热区太小，
+ * 缩放会抖），靠 fill 变浓表达按压。
  * @param {String} $size - 边长，默认 --control-h-md
  */
 @mixin icon-button($size: var(--control-h-md)) {
@@ -241,17 +305,18 @@
     width: $size;
     height: $size;
     border-radius: var(--radius-sm);
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--label-secondary);
     flex-shrink: 0;
-    @include md-transition(color background, var(--md-transition-fast));
+    @include spring-transition(color background, var(--dur-fast));
 
     &:hover {
         background: var(--hover-bg);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
     }
 
     &:active {
-        background: var(--md-sys-color-surface-variant);
+        background: var(--pressed-bg);
+        color: var(--label);
     }
 }
 

@@ -14,6 +14,7 @@ import { normalizeUrl } from '@/utils/url.util';
 
 import BaseInput from '@/components/common/BaseInput.vue';
 import BaseButton from '@/components/common/BaseButton.vue';
+import SelectField from '@/components/common/SelectField.vue';
 import ToastContainer from '@/components/common/ToastContainer.vue';
 import IconSvg from '@/components/icon/IconSvg.vue';
 
@@ -53,6 +54,11 @@ const fetchLargerIcon = ref(false);
 
 const isNewCategory = computed(() => form.value.category === NEW_CATEGORY_VALUE);
 const categoryOptions = computed(() => dataManager.userCategories.value);
+/** 下拉项：已有分类 + 「新建分类」；placeholder 由 SelectField 负责渲染 */
+const categorySelectOptions = computed(() => [
+    ...categoryOptions.value.map((category) => ({ value: category.id, label: category.name })),
+    { value: NEW_CATEGORY_VALUE, label: '+ 新建分类' },
+]);
 const effectiveIcon = computed(() => form.value.icon?.trim() || DEFAULT_ICON);
 
 /** 当前标签页网址是否已经在导航里 */
@@ -230,20 +236,24 @@ watch(
 <template>
     <div id="popup-root" class="popup-root">
         <header class="popup-header">
-            <div class="popup-brand" @click="openHomePage">
+            <button type="button" class="popup-brand" @click="openHomePage">
                 <img :src="brandLogo" alt="Haha" class="popup-logo" />
                 <span class="popup-title">添加到 Haha新标签页</span>
-            </div>
+            </button>
         </header>
 
         <main class="popup-body">
             <div v-if="isLoading" class="popup-state">
-                <IconSvg name="refresh" size="var(--icon-md)" />
+                <span class="popup-state-plate">
+                    <IconSvg name="refresh" size="var(--icon-lg)" />
+                </span>
                 <p>读取当前标签页…</p>
             </div>
 
             <div v-else-if="!isValid" class="popup-state popup-state--error">
-                <IconSvg name="warning" size="var(--icon-md)" />
+                <span class="popup-state-plate popup-state-plate--error">
+                    <IconSvg name="warning" size="var(--icon-lg)" />
+                </span>
                 <p>当前页面无法添加</p>
                 <span class="popup-state-hint">不支持 chrome://、about: 等浏览器内部页面</span>
             </div>
@@ -274,29 +284,14 @@ watch(
                     </span>
                 </p>
 
-                <div class="form-group">
-                    <label class="form-label" for="popup-category">
-                        所属分类
-                        <span class="form-required" aria-hidden="true">*</span>
-                    </label>
-                    <select
-                        id="popup-category"
-                        v-model="form.category"
-                        class="form-select"
-                        :class="{ 'form-select--error': errors.category }"
-                    >
-                        <option value="" disabled>请选择分类</option>
-                        <option
-                            v-for="category in categoryOptions"
-                            :key="category.id"
-                            :value="category.id"
-                        >
-                            {{ category.name }}
-                        </option>
-                        <option :value="NEW_CATEGORY_VALUE">+ 新建分类</option>
-                    </select>
-                    <p v-if="errors.category" class="form-error">{{ errors.category }}</p>
-                </div>
+                <SelectField
+                    v-model="form.category"
+                    label="所属分类"
+                    required
+                    placeholder="请选择分类"
+                    :options="categorySelectOptions"
+                    :error="errors.category"
+                />
 
                 <BaseInput
                     v-if="isNewCategory"
@@ -314,7 +309,14 @@ watch(
                 />
 
                 <div class="form-group">
-                    <label class="form-label">图标预览</label>
+                    <div class="form-label-row">
+                        <label class="form-label">图标预览</label>
+                        <label class="icon-larger-toggle">
+                            <input v-model="fetchLargerIcon" type="checkbox" />
+                            <span>高清图标</span>
+                        </label>
+                    </div>
+
                     <div class="icon-selector">
                         <div class="icon-preview">
                             <IconSvg
@@ -351,10 +353,6 @@ watch(
                         >
                             清除
                         </BaseButton>
-                        <label class="icon-larger-toggle">
-                            <input v-model="fetchLargerIcon" type="checkbox" />
-                            <span>高清图标</span>
-                        </label>
                     </div>
                 </div>
             </form>
@@ -387,29 +385,41 @@ watch(
     width: var(--pop-w-toast);
     // 读取标签页期间的状态块很短，没有下限的话 popup 会在「加载 → 表单」之间跳高
     min-height: var(--panel-body-min-h);
-    background: var(--md-sys-color-surface);
-    color: var(--md-sys-color-on-surface);
+    // 独立窗口不做材质：背后没有壁纸，半透明只会透出桌面的颜色。
+    // 窗口底由 view/popup.html 的 body 给（--window-bg），这里保持透明，
+    // 于是圆角和阴影交给 Chrome 自己的 popup 外壳，而不是我们在里面再画一层卡片。
+    background: transparent;
+    // 独立窗口不再自己画卡片圆角/投影，圆角交给 Chrome 的 popup 外壳
+    border-radius: 0; // token-allow
+    box-shadow: none;
+    color: var(--label);
     display: flex;
     flex-direction: column;
-    border-radius: var(--radius-md);
-    overflow: hidden;
-    box-shadow: var(--elevation-2);
 }
 
+// Apple 的窗口头部不是一块色带，而是同一张窗口底 + 一条 hairline：
+// tint 底是 Material 的 app bar，换一族主题就换一种性格，标题还得跟着反色。
+// 品牌感交给 logo 本身。
 .popup-header {
-    padding: var(--space-4);
-    background: linear-gradient(
-        135deg,
-        var(--md-sys-color-primary) 0%,
-        var(--md-sys-color-secondary) 100%
-    );
+    padding: var(--space-3) var(--space-4);
+    background: transparent;
+    @include hairline;
 }
 
 .popup-brand {
+    @include button-reset;
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    cursor: pointer;
+    margin: calc(var(--space-1) * -1);
+    padding: var(--space-1);
+    border-radius: var(--radius-sm);
+    text-align: left;
+    @include spring-transition(background-color, var(--dur-fast));
+
+    &:hover {
+        background: var(--hover-bg);
+    }
 }
 
 // 品牌图自带白底：原图直出，只做圆角，不加内边距/边框/投影
@@ -424,7 +434,7 @@ watch(
 .popup-title {
     font-size: var(--text-md);
     font-weight: var(--weight-semibold);
-    color: var(--md-sys-color-on-primary);
+    color: var(--label);
 }
 
 .popup-body {
@@ -448,17 +458,39 @@ watch(
     justify-content: center;
     gap: var(--space-3);
     padding: var(--space-8) var(--space-4);
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--label-secondary);
     text-align: center;
 
+    p {
+        margin: 0;
+        font-size: var(--text-base);
+        font-weight: var(--weight-medium);
+        color: var(--label);
+    }
+
+    &--error p {
+        color: var(--color-error);
+    }
+}
+
+// 空状态图标垫一层圆底：裸图标漂在大片表面上，看起来像没加载出来的破图。
+.popup-state-plate {
+    width: var(--icon-2xl);
+    height: var(--icon-2xl);
+    border-radius: var(--radius-full);
+    background: var(--hover-bg);
+    color: var(--label-secondary);
+    @include flex-center(row, 0);
+
     &--error {
+        background: var(--tint-error);
         color: var(--color-error);
     }
 }
 
 .popup-state-hint {
     font-size: var(--text-xs);
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--label-secondary);
 }
 
 .form-group {
@@ -467,47 +499,23 @@ watch(
     gap: var(--space-2);
 }
 
+// 与 BaseInput / SelectField 的标签同一档：同一张表单里「所属分类」和「图标预览」
+// 不能一个是 14px 中等、一个是 13px 半粗。
 .form-label {
     display: flex;
     align-items: center;
     gap: var(--space-1);
-    font-size: var(--text-sm);
-    font-weight: var(--weight-semibold);
-    color: var(--md-sys-color-on-surface);
-}
-
-.form-required {
-    color: var(--color-error);
-}
-
-.form-select {
-    width: 100%;
-    padding: var(--space-3) var(--space-4);
-    border: 1px solid var(--md-sys-color-outline);
-    border-radius: var(--radius-md);
-    background: var(--md-sys-color-surface);
-    color: var(--md-sys-color-on-surface);
     font-size: var(--text-base);
-    font-family: inherit;
-    outline: none;
-    cursor: pointer;
-    @include md-transition(border-color, var(--md-transition-fast));
-
-    &:focus {
-        border-color: var(--md-sys-color-primary);
-        box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent);
-    }
-
-    &--error {
-        border-color: var(--color-error);
-    }
+    font-weight: var(--weight-medium);
+    color: var(--label);
 }
 
-.form-error {
-    margin: 0;
-    font-size: var(--text-xs);
-    color: var(--color-error);
-    line-height: var(--leading-normal);
+// 标签与它自己的选项同行：360px 宽的 popup 里，行尾放个「高清图标」比挤到
+// 按钮行末尾稳得多 —— 按钮行一旦放不下会整行溢出，标签行只会少一点留白。
+.form-label-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
 }
 
 .popup-warning {
@@ -541,8 +549,8 @@ watch(
     height: var(--icon-xl);
     flex-shrink: 0;
     border-radius: var(--radius-md);
-    background: var(--md-sys-color-surface-variant);
-    border: 1px solid var(--md-sys-color-outline);
+    background: var(--fill);
+    border: 1px solid var(--card-border);
     @include flex-center(row, 0);
 }
 
@@ -553,7 +561,6 @@ watch(
 .icon-actions {
     display: flex;
     gap: var(--space-2);
-    margin-top: var(--space-1);
     align-items: center;
 }
 
@@ -562,21 +569,18 @@ watch(
     align-items: center;
     gap: var(--space-2);
     font-size: var(--text-sm);
-    color: var(--md-sys-color-on-surface);
+    color: var(--label);
     cursor: pointer;
     margin-left: auto;
 
     input[type='checkbox'] {
-        width: 16px;
-        height: 16px;
-        cursor: pointer;
-        accent-color: var(--md-sys-color-primary);
+        @include apple-checkbox;
     }
 }
 
 .popup-footer {
     padding: var(--space-3) var(--space-4);
-    border-top: 1px solid var(--md-sys-color-outline-variant);
+    border-top: 1px solid var(--separator);
     display: flex;
     justify-content: space-between;
     align-items: center;

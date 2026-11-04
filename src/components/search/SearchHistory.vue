@@ -162,10 +162,10 @@ const deleteIconPath = 'M18 6L6 18M6 6l12 12';
 
     &__clear {
         @include button-reset;
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         font-size: var(--text-xs);
         font-weight: var(--weight-semibold);
-        @include md-transition(color, var(--md-transition-fast));
+        @include spring-transition(color, var(--dur-fast));
         @include focus-ring;
 
         &:hover {
@@ -186,11 +186,11 @@ const deleteIconPath = 'M18 6L6 18M6 6l12 12';
         gap: var(--space-3);
         padding: var(--space-2);
         border-radius: var(--radius-md);
-        color: var(--md-sys-color-on-surface);
+        color: var(--label);
         font-size: var(--text-base);
         font-weight: var(--weight-medium);
         text-align: left;
-        @include md-transition(all, var(--md-transition-fast));
+        @include spring-transition(all, var(--dur-fast));
         @include focus-ring;
 
         // 历史行没有「当前选中项」这一层（键盘导航走建议列表），所以只到中性悬停档，
@@ -224,7 +224,7 @@ const deleteIconPath = 'M18 6L6 18M6 6l12 12';
         justify-content: center;
         flex-shrink: 0;
         background: var(--hover-bg);
-        @include md-transition(all, var(--md-transition-fast));
+        @include spring-transition(all, var(--dur-fast));
     }
 
     &__item-text {
@@ -236,9 +236,9 @@ const deleteIconPath = 'M18 6L6 18M6 6l12 12';
     &__item-time {
         flex-shrink: 0;
         font-size: var(--text-xs);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         opacity: 0.7;
-        @include md-transition(opacity, var(--md-transition-fast));
+        @include spring-transition(opacity, var(--dur-fast));
     }
 
     &__item-remove {
@@ -254,9 +254,9 @@ const deleteIconPath = 'M18 6L6 18M6 6l12 12';
         justify-content: center;
         opacity: 0;
         pointer-events: none;
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         background: var(--glass-bg-opaque);
-        @include md-transition(all, var(--md-transition-fast));
+        @include spring-transition(all, var(--dur-fast));
 
         &:hover {
             background: var(--tint-error);

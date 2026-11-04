@@ -321,7 +321,7 @@ onBeforeUnmount(() => {
     // 定位完成前隐藏，避免在指针处闪一下再跳到正确位置
     visibility: hidden;
     opacity: 0;
-    @include md-transition(opacity, var(--md-transition-fast));
+    @include spring-transition(opacity, var(--dur-fast));
 
     &.is-ready {
         visibility: visible;
@@ -360,13 +360,13 @@ onBeforeUnmount(() => {
 .site-menu__header-name {
     font-size: var(--text-sm);
     font-weight: var(--weight-semibold);
-    color: var(--md-sys-color-on-surface);
+    color: var(--label);
     @include text-ellipsis;
 }
 
 .site-menu__header-host {
     font-size: var(--text-xs);
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--label-secondary);
     opacity: 0.7;
     @include text-ellipsis;
 }
@@ -376,8 +376,8 @@ onBeforeUnmount(() => {
     padding: var(--space-1) var(--space-2);
     border-radius: var(--radius-full);
     font-size: var(--text-xs);
-    color: var(--md-sys-color-on-surface-variant);
-    background: var(--md-sys-color-surface-variant);
+    color: var(--label-secondary);
+    background: var(--fill);
 }
 
 .site-menu__list {
@@ -395,15 +395,15 @@ onBeforeUnmount(() => {
     padding: var(--space-2);
     border-radius: var(--radius-sm);
     font-size: var(--text-sm);
-    color: var(--md-sys-color-on-surface);
+    color: var(--label);
     text-align: left;
-    @include md-transition(all, var(--md-transition-fast));
+    @include spring-transition(all, var(--dur-fast));
 
     &:hover:not(:disabled) {
-        background: var(--md-sys-color-surface-variant);
+        background: var(--fill);
     }
 
-    @include focus-ring(var(--md-sys-color-primary), 2px, -2px);
+    @include focus-ring(var(--accent), 2px, -2px);
 
     &:disabled {
         opacity: 0.45;
@@ -424,7 +424,7 @@ onBeforeUnmount(() => {
     }
 
     &.is-current {
-        color: var(--md-sys-color-primary);
+        color: var(--accent);
         font-weight: var(--weight-semibold);
         opacity: 1;
     }

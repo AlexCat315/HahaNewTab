@@ -54,7 +54,7 @@ withDefaults(defineProps<MainContentProps>(), {
     margin-left: calc(var(--sidebar-width) + var(--shell-inset) * 2);
     padding: calc(var(--header-height) + var(--shell-inset) * 2) var(--shell-gap) var(--space-10);
     min-height: 100vh;
-    @include md-transition(margin-left);
+    @include spring-transition(margin-left);
 }
 
 .main-content.collapsed {
@@ -82,7 +82,7 @@ withDefaults(defineProps<MainContentProps>(), {
 .content-title {
     font-size: var(--text-2xl);
     font-weight: var(--weight-semibold);
-    color: var(--md-sys-color-on-surface);
+    color: var(--label);
     letter-spacing: var(--tracking-tight);
     line-height: var(--leading-tight);
     margin: 0;
@@ -92,7 +92,7 @@ withDefaults(defineProps<MainContentProps>(), {
 .content-meta {
     margin-top: var(--space-1);
     font-size: var(--text-sm);
-    color: var(--md-sys-color-on-surface-variant);
+    color: var(--label-secondary);
 }
 
 .header-extra {

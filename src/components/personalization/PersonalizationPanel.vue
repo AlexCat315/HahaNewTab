@@ -72,7 +72,7 @@ watch(
         @close="emit('close')"
     >
         <template #header>
-            <IconSvg name="palette" size="var(--icon-sm)" color="var(--md-sys-color-primary)" />
+            <IconSvg name="palette" size="var(--icon-sm)" color="var(--accent)" />
             <h3 class="personalization-title">{{ title }}</h3>
         </template>
 
@@ -118,7 +118,7 @@ watch(
 .personalization-title {
     font-size: var(--text-lg);
     font-weight: var(--weight-semibold);
-    color: var(--md-sys-color-on-surface);
+    color: var(--label);
     margin: 0;
     line-height: var(--leading-tight);
 }
@@ -136,7 +136,7 @@ watch(
     // 128px 是「最长栏目名(4 字) + --icon-xs 图标 + 左右 --space-3 padding」的贴合宽度；
     // 宽度档里最近的 --pop-w-min(180px) 会把 660px 面板的内容区挤得太窄，故留字面值
     flex: 0 0 128px;
-    border-right: 1px solid var(--md-sys-color-outline-variant);
+    border-right: 1px solid var(--separator);
     padding-right: var(--space-3);
 
     &__item {
@@ -149,22 +149,22 @@ watch(
         border-radius: var(--radius-sm);
         font-size: var(--text-base);
         font-weight: var(--weight-medium);
-        color: var(--md-sys-color-on-surface-variant);
+        color: var(--label-secondary);
         text-align: left;
-        @include md-transition(color background, var(--md-transition-fast));
+        @include spring-transition(color background, var(--dur-fast));
 
         &:hover {
             background: var(--hover-bg);
-            color: var(--md-sys-color-primary);
+            color: var(--label);
         }
 
         &.active {
-            background: var(--md-sys-color-primary-container);
-            color: var(--md-sys-color-on-primary-container);
+            background: var(--tint-primary);
+            color: var(--on-tint);
             font-weight: var(--weight-semibold);
 
             :deep(.icon-svg) {
-                color: var(--md-sys-color-on-primary-container);
+                color: var(--on-tint);
             }
         }
     }
@@ -186,7 +186,7 @@ watch(
         flex-direction: row;
         flex: none;
         border-right: none;
-        border-bottom: 1px solid var(--md-sys-color-outline-variant);
+        border-bottom: 1px solid var(--separator);
         padding-right: 0;
         padding-bottom: var(--space-2);
         overflow-x: auto;
