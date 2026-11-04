@@ -65,7 +65,7 @@ const {
 } = useUpdateCheck();
 
 // 卡片拖拽落下的统一提交入口
-useAppCardDrag().onCommit((payload) => {
+const unsubscribeCardDragCommit = useAppCardDrag().onCommit((payload) => {
     void handleCardDragCommit(payload);
 });
 
@@ -271,6 +271,7 @@ onMounted(() => {
 
 onUnmounted(() => {
     storageUnsubscribe?.();
+    unsubscribeCardDragCommit();
     document.removeEventListener('keydown', handleGlobalKeydown);
 });
 
@@ -349,11 +350,18 @@ async function handleCardDragCommit(payload: AppCardDragCommit): Promise<void> {
         }
 
         if (targetCategoryId === 'all' && layoutStore.allViewFlat) {
-            // 「全部应用」平铺视图：直接按可见顺序全局重排，
-            // 未出现的应用（如隐藏站点）保持相对顺序跟在后面
+            // 「全部应用」平铺视图：网格只交出当前可见（分页时仅当前页）那一段顺序，
+            // 因此只替换这一段在全局里占的槽位；
+            // 整体重排会把没出现在列表里的站点（其他分页、隐藏站点）甩到末尾，看起来就是站点丢了。
+            const orderedSet = new Set(orderedIds);
+            let cursor = 0;
+            const mergedIds = dataManager.apps.value.map((app) =>
+                orderedSet.has(app.id) ? orderedIds[cursor++] : app.id
+            );
+
             const currentIds = dataManager.apps.value.map((app) => app.id);
-            if (orderedIds.join('\0') !== currentIds.join('\0')) {
-                await dataManager.updateAppsOrder(orderedIds);
+            if (mergedIds.join('\0') !== currentIds.join('\0')) {
+                await dataManager.updateAppsOrder(mergedIds);
             }
             toast.success('应用排序已保存');
             return;

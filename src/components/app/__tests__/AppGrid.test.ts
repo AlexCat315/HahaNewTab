@@ -98,12 +98,32 @@ describe('AppGrid', () => {
         cardDrag.state.app = apps[0];
         cardDrag.state.targetCategoryId = 'cat_test';
         cardDrag.state.targetIndex = 1;
+        cardDrag.state.dropValid = true;
         await nextTick();
 
         // 被拖卡片不再渲染，占位符出现在目标索引位置
         expect(wrapper.findAllComponents(AppCard)).toHaveLength(2);
         const children = wrapper.find('.app-grid').element.children;
         expect(children[1].classList.contains('app-grid__placeholder')).toBe(true);
+    });
+
+    it('落点不可排列时不渲染占位符', async () => {
+        const apps = [createApp('app_1'), createApp('app_2')];
+        const wrapper = mount(AppGrid, {
+            props: { apps, categoryId: 'cat_test' }
+        });
+
+        const cardDrag = useAppCardDrag();
+        cardDrag.state.phase = 'dragging';
+        cardDrag.state.app = apps[0];
+        cardDrag.state.targetCategoryId = 'cat_test';
+        cardDrag.state.targetIndex = 1;
+        cardDrag.state.dropValid = false;
+        await nextTick();
+
+        // 指针已移出网格：不显示无处可放的占位符（被拖卡片由幽灵卡片承担）
+        expect(wrapper.findAllComponents(AppCard)).toHaveLength(1);
+        expect(wrapper.find('.app-grid__placeholder').exists()).toBe(false);
     });
 
     it('非落点网格在拖拽期间不渲染占位符', async () => {
@@ -116,6 +136,7 @@ describe('AppGrid', () => {
         cardDrag.state.phase = 'dragging';
         cardDrag.state.app = apps[0];
         cardDrag.state.targetCategoryId = 'cat_other';
+        cardDrag.state.dropValid = true;
         await nextTick();
 
         expect(wrapper.find('.app-grid__placeholder').exists()).toBe(false);

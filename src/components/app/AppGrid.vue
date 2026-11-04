@@ -105,9 +105,12 @@ const displayedApps = computed(() =>
         : pagedApps.value
 );
 
-/** 本网格是否为当前落点网格 */
+/** 本网格是否为当前落点网格（落点不可排列时不显示占位符） */
 const isDropTarget = computed(
-    () => cardDrag.state.phase === 'dragging' && cardDrag.state.targetCategoryId === props.categoryId
+    () =>
+        cardDrag.state.phase === 'dragging' &&
+        cardDrag.state.dropValid &&
+        cardDrag.state.targetCategoryId === props.categoryId
 );
 
 type DisplayEntry = { type: 'app'; app: AppItem } | { type: 'placeholder' };
@@ -125,12 +128,25 @@ const displayEntries = computed<DisplayEntry[]>(() => {
 const hasApps = computed(() => props.apps.length > 0);
 
 // 注册网格：commit 时提供当前可见顺序（不含被拖卡片）
-onMounted(() => {
-    cardDrag.registerGrid(props.categoryId, () => displayedApps.value.map((app) => app.id));
-});
+let unregisterGrid: (() => void) | null = null;
+
+function registerGrid(): void {
+    unregisterGrid?.();
+    // 视图切换时新网格先挂载、旧网格再卸载，两者可能用同一个分类 ID 注册；
+    // 注销只摘掉自己这条，否则会把新网格的注册一起删掉，之后拖拽读不到顺序。
+    const readOrderedIds = () => displayedApps.value.map((app) => app.id);
+    unregisterGrid = cardDrag.registerGrid(props.categoryId, readOrderedIds);
+}
+
+// 分类视图复用同一组件实例：切换分类只改 categoryId，注册键必须跟着换，
+// 否则拖拽会读到上一个分类的顺序（提交后站点被塞进错误的位置，看起来像丢了）
+watch(() => props.categoryId, registerGrid);
+
+onMounted(registerGrid);
 
 onUnmounted(() => {
-    cardDrag.unregisterGrid(props.categoryId);
+    unregisterGrid?.();
+    unregisterGrid = null;
 });
 
 /**

@@ -217,7 +217,7 @@ describe('useAppCardDrag', () => {
         expect(document.body.classList.contains('is-dragging-cards')).toBe(false);
     });
 
-    it('命中网格内非卡片元素时保持上一次目标', async () => {
+    it('命中网格内非卡片元素时按最近卡片更新落点', async () => {
         createGrid('cat_unregistered', ['x1']);
         const { grid: gridB, cards: cardsB } = createGrid('cat_b', ['b1']);
         manager.registerGrid('cat_b', () => ['b1']);
@@ -229,12 +229,83 @@ describe('useAppCardDrag', () => {
         dispatchPointer('pointermove', { clientX: 50, clientY: 10 });
         expect(manager.state.targetCategoryId).toBe('cat_b');
 
-        // 命中未注册网格内的元素：目标保持 cat_b
+        // 命中网格内的空白单元格：落点仍在这张网格里
         const outsider = document.createElement('div');
         gridB.appendChild(outsider);
         document.elementFromPoint = vi.fn(() => outsider);
         dispatchPointer('pointermove', { clientX: 60, clientY: 15 });
         expect(manager.state.targetCategoryId).toBe('cat_b');
+    });
+
+    it('指针移出网格后落点作废，抬起不提交', async () => {
+        const commits: AppCardDragCommit[] = [];
+        manager.onCommit((payload) => commits.push(payload));
+
+        const { cards: cardsB } = createGrid('cat_b', ['b1', 'b2']);
+        manager.registerGrid('cat_a', () => ['a2', 'a3']);
+        manager.registerGrid('cat_b', () => ['b1', 'b2']);
+
+        manager.press(createApp('a1'), 'cat_a', { clientX: 10, clientY: 20 }, { width: 300, height: 80 });
+        await advanceTime(300);
+
+        document.elementFromPoint = vi.fn(() => cardsB[0]);
+        dispatchPointer('pointermove', { clientX: 50, clientY: 10 });
+        expect(manager.state.dropValid).toBe(true);
+
+        // 拖到页面空白处（不在任何网格内）：落点作废，占位符消失
+        const blank = document.createElement('div');
+        document.body.appendChild(blank);
+        document.elementFromPoint = vi.fn(() => blank);
+        dispatchPointer('pointermove', { clientX: 400, clientY: 900 });
+        expect(manager.state.dropValid).toBe(false);
+
+        dispatchPointer('pointerup', { clientX: 400, clientY: 900 });
+        expect(commits).toHaveLength(0);
+        expect(manager.state.phase).toBe('idle');
+    });
+
+    it('空白处抬起后重新拖回网格仍可正常提交', async () => {
+        const commits: AppCardDragCommit[] = [];
+        manager.onCommit((payload) => commits.push(payload));
+
+        const { cards: cardsB } = createGrid('cat_b', ['b1', 'b2']);
+        manager.registerGrid('cat_a', () => ['a2', 'a3']);
+        manager.registerGrid('cat_b', () => ['b1', 'b2']);
+
+        manager.press(createApp('a1'), 'cat_a', { clientX: 10, clientY: 20 }, { width: 300, height: 80 });
+        await advanceTime(300);
+
+        const blank = document.createElement('div');
+        document.body.appendChild(blank);
+        document.elementFromPoint = vi.fn(() => blank);
+        dispatchPointer('pointermove', { clientX: 400, clientY: 900 });
+
+        document.elementFromPoint = vi.fn(() => cardsB[1]);
+        dispatchPointer('pointermove', { clientX: 50, clientY: 130 });
+        dispatchPointer('pointerup', { clientX: 50, clientY: 130 });
+
+        expect(commits).toHaveLength(1);
+        expect(commits[0]?.targetCategoryId).toBe('cat_b');
+        expect(commits[0]?.orderedIds).toEqual(['b1', 'b2', 'a1']);
+    });
+
+    it('注册新网格不会顶掉同名旧网格的注销', async () => {
+        const commits: AppCardDragCommit[] = [];
+        manager.onCommit((payload) => commits.push(payload));
+
+        const { cards } = createGrid('cat_a', ['a1', 'a3']);
+        // 模拟视图切换：同一分类 ID 先由新网格注册，旧网格随后注销
+        const unregisterStale = manager.registerGrid('cat_a', () => ['stale']);
+        manager.registerGrid('cat_a', () => ['a1', 'a3']);
+        unregisterStale();
+
+        manager.press(createApp('a2'), 'cat_a', { clientX: 10, clientY: 10 }, { width: 300, height: 80 });
+        await advanceTime(300);
+        document.elementFromPoint = vi.fn(() => cards[0]);
+        dispatchPointer('pointermove', { clientX: 50, clientY: 50 });
+        dispatchPointer('pointerup', { clientX: 50, clientY: 50 });
+
+        expect(commits[0]?.orderedIds).toEqual(['a1', 'a2', 'a3']);
     });
 
     it('指针位于占位符上方时保持当前落点', async () => {

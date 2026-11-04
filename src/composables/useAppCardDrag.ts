@@ -35,6 +35,8 @@ export interface AppCardDragState {
     targetCategoryId: string | null;
     /** 占位符在目标网格可见列表中的插入索引 */
     targetIndex: number;
+    /** 落点是否可排列：指针当前所在处解析不出网格时为 false，落下不提交 */
+    dropValid: boolean;
     /** 指针视口坐标（幽灵卡片定位用） */
     ghostX: number;
     ghostY: number;
@@ -49,10 +51,8 @@ export interface AppCardDragManager {
     state: AppCardDragState;
     /** AppGrid pointerdown 入口：启动长按检测 */
     press: (app: AppItem, categoryId: string, point: DragPoint, cardSize: { width: number; height: number }) => void;
-    /** 注册网格（commit 时读取其可见 id 顺序） */
-    registerGrid: (categoryId: string, getOrderedIds: () => string[]) => void;
-    /** 注销网格 */
-    unregisterGrid: (categoryId: string) => void;
+    /** 注册网格（commit 时读取其可见 id 顺序），返回注销函数 */
+    registerGrid: (categoryId: string, getOrderedIds: () => string[]) => () => void;
     /** 注册提交回调，返回取消函数 */
     onCommit: (callback: (payload: AppCardDragCommit) => void) => () => void;
     /** 重置拖拽状态（取消拖拽） */
@@ -94,6 +94,7 @@ export function createAppCardDragManager(): AppCardDragManager {
         sourceCategoryId: null,
         targetCategoryId: null,
         targetIndex: 0,
+        dropValid: false,
         ghostX: 0,
         ghostY: 0,
         cardWidth: 0,
@@ -128,6 +129,7 @@ export function createAppCardDragManager(): AppCardDragManager {
         state.sourceCategoryId = null;
         state.targetCategoryId = null;
         state.targetIndex = 0;
+        state.dropValid = false;
         if (typeof document !== 'undefined') {
             document.body.classList.remove('is-dragging-cards');
         }
@@ -170,7 +172,11 @@ export function createAppCardDragManager(): AppCardDragManager {
     }
 
     /**
-     * 命中测试并更新落点（未命中任何网格时保持上一次目标）
+     * 命中测试并更新落点
+     *
+     * 指针落在任何已注册网格之外（页面空白、分类标题、侧栏等）时把落点标记为不可排列：
+     * 占位符随之消失，抬起也不会提交，被拖卡片回到原位。
+     * 否则会用「最后一次命中的网格 + 上一次的索引」落下一笔用户没看到的写入。
      *
      * 防抖说明：占位符实时参与布局，插入后网格重排会使指针下方的元素变化，
      * 若据此重算落点会形成「移动 → 重排 → 再移动」的反馈循环（占位符来回闪）。
@@ -180,18 +186,24 @@ export function createAppCardDragManager(): AppCardDragManager {
         if (typeof document === 'undefined' || !('elementFromPoint' in document)) return;
         const hit = document.elementFromPoint(point.clientX, point.clientY) as HTMLElement | null;
 
-        // 指针位于占位符上方：保持当前落点，不用其邻居反推索引
-        if (hit?.closest('.app-grid__placeholder')) return;
+        // 指针位于占位符上方：占位符就是当前落点，保持
+        if (hit?.closest('.app-grid__placeholder')) {
+            state.dropValid = true;
+            return;
+        }
 
         const grid = hit?.closest('.app-grid') as HTMLElement | null;
-        if (!grid) return;
-        const categoryId = grid.dataset.category;
-        if (!categoryId || !grids.has(categoryId)) return;
+        const categoryId = grid?.dataset.category;
+        if (!grid || !categoryId || !grids.has(categoryId)) {
+            state.dropValid = false;
+            return;
+        }
 
         const index = computeInsertIndex(grid, point);
 
         // 落点未变化时无需处理
         if (categoryId === state.targetCategoryId && index === state.targetIndex) {
+            state.dropValid = true;
             return;
         }
 
@@ -201,11 +213,13 @@ export function createAppCardDragManager(): AppCardDragManager {
             Math.hypot(point.clientX - lastAppliedPoint.clientX, point.clientY - lastAppliedPoint.clientY) <
                 DROP_TARGET_HYSTERESIS
         ) {
+            state.dropValid = true;
             return;
         }
 
         state.targetCategoryId = categoryId;
         state.targetIndex = index;
+        state.dropValid = true;
         lastAppliedPoint = point;
     }
 
@@ -222,7 +236,6 @@ export function createAppCardDragManager(): AppCardDragManager {
         const index = Math.min(Math.max(targetIndex, 0), base.length);
         const orderedIds = [...base.slice(0, index), app.id, ...base.slice(index)];
 
-        markJustEnded();
         const payload: AppCardDragCommit = {
             appId: app.id,
             sourceCategoryId,
@@ -264,9 +277,16 @@ export function createAppCardDragManager(): AppCardDragManager {
         updateDropTarget(point);
     }
 
-    function handlePointerUp(): void {
+    function handlePointerUp(event: Event): void {
         if (state.phase === 'dragging') {
-            commit();
+            markJustEnded();
+            const point = getEventPoint(event);
+            if (point) {
+                updateDropTarget(point);
+            }
+            if (state.dropValid) {
+                commit();
+            }
         }
         reset();
     }
@@ -315,6 +335,8 @@ export function createAppCardDragManager(): AppCardDragManager {
         state.sourceCategoryId = categoryId;
         state.targetCategoryId = categoryId;
         state.targetIndex = 0;
+        // 按下点就在来源网格内，落点默认有效；指针移出网格后由 updateDropTarget 标记为不可排列
+        state.dropValid = true;
         state.ghostX = point.clientX;
         state.ghostY = point.clientY;
         state.cardWidth = cardSize.width;
@@ -331,12 +353,19 @@ export function createAppCardDragManager(): AppCardDragManager {
         }, LONG_PRESS_DURATION);
     }
 
-    function registerGrid(categoryId: string, getOrderedIds: () => string[]): void {
+    /**
+     * 注册网格读取器
+     *
+     * 返回的注销函数只摘掉自己这条注册：切换视图时新网格先挂载、旧网格后卸载，
+     * 按分类 ID 直接删会把刚注册好的同名网格一起删掉，之后拖拽读不到顺序。
+     */
+    function registerGrid(categoryId: string, getOrderedIds: () => string[]): () => void {
         grids.set(categoryId, getOrderedIds);
-    }
-
-    function unregisterGrid(categoryId: string): void {
-        grids.delete(categoryId);
+        return () => {
+            if (grids.get(categoryId) === getOrderedIds) {
+                grids.delete(categoryId);
+            }
+        };
     }
 
     function onCommit(callback: (payload: AppCardDragCommit) => void): () => void {
@@ -350,7 +379,6 @@ export function createAppCardDragManager(): AppCardDragManager {
         state,
         press,
         registerGrid,
-        unregisterGrid,
         onCommit,
         reset,
     };

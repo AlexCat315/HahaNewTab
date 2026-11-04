@@ -12,6 +12,7 @@ import AppEditModal from '@/components/appForm/AppEditModal.vue';
 import CategoryEditModal from '@/components/category/CategoryEditModal.vue';
 import CategoryManager from '@/components/category/CategoryManager.vue';
 import { useDataManager } from '@/composables/useDataManager';
+import { useAppCardDrag } from '@/composables/useAppCardDrag';
 import { useTheme } from '@/composables/useTheme';
 import { useConfirm, provideConfirm } from '@/composables/useConfirm';
 import { useToast } from '@/composables/useToast';
@@ -513,4 +514,103 @@ describe('App.vue', () => {
 
         expect(wrapper.text()).not.toContain('Secret');
     });
+
+    it('拖到空白处抬起取消本次拖拽，不改动站点数据', async () => {
+        const dm = createMockDataManager();
+        dm.apps.value = [
+            { id: 'app_1', name: 'A1', url: 'https://a1.test', category: 'dev', hidden: false },
+            { id: 'app_2', name: 'A2', url: 'https://a2.test', category: 'dev', hidden: false },
+            { id: 'app_3', name: 'A3', url: 'https://a3.test', category: 'media', hidden: false },
+        ];
+        vi.mocked(useDataManager).mockReturnValue(dm as unknown as ReturnType<typeof useDataManager>);
+
+        const wrapper = mountApp();
+        await flushPromises();
+        await nextTick();
+        expect(wrapper.find('.app-card[data-app-id="app_1"]').exists()).toBe(true);
+
+        const drag = useAppCardDrag();
+        const card = document.querySelector<HTMLElement>('.app-card[data-app-id="app_1"]')!;
+        const neighbour = document.querySelector<HTMLElement>('.app-card[data-app-id="app_2"]')!;
+        card.getBoundingClientRect = vi.fn(() => rect(0, 80));
+        neighbour.getBoundingClientRect = vi.fn(() => rect(0, 80));
+        const blank = document.createElement('div');
+        document.body.appendChild(blank);
+
+        drag.press(dm.apps.value[0], 'dev', { clientX: 10, clientY: 10 }, { width: 100, height: 80 });
+        await new Promise((resolve) => setTimeout(resolve, 320));
+
+        // 先形成一个有效落点，再拖到页面空白处抬起
+        document.elementFromPoint = vi.fn(() => neighbour) as unknown as typeof document.elementFromPoint;
+        document.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 10, clientY: 60 }));
+        await nextTick();
+        expect(document.querySelector('.app-grid__placeholder')).not.toBeNull();
+
+        document.elementFromPoint = vi.fn(() => blank) as unknown as typeof document.elementFromPoint;
+        document.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 600, clientY: 900 }));
+        await nextTick();
+        // 落点不可排列时不再显示占位符
+        expect(document.querySelector('.app-grid__placeholder')).toBeNull();
+        document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 600, clientY: 900 }));
+        await flushPromises();
+
+        expect(dm.updateAppsOrder).not.toHaveBeenCalled();
+        expect(dm.updateApp).not.toHaveBeenCalled();
+    });
+
+    it('「全部应用」平铺视图分页时，拖拽只重排当前页的槽位', async () => {
+        const dm = createMockDataManager();
+        dm.apps.value = [
+            { id: 'app_1', name: 'A1', url: 'https://a1.test', category: 'dev', hidden: false },
+            { id: 'app_2', name: 'A2', url: 'https://a2.test', category: 'media', hidden: false },
+            { id: 'app_3', name: 'A3', url: 'https://a3.test', category: 'dev', hidden: false },
+            { id: 'app_4', name: 'A4', url: 'https://a4.test', category: 'media', hidden: false },
+            { id: 'app_5', name: 'A5', url: 'https://a5.test', category: 'dev', hidden: false },
+        ];
+        vi.mocked(useDataManager).mockReturnValue(dm as unknown as ReturnType<typeof useDataManager>);
+
+        const layoutStore = useLayoutStore();
+        layoutStore.allViewFlat = true;
+        layoutStore.paginate = true;
+        layoutStore.pageSize = 2;
+
+        const wrapper = mountApp();
+        await flushPromises();
+        await nextTick();
+
+        // 翻到第 2 页：app_3 / app_4
+        await wrapper.findAll('.app-grid__pager-btn')[1].trigger('click');
+        await nextTick();
+
+        const drag = useAppCardDrag();
+        const card3 = document.querySelector<HTMLElement>('.app-card[data-app-id="app_3"]')!;
+        const card4 = document.querySelector<HTMLElement>('.app-card[data-app-id="app_4"]')!;
+        // jsdom 无布局：手工给出卡片几何并按住 app_3 拖到 app_4 之后
+        card3.getBoundingClientRect = vi.fn(() => rect(0, 80));
+        card4.getBoundingClientRect = vi.fn(() => rect(80, 160));
+        document.elementFromPoint = vi.fn(() => card4) as unknown as typeof document.elementFromPoint;
+
+        drag.press(dm.apps.value[2], 'all', { clientX: 10, clientY: 10 }, { width: 100, height: 80 });
+        await new Promise((resolve) => setTimeout(resolve, 320));
+        document.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 50, clientY: 150 }));
+        document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 50, clientY: 150 }));
+        await flushPromises();
+
+        // 只有当前页的两个槽位互换，其他页站点留在原位
+        expect(dm.updateAppsOrder).toHaveBeenCalledWith(['app_1', 'app_2', 'app_4', 'app_3', 'app_5']);
+    });
 });
+
+function rect(top: number, bottom: number): DOMRect {
+    return {
+        top,
+        bottom,
+        left: 0,
+        right: 100,
+        width: 100,
+        height: bottom - top,
+        x: 0,
+        y: top,
+        toJSON: () => undefined,
+    } as DOMRect;
+}
