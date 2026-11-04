@@ -3,6 +3,7 @@
  * 覆盖：设置加载、Token 验证、双向合并同步 sync()（下载-合并-应用-上传-base 更新）、
  * 全量上传 upload() 写 base、applyDownloadedData 过滤与 base 更新、
  * 按注册表校验拒绝结构非法的数据、写回本地期间的 isApplyingRemoteData 信号、
+ * 拖动排序这类纯顺序变更的采纳与 base 更新、
  * 失败策略 Toast 分类（网络错误 / 超时 / 401 清 Token / 频率限制）。
  * 自动同步的触发与防抖已移到 cloudSync store（监听存储内核），不在此文件覆盖。
  */
@@ -419,6 +420,29 @@ describe('CloudSyncService', () => {
         expect(dataManager.applyStorageSnapshot).not.toHaveBeenCalled();
         expect(hasPatchCall(fetchMock)).toBe(true);
         expect(ui.showToast).toHaveBeenCalledWith('同步完成：已上传本地更新', 'success');
+    });
+
+    it('sync 另一端拖动排序时本机采纳新顺序，也不把旧顺序推回云端', async () => {
+        const { service, storage, dataManager } = createService();
+        // 本地与 base 内容和顺序都一致，远端只调换了先后（每一项内容都没变）
+        const sameOrder = [app('a1', 'A'), app('a2', 'B')];
+        await seedSignedIn(service, storage, seedMergeFixture(sameOrder, sameOrder));
+        const remoteData = {
+            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [app('a2', 'B'), app('a1', 'A')] },
+            [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB
+        };
+        const fetchMock = stubSyncFetch(remoteData);
+
+        const result = await service.sync();
+
+        expect(result.applied).toBe(true);
+        expect(result.uploaded).toBe(false);
+        expect(dataManager.applyStorageSnapshot).toHaveBeenCalledWith(remoteData);
+        expect(hasPatchCall(fetchMock)).toBe(false);
+
+        // base 同步刷成新顺序，否则下一轮同步会误判「本地改过」，把旧顺序推上云
+        const newBase = (await storage.get(STORAGE_KEYS.CLOUD_SYNC_BASE)) as Record<string, AppNavigatorData>;
+        expect(newBase[STORAGE_KEYS.MAIN_DATA].apps.map((item) => item.id)).toEqual(['a2', 'a1']);
     });
 
     it('sync base 为 null（首次同步）时本地与远端做并集合并', async () => {

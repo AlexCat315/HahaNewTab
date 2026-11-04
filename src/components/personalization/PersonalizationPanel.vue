@@ -48,6 +48,16 @@ const emit = defineEmits<{
 /** 当前激活栏目 */
 const activeTab = ref<TabId>(props.tab);
 
+/**
+ * 面板定高：macOS 设置窗口的「窗口不动、内容在列里滚」是这样长出来的——
+ * 高度跟着内容长会让每个栏目的面板都换一次尺寸，整页滚动又会把左栏和标题一起带走。
+ * 视口不够高时 calc 先收缩，所以永远不会出现页面级滚动条。
+ */
+const panelHeight = 'min(var(--panel-h), calc(100vh - var(--space-4) * 2))';
+
+/** 外壳的正文区不再自己滚：滚动交给下面两个列，左栏才不会被带走 */
+const bodyStyle = { padding: '0', overflow: 'hidden' };
+
 const isOpen = computed({
     get: () => props.modelValue,
     set: (value) => emit('update:modelValue', value)
@@ -66,9 +76,11 @@ watch(
 <template>
     <ModalOverlay
         v-model="isOpen"
-        placement="top-right"
-        size="lg"
-        max-height="calc(100vh - var(--header-height) - var(--shell-inset) * 4)"
+        placement="center"
+        size="xl"
+        :max-height="panelHeight"
+        :content-style="{ height: panelHeight }"
+        :body-style="bodyStyle"
         @close="emit('close')"
     >
         <template #header>
@@ -125,19 +137,22 @@ watch(
 
 .panel-layout {
     display: flex;
-    gap: var(--space-4);
-    min-height: var(--panel-body-min-h);
+    // 外壳正文区改成不滚的容器后，这里 100% 才拿得到面板定高；
+    // min-height: 0 是两列 overflow 真正生效的前提，否则列会被内容顶高、又开始整页滚
+    height: 100%;
+    min-height: 0;
 }
 
 .panel-nav {
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
-    // 128px 是「最长栏目名(4 字) + --icon-xs 图标 + 左右 --space-3 padding」的贴合宽度；
-    // 宽度档里最近的 --pop-w-min(180px) 会把 660px 面板的内容区挤得太窄，故留字面值
-    flex: 0 0 128px;
+    flex: 0 0 var(--panel-nav-w);
+    padding: var(--space-3);
     border-right: 1px solid var(--separator);
-    padding-right: var(--space-3);
+    // 栏目多到超出可视高度时左栏自己滚：标题和右栏都不会跟着被带走
+    overflow-y: auto;
+    overscroll-behavior: contain;
 
     &__item {
         @include button-reset;
@@ -145,8 +160,8 @@ watch(
         align-items: center;
         gap: var(--space-2);
         min-height: var(--control-h-md);
-        padding: var(--space-2) var(--space-3);
-        border-radius: var(--radius-sm);
+        padding: 0 var(--space-3);
+        border-radius: var(--control-radius);
         font-size: var(--text-base);
         font-weight: var(--weight-medium);
         color: var(--label-secondary);
@@ -158,13 +173,14 @@ watch(
             color: var(--label);
         }
 
+        // 选中行用强调色实底 + 反白，和主界面侧栏 rail 同一套语言：
+        // 一栏里只有一个当前项，淡 tint 读不出「你在这」。
         &.active {
-            background: var(--tint-primary);
-            color: var(--on-tint);
+            @include accent-fill;
             font-weight: var(--weight-semibold);
 
             :deep(.icon-svg) {
-                color: var(--on-tint);
+                color: var(--on-accent);
             }
         }
     }
@@ -173,23 +189,29 @@ watch(
 .panel-content {
     flex: 1;
     min-width: 0;
+    min-height: 0;
+    padding: var(--space-5);
+    // 内容列比外壳暗一档，分组卡才读得出是浮在面上的一层
+    background: var(--fill-tertiary);
+    // 只有这一列滚：滚动条贴右边缘，标题栏与左栏保持不动
+    overflow-y: auto;
+    @include scrollable;
 }
 
 @include respond-to(mobile) {
     .panel-layout {
         flex-direction: column;
-        min-height: 0;
-        gap: var(--space-3);
+        gap: 0;
     }
 
     .panel-nav {
-        flex-direction: row;
         flex: none;
+        flex-direction: row;
         border-right: none;
         border-bottom: 1px solid var(--separator);
-        padding-right: 0;
-        padding-bottom: var(--space-2);
+        padding: var(--space-2) var(--space-3);
         overflow-x: auto;
+        overflow-y: hidden;
         @include hide-scrollbar; // 横向胶囊条：栏目导航不需要滚动条
 
         &__item {

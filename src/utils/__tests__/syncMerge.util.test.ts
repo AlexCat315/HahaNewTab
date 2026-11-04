@@ -1,7 +1,8 @@
 /**
  * syncMerge.util 三方合并工具测试
  * 覆盖合并规则表全部分支：仅一端修改、双改冲突（本地优先）、删除 vs 修改、
- * 新增并集、顺序保持，忽略键序的深比较，以及按注册表策略逐键合并快照。
+ * 新增并集、顺序保持、拖动排序（纯顺序变更）的顺序归属，忽略键序的深比较，
+ * 以及按注册表策略逐键合并快照。
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -348,6 +349,107 @@ describe('mergeUserUiLib', () => {
     });
 });
 
+describe('拖动排序（纯顺序变更）跨设备同步', () => {
+    /** 默认给每个 id 一个独立 URL，避免触发 URL 去重（去重行为另有专门用例） */
+    const app = (id: string, name = id): AppItem => ({
+        id,
+        name,
+        url: `https://example.com/${id}`,
+        category: 'c1'
+    });
+    const cat = (id: string): Category => ({ id, name: `分类-${id}` });
+    const ids = (list: { id: string }[]) => list.map(i => i.id);
+
+    it('仅远端重新排序时采用远端顺序', () => {
+        const base = [app('a'), app('b'), app('c')];
+        const local = [app('a'), app('b'), app('c')];
+        const remote = [app('c'), app('a'), app('b')];
+
+        expect(ids(mergeAppList(base, local, remote))).toEqual(['c', 'a', 'b']);
+    });
+
+    it('两端都重新排序时本地优先', () => {
+        const base = [app('a'), app('b'), app('c')];
+        const local = [app('b'), app('a'), app('c')];
+        const remote = [app('c'), app('a'), app('b')];
+
+        expect(ids(mergeAppList(base, local, remote))).toEqual(['b', 'a', 'c']);
+    });
+
+    it('本机未重排但改过内容时，仍跟随远端顺序且不丢本机改名', () => {
+        const base = [app('a', '旧名'), app('b')];
+        const local = [app('a', '本机改名'), app('b')];
+        const remote = [app('b'), app('a', '旧名')];
+
+        const result = mergeAppList(base, local, remote);
+        expect(ids(result)).toEqual(['b', 'a']);
+        expect(result.find(i => i.id === 'a')!.name).toBe('本机改名');
+    });
+
+    it('远端一边新增一边重排时不追随机位：保持本机顺序，新增项追加末尾', () => {
+        // id 集合有出入就说明这不是「拖动排序」，跟随远端顺序会把本机顺序打乱，属于擅自改动
+        const base = [app('a'), app('b')];
+        const local = [app('a'), app('b')];
+        const remote = [app('n', '远端新增'), app('b'), app('a')];
+
+        expect(ids(mergeAppList(base, local, remote))).toEqual(['a', 'b', 'n']);
+    });
+
+    it('首次同步两端各握一批不同站点时不互相挤位', () => {
+        // tieBreak=remote 只决定同 id 冲突的内容归属，不该把远端整体插到本机前面
+        const result = mergeAppList(null, [app('l1', '本地站点')], [app('r1', '远端站点')], 'remote');
+
+        expect(ids(result)).toEqual(['l1', 'r1']);
+    });
+
+    it('本机删除导致 id 集合变化时不算重排：保持本机顺序，删除照常生效', () => {
+        const base = [app('a'), app('b'), app('c')];
+        const local = [app('a'), app('c')];
+        const remote = [app('c'), app('b'), app('a')];
+
+        expect(ids(mergeAppList(base, local, remote))).toEqual(['a', 'c']);
+    });
+
+    it('base 为空（首次同步）时由 tieBreak 定顺序归属', () => {
+        const local = [app('a'), app('b')];
+        const remote = [app('b'), app('a')];
+
+        expect(ids(mergeAppList(null, local, remote, 'remote'))).toEqual(['b', 'a']);
+        expect(ids(mergeAppList(null, local, remote, 'local'))).toEqual(['a', 'b']);
+    });
+
+    it('顺序完全一致时不做任何重排', () => {
+        const base = [app('a'), app('b')];
+        const local = [app('a'), app('b')];
+        const remote = [app('a'), app('b')];
+
+        expect(mergeAppList(base, local, remote)).toEqual(local);
+    });
+
+    it('分类列表同样跟随远端顺序', () => {
+        const result = mergeAppNavigatorData(
+            { categories: [cat('c1'), cat('c2')], apps: [] },
+            { categories: [cat('c1'), cat('c2')], apps: [] },
+            { categories: [cat('c2'), cat('c1')], apps: [] }
+        );
+        expect(ids(result.categories)).toEqual(['c2', 'c1']);
+    });
+
+    it('图标库的 items 与 categories 顺序同样跟随仅远端的重排', () => {
+        const icon = (id: string): UserUiLib['items'][number] => ({
+            id,
+            name: id,
+            url: `${id}.svg`,
+            category: 'uc1'
+        });
+        const base: UserUiLib = { categories: [], items: [icon('i1'), icon('i2')] };
+        const local: UserUiLib = { categories: [], items: [icon('i1'), icon('i2')] };
+        const remote: UserUiLib = { categories: [], items: [icon('i2'), icon('i1')] };
+
+        expect(ids(mergeUserUiLib(base, local, remote).items)).toEqual(['i2', 'i1']);
+    });
+});
+
 describe('mergeSnapshots 按注册表策略逐键合并', () => {
     /** 默认给每个 id 一个独立 URL，避免触发 URL 去重（去重行为另有专门用例） */
     const app = (id: string, name: string, url = `https://example.com/${id}`): AppItem => ({
@@ -376,6 +478,30 @@ describe('mergeSnapshots 按注册表策略逐键合并', () => {
         expect(data.apps.map((a) => a.id)).toEqual(['a1', 'a2']);
         expect(data.apps[0].name).toBe('A-local');
         expect(merged[STORAGE_KEYS.USER_UI_LIB]).toEqual({ categories: [], items: [] });
+    });
+
+    it('另一端拖动排序：本机采纳新顺序，也不会把旧顺序推回云端', () => {
+        // 顺序不落在任何字段上，只体现在数组位置，而快照级差异判定对数组顺序敏感：
+        // 合并必须把「谁重排过」判对，否则本机不但收不到，还会用旧顺序覆盖云端
+        const base = {
+            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [app('a1', 'A'), app('a2', 'A2')] },
+            [STORAGE_KEYS.USER_UI_LIB]: { categories: [], items: [] }
+        };
+        const local = {
+            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [app('a1', 'A'), app('a2', 'A2')] },
+            [STORAGE_KEYS.USER_UI_LIB]: { categories: [], items: [] }
+        };
+        const remote = {
+            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [app('a2', 'A2'), app('a1', 'A')] },
+            [STORAGE_KEYS.USER_UI_LIB]: { categories: [], items: [] }
+        };
+
+        const merged = mergeSnapshots(CLOUD_SYNC_KEY_STRATEGIES, base, local, remote);
+        const data = merged[STORAGE_KEYS.MAIN_DATA] as AppNavigatorData;
+        expect(data.apps.map((a) => a.id)).toEqual(['a2', 'a1']);
+        // 与 CloudSyncService.sync 里 applied / uploaded 的判定式一一对应
+        expect(deepEqual(merged[STORAGE_KEYS.MAIN_DATA], local[STORAGE_KEYS.MAIN_DATA])).toBe(false);
+        expect(deepEqual(merged[STORAGE_KEYS.MAIN_DATA], remote[STORAGE_KEYS.MAIN_DATA])).toBe(true);
     });
 
     it('base 为 null（首次同步）时本地与远端做并集，互不覆盖', () => {

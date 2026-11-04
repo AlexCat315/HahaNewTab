@@ -3,9 +3,10 @@
  * 以「上次同步成功的快照」为 base，比对 base / local / remote 三方，
  * 按 id 增量合并站点数据与用户图标库，冲突时本地优先。
  *
- * 在按 id 合并之上，额外处理两类「同一实体、不同 id」的跨设备重复：
+ * 在按 id 合并之上，额外处理三类跨设备场景：
  *   - 站点：按 URL 判重（`https://a.com` 与 `https://a.com/` 视为同一站点），本地优先保留
  *   - 分类：按名称判重，被丢弃的远端分类会把引用它的站点改指到本地同名分类
+ *   - 拖动排序：顺序单独判一次归属，否则「只调换先后、不改内容」的改动在按 id 的合并里完全隐形
  * 只处理「远端 vs 本地」的重复，本地自身已有的重复保持原样，避免擅自改动用户数据。
  */
 
@@ -73,6 +74,7 @@ function toMap<T extends { id: string }>(items: T[] | null | undefined): Map<str
  * - 仅一端新增 → 采用新增端；两端同 id 新增取本地
  *
  * 顺序：保留本地数组顺序，远端新增项追加到末尾。
+ * 这里只看 id，「谁重新排过序」由 mergeOrderedList 另行判定。
  *
  * `tieBreak` 只在 base 里查不到该 id 时生效：此时无法区分「本地新增」和
  * 「首次同步、两端各自都有的同一实体」，同 id 且内容不同的那部分交给 tieBreak 定夺，
@@ -135,10 +137,90 @@ export function mergeById<T extends { id: string }>(
     return result;
 }
 
+/** 顺序指纹：只看 id 序列，不看条目内容——拖动排序不会改动任何一项，按 id 的合并看不出谁动过 */
+function orderKey(items: readonly { id: string }[]): string {
+    return items.map(item => item.id).join('\0');
+}
+
+/** 两端是否为同一批条目（id 集合相同），用于把「重排」与「增删导致的顺序变化」区分开 */
+function isSameIdSet(a: readonly { id: string }[], b: readonly { id: string }[]): boolean {
+    if (a.length !== b.length) {
+        return false;
+    }
+    const ids = new Set(a.map(item => item.id));
+    return b.every(item => ids.has(item.id));
+}
+
+/**
+ * 这一份列表要不要改用远端的顺序
+ *
+ * 排序是纯顺序变化，每一项的内容与 base 完全一致，于是三方合并把两端都判成「没改」，
+ * 原样输出本机顺序；而快照级的差异判定对数组顺序敏感，结果是本机把旧顺序当新数据推回云端，
+ * 把另一台设备刚拖好的顺序覆盖掉——两台设备就此永久分叉。
+ * 所以顺序单独判一次：远端顺序与 base 不同、本机顺序与 base 相同 → 跟随远端；
+ * 本机也动过（含两端都动过）→ 仍本机优先，与内容冲突的方向一致。
+ * 没有 base（首次同步 / 刚换平台）时无从比较，交给 tieBreak 定方向。
+ *
+ * 只在「两端就是同一批条目、只是先后不同」时生效：一旦 id 集合有出入（新增或删除），
+ * 顺序只是合并的副产物，谈不上谁重排过，保持原有的「本机顺序 + 远端新增追加末尾」。
+ */
+function shouldFollowRemoteOrder(
+    base: readonly { id: string }[] | null | undefined,
+    local: readonly { id: string }[] | null | undefined,
+    remote: readonly { id: string }[] | null | undefined,
+    tieBreak: MergeTieBreak
+): boolean {
+    const current = local ?? [];
+    const incoming = remote ?? [];
+    if (!incoming.length || orderKey(current) === orderKey(incoming)) {
+        return false;
+    }
+    if (!isSameIdSet(current, incoming)) {
+        return false;
+    }
+    const ancestor = base ?? [];
+    if (!ancestor.length) {
+        return tieBreak === 'remote';
+    }
+    return orderKey(incoming) !== orderKey(ancestor) && orderKey(current) === orderKey(ancestor);
+}
+
+/** 按给定 id 顺序重排；顺序里没出现的条目（本次合并新出现的）保持原有相对顺序排在后面 */
+function followOrder<T extends { id: string }>(ids: readonly string[], items: T[]): T[] {
+    const rest = new Map(items.map(item => [item.id, item] as const));
+    const ordered: T[] = [];
+    for (const id of ids) {
+        const hit = rest.get(id);
+        if (hit) {
+            ordered.push(hit);
+            rest.delete(id);
+        }
+    }
+    return ordered.concat([...rest.values()]);
+}
+
+/**
+ * 先按 id 做三方合并，再决定沿用哪一端的顺序
+ *
+ * 同步范围内的每个列表（站点、分类、图标库分类、图标项）都走这里：
+ * 它们的顺序都是数组顺序而非独立字段，因此都需要这层单独判定。
+ */
+function mergeOrderedList<T extends { id: string }>(
+    base: T[] | null | undefined,
+    local: T[] | null | undefined,
+    remote: T[] | null | undefined,
+    tieBreak: MergeTieBreak = 'local'
+): T[] {
+    const merged = mergeById(base, local, remote, tieBreak);
+    return shouldFollowRemoteOrder(base, local, remote, tieBreak)
+        ? followOrder((remote ?? []).map(item => item.id), merged)
+        : merged;
+}
+
 /**
  * 合并站点列表
  *
- * 先按 id 做三方合并，再去掉「远端与本地指向同一 URL」的重复项：
+ * 先按 id 做三方合并（含顺序判定），再去掉「远端与本地指向同一 URL」的重复项：
  * - 本地条目全部保留（本地自身已有的重复属于用户当前数据，不做删减）
  * - 远端条目若与本地（或先前保留下来的远端条目）URL 相同，则丢弃，本地版本胜出
  */
@@ -148,7 +230,7 @@ export function mergeAppList(
     remote: AppItem[] | null | undefined,
     tieBreak: MergeTieBreak = 'local'
 ): AppItem[] {
-    const merged = mergeById<AppItem>(base, local, remote, tieBreak);
+    const merged = mergeOrderedList<AppItem>(base, local, remote, tieBreak);
     const localIds = new Set((local ?? []).map((app) => app.id));
     const seenKeys = new Set<string>();
 
@@ -180,7 +262,7 @@ export function mergeAppList(
 /**
  * 合并分类列表
  *
- * 按 id 合并后，把「与本地分类同名」的远端分类丢掉，并返回
+ * 按 id 合并（含顺序判定）后，把「与本地分类同名」的远端分类丢掉，并返回
  * `远端分类 id → 本地分类 id` 的映射，供站点改指使用。
  */
 function mergeCategoryList(
@@ -189,7 +271,7 @@ function mergeCategoryList(
     remote: Category[] | null | undefined,
     tieBreak: MergeTieBreak = 'local'
 ): { categories: Category[]; remap: Map<string, string> } {
-    const merged = mergeById<Category>(base, local, remote, tieBreak);
+    const merged = mergeOrderedList<Category>(base, local, remote, tieBreak);
     const localIds = new Set((local ?? []).map((category) => category.id));
     const idByName = new Map<string, string>();
 
@@ -251,7 +333,7 @@ export function mergeAppNavigatorData(
     };
 }
 
-/** 合并用户图标库（分类 + 图标项） */
+/** 合并用户图标库（分类 + 图标项，两者顺序同样由数组位置决定） */
 export function mergeUserUiLib(
     base: UserUiLib | null | undefined,
     local: UserUiLib | null | undefined,
@@ -259,8 +341,8 @@ export function mergeUserUiLib(
     tieBreak: MergeTieBreak = 'local'
 ): UserUiLib {
     return {
-        categories: mergeById<UiCategory>(base?.categories, local?.categories, remote?.categories, tieBreak),
-        items: mergeById<UserUiLib['items'][number]>(base?.items, local?.items, remote?.items, tieBreak)
+        categories: mergeOrderedList<UiCategory>(base?.categories, local?.categories, remote?.categories, tieBreak),
+        items: mergeOrderedList(base?.items, local?.items, remote?.items, tieBreak)
     };
 }
 
