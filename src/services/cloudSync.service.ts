@@ -76,6 +76,12 @@ export class CloudSyncService {
      * 内核会把这次写入也当成「本地数据变更」通知回来，不抑制掉就会同步完再自动同步一次。
      */
     private applyingRemote = false;
+    /**
+     * 静默（自动）同步的这一轮故障已经提示过
+     * 失败会自动重试若干次，断网时每次都要再提示一遍；只在第一次提示，
+     * 成功之后复位，下一次故障仍会提示。
+     */
+    private autoSyncFailureReported = false;
 
     constructor(deps: CloudSyncDependencies) {
         this.storage = deps.storage;
@@ -222,10 +228,18 @@ export class CloudSyncService {
      * 双向增量同步
      * 下载云端数据，以本地保存的上次同步快照为 base 与本地数据做三方合并（冲突本地优先），
      * 合并结果按需应用到本地并上传云端，成功后更新 base 快照。
-     * 合并非破坏性，无需用户确认；失败时无论 silent 与否都会 Toast 提示。
+     * 合并非破坏性，无需用户确认。手动同步失败必定 Toast；自动同步（silent）同一轮故障只提示一次。
+     * 返回 retry=true 表示本地改动这一轮没送出去（被进行中的同步挡下、下载期间别的页面同步完成、请求失败），
+     * 调用方应当重新排程再来一次，否则会一直搁置到下一次编辑为止。
+     *
+     * 快照读取顺序：base → 云端 → 本地。base 必须在下载云端之前取，
+     * 否则另一个标签页在这几次网络往返里同步完成并写了新 base，
+     * 我们就会拿「新 base + 旧云端」去合并：本机改动被判成没动过，
+     * 云端那份过期值反倒成了最新，用户刚改的设置几秒后被倒回去，
+     * 而且这个倒回去的结果会被推上云端扩散到其他设备。
      */
     async sync({ silent = false }: { silent?: boolean } = {}): Promise<SyncResult> {
-        if (this.syncInProgress) return { success: false, message: '同步进行中' };
+        if (this.syncInProgress) return { success: false, retry: true, message: '同步进行中' };
         if (!this.token) {
             if (!silent) this.ui.showToast('请先配置 Token', 'error');
             return { success: false, message: '请先配置 Token' };
@@ -233,8 +247,19 @@ export class CloudSyncService {
 
         this.syncInProgress = true;
         try {
+            const base = (await this.storage.get(STORAGE_KEYS.CLOUD_SYNC_BASE)) as SyncSnapshot | null;
+            // base 与上次同步时间是同一批写进去的，用它当「别的页面有没有同步完」的探针，
+            // 比逐次深比较整份快照（含本地壁纸 Base64）便宜得多
+            const syncTimeBefore = await this.storage.get(STORAGE_KEYS.CLOUD_LAST_SYNC_TIME);
             const gistId = await this.findOrCreateGist();
             const remote = await this.downloadSyncData(gistId);
+
+            const syncTimeAfterDownload = await this.storage.get(STORAGE_KEYS.CLOUD_LAST_SYNC_TIME);
+            if (syncTimeAfterDownload !== syncTimeBefore) {
+                // 别的页面在这期间又同步完一次：手里的 base 与刚下载的云端已经对不上，
+                // 三方合并的结论不可信；放弃本轮，让调用方重来
+                return { success: false, retry: true, message: '其他标签页刚完成同步，稍后重试' };
+            }
 
             // 先刷入内存变更，再收集本地数据
             await this.dataManager.syncNow();
@@ -242,7 +267,6 @@ export class CloudSyncService {
 
             this.assertSyncData(localData, remote.data ?? {});
 
-            const base = (await this.storage.get(STORAGE_KEYS.CLOUD_SYNC_BASE)) as SyncSnapshot | null;
             // 首次同步没有 base，同 id 冲突无法判断哪端改过：改按「最后一次写入更晚」的一方胜出，
             // 否则新装设备那份出厂默认数据会把另一台已经改过的云端覆盖回去
             const localUpdatedAt = (await this.storage.get(STORAGE_KEYS.DATA_UPDATED_AT) as number | null) ?? 0;
@@ -265,6 +289,8 @@ export class CloudSyncService {
                 [STORAGE_KEYS.CLOUD_SYNC_BASE]: merged,
                 [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: this.lastSyncTime
             });
+            // 这一轮走通了，下一次故障要重新提示
+            this.autoSyncFailureReported = false;
 
             if (!silent) {
                 const actions = [
@@ -278,9 +304,14 @@ export class CloudSyncService {
             await this.handleIfUnauthorized(e);
             const message = e instanceof Error ? e.message : String(e);
             console.error('[CloudSync] sync error:', e);
-            // 失败策略：每次失败都提示（含静默的自动同步）
-            this.ui.showToast('同步失败：' + message, 'error');
-            return { success: false, message };
+            if (!silent) {
+                this.ui.showToast('同步失败：' + message, 'error');
+            } else if (!this.autoSyncFailureReported) {
+                // 自动同步失败：本轮故障只提示一次，后面的重试静默进行
+                this.autoSyncFailureReported = true;
+                this.ui.showToast('同步失败：' + message, 'error');
+            }
+            return { success: false, retry: true, message };
         } finally {
             this.syncInProgress = false;
         }

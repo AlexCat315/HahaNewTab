@@ -4,7 +4,8 @@
  * 全量上传 upload() 写 base、applyDownloadedData 过滤与 base 更新、
  * 按注册表校验拒绝结构非法的数据、写回本地期间的 isApplyingRemoteData 信号、
  * 拖动排序这类纯顺序变更的采纳与 base 更新、
- * 失败策略 Toast 分类（网络错误 / 超时 / 401 清 Token / 频率限制）。
+ * 失败策略 Toast 分类（网络错误 / 超时 / 401 清 Token / 频率限制）、
+ * 自动同步连续失败时提示收敛为一轮一次。
  * 自动同步的触发与防抖已移到 cloudSync store（监听存储内核），不在此文件覆盖。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -550,6 +551,8 @@ describe('CloudSyncService', () => {
         const r2 = await service.sync();
         expect(r2.success).toBe(false);
         expect(r2.message).toBe('同步进行中');
+        // 被挡下的这一轮本地改动没送出去，调用方（cloudSync store）据此重新排程
+        expect(r2.retry).toBe(true);
 
         release();
         const r1 = await p1;
@@ -570,6 +573,50 @@ describe('CloudSyncService', () => {
             '同步失败：无法连接 GitHub，请检查网络或代理（国内可能需代理访问）',
             'error'
         );
+    });
+
+    it('自动同步连续失败只提示一次', async () => {
+        const { service, storage, ui } = createService();
+        await seedSignedIn(service, storage);
+        vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+
+        const first = await service.sync({ silent: true });
+        const second = await service.sync({ silent: true });
+        const third = await service.sync({ silent: true });
+
+        // 每一轮都要求调用方重新排程，但断网期间的提示不跟着重试一遍遍弹
+        expect([first.retry, second.retry, third.retry]).toEqual([true, true, true]);
+        expect(ui.showToast).toHaveBeenCalledTimes(1);
+    });
+
+    it('失败提示过后若有一轮同步成功，下一次故障重新提示', async () => {
+        const { service, storage, ui } = createService();
+        await seedSignedIn(service, storage, seedMergeFixture([app('a1', 'A')], [app('a1', 'A')]));
+        const remoteData = {
+            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [app('a1', 'A')] },
+            [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB
+        };
+        const okFetch = stubSyncFetch(remoteData);
+        let offline = true;
+        vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+            if (offline) {
+                return Promise.reject(new TypeError('Failed to fetch'));
+            }
+            return okFetch(url, init);
+        }));
+
+        await service.sync({ silent: true });
+        expect(ui.showToast).toHaveBeenCalledTimes(1);
+
+        // 网络恢复：这一轮走通，故障标记复位
+        offline = false;
+        const recovered = await service.sync({ silent: true });
+        expect(recovered.success).toBe(true);
+
+        // 再次断网仍要提示
+        offline = true;
+        await service.sync({ silent: true });
+        expect(ui.showToast).toHaveBeenCalledTimes(2);
     });
 
     it('sync 请求超时（AbortError）时提示超时', async () => {

@@ -98,6 +98,8 @@ export const useWallpaperStore = defineStore('wallpaper', () => {
 
     const slice = usePersistentSlice({
         label: 'WallpaperStore',
+        // 壁纸是参与云同步的用户改动：不盖章的话首次同步会被云端旧设置倒回去
+        touchKey: STORAGE_KEYS.DATA_UPDATED_AT,
         keys: [
             {
                 key: STORAGE_KEYS.WALLPAPER,

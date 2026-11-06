@@ -411,6 +411,78 @@ describe('cloudSync store', () => {
         }
     });
 
+    it('自动同步失败后按防抖时长补重试，额度用尽即停', async () => {
+        mockFetchSequence([
+            createResponse(TEST_USER_API),
+            createResponse([]),
+            createResponse({ id: TEST_GIST_ID, files: {} })
+        ]);
+        const store = useCloudSyncStore();
+        await store.login(TEST_TOKEN);
+        await store.setAutoSync(true);
+
+        vi.useFakeTimers();
+        // 断网形态：服务层不抛错，返回 success=false + retry
+        const syncSpy = vi
+            .spyOn(CloudSyncService.prototype, 'sync')
+            .mockResolvedValue({ success: false, retry: true, message: 'Failed to fetch' });
+        try {
+            store.startAutoSyncWatch();
+            await storageManager.set(STORAGE_KEYS.MAIN_DATA, { categories: [], apps: [] });
+
+            // 首次 + 2 次重试；之后不再有第 4 次，断网时不会无限重试
+            await vi.advanceTimersByTimeAsync(3000 * 4);
+            expect(syncSpy).toHaveBeenCalledTimes(3);
+
+            // 新的用户改动重新给满额度
+            syncSpy.mockClear();
+            await storageManager.set(STORAGE_KEYS.MAIN_DATA, {
+                categories: [],
+                apps: [{ id: 'app_1', name: '站点', url: 'https://example.com' }]
+            });
+            await vi.advanceTimersByTimeAsync(3000 * 4);
+            expect(syncSpy).toHaveBeenCalledTimes(3);
+        } finally {
+            store.stopAutoSyncWatch();
+            syncSpy.mockRestore();
+            vi.useRealTimers();
+        }
+    });
+
+    it('被进行中的同步挡下时也会重新排程，成功一轮后不再重试', async () => {
+        mockFetchSequence([
+            createResponse(TEST_USER_API),
+            createResponse([]),
+            createResponse({ id: TEST_GIST_ID, files: {} })
+        ]);
+        const store = useCloudSyncStore();
+        await store.login(TEST_TOKEN);
+        await store.setAutoSync(true);
+
+        vi.useFakeTimers();
+        const syncSpy = vi
+            .spyOn(CloudSyncService.prototype, 'sync')
+            .mockResolvedValueOnce({ success: false, retry: true, message: '同步进行中' })
+            .mockResolvedValueOnce({ success: true });
+        try {
+            store.startAutoSyncWatch();
+            await storageManager.set(STORAGE_KEYS.MAIN_DATA, { categories: [], apps: [] });
+
+            await vi.advanceTimersByTimeAsync(3000);
+            expect(syncSpy).toHaveBeenCalledTimes(1);
+
+            // 这一轮没送出去，下一轮补上；成功后不再继续
+            await vi.advanceTimersByTimeAsync(3000);
+            expect(syncSpy).toHaveBeenCalledTimes(2);
+            await vi.advanceTimersByTimeAsync(3000 * 3);
+            expect(syncSpy).toHaveBeenCalledTimes(2);
+        } finally {
+            store.stopAutoSyncWatch();
+            syncSpy.mockRestore();
+            vi.useRealTimers();
+        }
+    });
+
     it('把云端结果写回本地期间的落盘不再触发下一轮自动同步', async () => {
         await storageManager.setMany({
             [STORAGE_KEYS.CLOUD_TOKEN]: TEST_TOKEN,

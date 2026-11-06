@@ -1,7 +1,7 @@
 /**
  * layout.store 单元测试
  *
- * 覆盖默认值、设置加载、setter 持久化与非法值处理。
+ * 覆盖默认值、设置加载、setter 持久化、云同步改动盖章与非法值处理。
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -134,7 +134,22 @@ describe('layout.store', () => {
                 minimalMode: false,
                 openMode: 'new-tab',
             },
+            // 布局设置参与云同步：用户改动必须盖上「本机最后一次改动」时间戳，
+            // 否则首次同步的 tieBreak 会把刚做的改动判给云端
+            [STORAGE_KEYS.DATA_UPDATED_AT]: expect.any(Number),
         });
+    });
+
+    it('参与云同步的设置改动会刷新 DATA_UPDATED_AT', async () => {
+        const store = useLayoutStore();
+        await store.init();
+        vi.mocked(storageManager.setMany).mockClear();
+
+        await store.setMinimalMode(true);
+
+        const calls = vi.mocked(storageManager.setMany).mock.calls;
+        const items = calls[calls.length - 1][0] as Record<string, unknown>;
+        expect(typeof items[STORAGE_KEYS.DATA_UPDATED_AT]).toBe('number');
     });
 
     it('默认以新标签页方式打开链接', () => {
@@ -160,7 +175,8 @@ describe('layout.store', () => {
 
         expect(store.openMode).toBe('current-tab');
         expect(storageManager.setMany).toHaveBeenLastCalledWith({
-            [STORAGE_KEYS.LAYOUT_SETTINGS]: expect.objectContaining({ openMode: 'current-tab' })
+            [STORAGE_KEYS.LAYOUT_SETTINGS]: expect.objectContaining({ openMode: 'current-tab' }),
+            [STORAGE_KEYS.DATA_UPDATED_AT]: expect.any(Number)
         });
     });
 

@@ -134,10 +134,16 @@ export const STORAGE_SCHEMA = {
             merge: mergeUserUiLibSnapshot
         }
     }),
+    /**
+     * 本机最后一次用户改动的时间戳。
+     * 首次同步没有共同祖先可比，同 id 冲突只能按「哪端写得更晚」定方向，靠的就是它；
+     * 所以每个参与云同步的 store 都必须盖章（usePersistentSlice 的 touchKey），
+     * 漏掉一个键，那次改动就会在首次同步时被云端旧值倒回去。
+     * 不参与同步，也不进首帧快照。
+     */
     dataUpdatedAt: defineKey({
         id: STORAGE_KEYS.DATA_UPDATED_AT,
-        backend: 'local',
-        owner: 'appData'
+        backend: 'local'
     }),
     selectedTheme: defineKey<string>({
         id: STORAGE_KEYS.SELECTED_THEME,
@@ -349,6 +355,11 @@ export const CLOUD_SYNC_KEY_STRATEGIES: CloudSyncKeyStrategy[] = CLOUD_KEY_DEFIN
 /** 某个键是否需要写进首帧快照 */
 export function isBootKey(id: string): boolean {
     return SYNC_MIRROR_KEYS.has(id);
+}
+
+/** 某个键是否参与云同步（「本机改过这份数据」的盖章只看它） */
+export function isCloudSyncedKey(id: string): boolean {
+    return CLOUD_SYNC_DATA_KEYS.includes(id);
 }
 
 /**

@@ -84,6 +84,8 @@ export const useSearchStore = defineStore('search', () => {
 
     const slice = usePersistentSlice({
         label: 'SearchStore',
+        // 只有搜索历史参与云同步，引擎选择改了不算「本机编辑过同步数据」
+        touchKey: STORAGE_KEYS.DATA_UPDATED_AT,
         keys: [
             {
                 key: STORAGE_KEYS.SELECTED_SEARCH_ENGINE,
@@ -119,9 +121,10 @@ export const useSearchStore = defineStore('search', () => {
      */
     async function setSelectedEngineIndex(index: number): Promise<void> {
         const nextIndex = normalizeEngineIndex(index);
+        // 只写引擎选择这一个键：搜索历史没动，也就不该顺带盖上「本机编辑过同步数据」的时间戳
         await slice.mutate(() => {
             selectedEngineIndex.value = nextIndex;
-        });
+        }, [STORAGE_KEYS.SELECTED_SEARCH_ENGINE]);
     }
 
     /**

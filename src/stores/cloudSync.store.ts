@@ -33,6 +33,14 @@ import type { StorageChanges } from '@/types/storage';
 /** 自动同步防抖：连续增删站点时只在停下来后同步一次 */
 const AUTO_SYNC_DEBOUNCE_MS = 3000;
 
+/**
+ * 自动同步本轮失败后允许的重试轮数
+ * 只补最小的一截：改动会因为「另一个页面正在同步」或一次网络抖动被整轮丢弃，
+ * 不重试就得等下一次编辑或重开页面才送出去。设上限是为了断网时不无限重试，
+ * 也不会每隔几秒再弹一次失败提示。
+ */
+const AUTO_SYNC_MAX_RETRY_ROUNDS = 2;
+
 /** 默认 UI 适配器：Store 不直接操作 UI，默认无提示 / 自动确认 */
 const DEFAULT_UI_ADAPTER: ICloudSyncUIAdapter = {
     showToast: () => {},
@@ -81,6 +89,8 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     let autoSyncWatchAttached = false;
     /** 自动同步防抖定时器 */
     let autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
+    /** 本轮自动同步还允许重试几次 */
+    let autoSyncRetryLeft = 0;
     /** 存储内核变更订阅的取消函数 */
     let unsubscribeDataChanges: (() => void) | null = null;
 
@@ -125,7 +135,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     /**
      * 存储变更 → 是否该自动同步
      *
-     * 只认「本机把同步范围内的数据改了」：个性化设置不参与同步，
+     * 只认「本机把同步范围内的数据改了」：个性化设置也在这份名单里（布局、主题、壁纸、搜索设置都会同步），
      * 刚把云端结果写回本地的那次写入也不能算本机改动，否则同步完又触发一轮。
      */
     function handleDataChanges(changes: StorageChanges): void {
@@ -139,6 +149,11 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     }
 
     function cancelScheduledAutoSync(): void {
+        autoSyncRetryLeft = 0;
+        clearAutoSyncTimer();
+    }
+
+    function clearAutoSyncTimer(): void {
         if (autoSyncTimer) {
             clearTimeout(autoSyncTimer);
             autoSyncTimer = null;
@@ -148,18 +163,42 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     /**
      * 触发自动同步（防抖）
      * 未登录或未开启自动同步时什么都不做；走 store.sync 是为了把结果同步回界面状态。
+     * 新的用户改动重新给满重试额度。
      */
     function scheduleAutoSync(): void {
         if (!autoSync.value || !token.value) {
             return;
         }
-        cancelScheduledAutoSync();
+        clearAutoSyncTimer();
+        autoSyncRetryLeft = AUTO_SYNC_MAX_RETRY_ROUNDS;
+        armAutoSync();
+    }
+
+    /** 起一个防抖定时器；重试走这里，因此不会重置额度，也不会把额度叠回上限 */
+    function armAutoSync(): void {
+        clearAutoSyncTimer();
         autoSyncTimer = setTimeout(() => {
             autoSyncTimer = null;
-            sync({ silent: true }).catch(() => {
-                // 失败提示由服务层 Toast 负责，这里只避免未处理的 Promise 拒绝
-            });
+            void runAutoSync();
         }, AUTO_SYNC_DEBOUNCE_MS);
+    }
+
+    /**
+     * 执行一次自动同步，并按结果决定是否补一轮
+     * 重试同样保持 silent：断网时服务层只在第一次失败提示，这里不再制造新的提示。
+     */
+    async function runAutoSync(): Promise<void> {
+        let needsRetry = false;
+        try {
+            needsRetry = (await sync({ silent: true })).retry === true;
+        } catch {
+            // 抛错同样是「这一轮没送出去」；提示已由服务层负责，这里只避免未处理的 Promise 拒绝
+            needsRetry = true;
+        }
+        if (needsRetry && autoSyncRetryLeft > 0) {
+            autoSyncRetryLeft--;
+            armAutoSync();
+        }
     }
 
     /** 将 CloudSyncService 的内部状态同步回 Store */

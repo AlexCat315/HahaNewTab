@@ -166,6 +166,11 @@ export interface SyncResult {
     uploaded?: boolean;
     /** 是否有云端数据应用到本地 */
     applied?: boolean;
+    /**
+     * 这一轮没有把本地改动送出去，调用方应当重新排程再来一次
+     * （被进行中的同步挡下 / 下载期间别的页面同步完成 / 本轮请求失败）
+     */
+    retry?: boolean;
     time?: number;
     message?: string;
 }
