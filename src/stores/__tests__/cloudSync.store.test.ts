@@ -257,7 +257,8 @@ describe('cloudSync store', () => {
         const result = await store.download();
 
         expect(result.success).toBe(true);
-        expect(result.data).toEqual(syncData);
+        // revision 是下载侧现挂的云端版本号指纹，不属于 Gist 文件本身的内容
+        expect(result.data).toEqual({ ...syncData, revision: expect.any(String) });
     });
 
     it('pullAndApply 将云端快照应用到本地 appData', async () => {

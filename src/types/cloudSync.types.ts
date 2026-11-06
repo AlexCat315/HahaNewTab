@@ -128,6 +128,14 @@ export interface SyncData {
     data: Record<string, unknown>;
     /** 本次 payload 的资源清单；没有大对象时缺省 */
     assets?: SyncAssetManifest;
+    /**
+     * 这一版云端文件的指纹，只在下载侧挂上，不参与序列化上传。
+     *
+     * 用来认出「云端把刚才那版又还给我了一次」：写后立读时 Gist 有约 1 分钟
+     * 会返回旧文件，旧文件在三方合并里和「别的设备改了云端」完全同形，
+     * 会把本机刚改好的设置倒灌回去。
+     */
+    revision?: string;
 }
 
 /**

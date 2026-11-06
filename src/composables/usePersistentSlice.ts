@@ -143,10 +143,22 @@ export function usePersistentSlice(options: PersistentSliceOptions): PersistentS
         }
     }
 
-    /** 写入来源：谁调用 setMany 只能靠栈，跨页面覆盖类问题没有它就无法归因 */
+    /**
+     * 写入来源：谁调用 setMany 只能靠栈，跨页面覆盖类问题没有它就无法归因
+     *
+     * Firefox 的栈是 `函数@文件:行:列`，Chrome 是 `at 函数 (文件:行:列)`，两种都要认：
+     * 只按 Chrome 格式过滤的话，Firefox 上取到的永远是空串。
+     */
     function callSite(): string {
-        const stack = (new Error().stack || '').split('\n').slice(3);
-        const frame = stack.find(line => !line.includes('usePersistentSlice') && line.trim().startsWith('at '));
+        const frames = (new Error().stack || '').split('\n').filter(Boolean);
+        const frame = frames
+            .slice(1)
+            .find(
+                line =>
+                    (line.includes('at ') || line.includes('@')) &&
+                    !line.includes('usePersistentSlice') &&
+                    !line.includes('diag')
+            );
         return (frame || '').trim().slice(0, 160);
     }
 

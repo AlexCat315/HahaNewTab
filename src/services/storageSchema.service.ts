@@ -273,6 +273,11 @@ export const STORAGE_SCHEMA = {
         backend: 'local',
         owner: 'cloudSync'
     }),
+    cloudSeenRevisions: defineKey({
+        id: STORAGE_KEYS.CLOUD_SYNC_SEEN_REVISIONS,
+        backend: 'local',
+        owner: 'cloudSync'
+    }),
     cloudProvider: defineKey({
         id: STORAGE_KEYS.CLOUD_PROVIDER,
         backend: 'local',

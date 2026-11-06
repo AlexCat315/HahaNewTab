@@ -11,6 +11,7 @@ import { compactSnapshot, pickMinimalMode, trace } from '@/services/diag.service
 import type { MergeTieBreak, SyncSnapshot } from '@/utils/syncMerge.util';
 import {
     externalizeAssets,
+    hashKey,
     internalizeAssets,
     isAssetFileName,
     manifestFileNames
@@ -34,6 +35,13 @@ import type {
 
 const SYNC_FILE_NAME = 'haha-newtab-sync.json';
 const GIST_DESCRIPTION = 'HahaNewTab 导航数据云同步备份';
+
+/**
+ * 记住最近几版的云端版本号
+ * 只留最新的一版不够：一轮同步里本机可能连着读到同一个旧版本两次
+ * （上传后 1 分钟内旧版本还在服务），而多标签页各自同步时读到的新旧顺序也不固定。
+ */
+const SEEN_REVISIONS_LIMIT = 5;
 
 /**
  * 同步包结构版本
@@ -255,6 +263,11 @@ export class CloudSyncService {
             // base 与上次同步时间是同一批写进去的，用它当「别的页面有没有同步完」的探针，
             // 比逐次深比较整份快照（含本地壁纸 Base64）便宜得多
             const syncTimeBefore = await this.storage.get(STORAGE_KEYS.CLOUD_LAST_SYNC_TIME);
+            // 已合并过的云端版本号也要在下载前取：它和 base 同批写入，
+            // 下载后再读就会拿到别的页面刚写的那一份，探针就失效了
+            const seenRevisions = ((await this.storage.get(
+                STORAGE_KEYS.CLOUD_SYNC_SEEN_REVISIONS
+            )) as string[] | null) ?? [];
             const gistId = await this.findOrCreateGist();
             const remote = await this.downloadSyncData(gistId);
 
@@ -277,21 +290,31 @@ export class CloudSyncService {
 
             this.assertSyncData(localData, remote.data ?? {});
 
+            // 云端这一版是不是本机没见过的新内容。
+            // 判断不能靠 lastModified：写后立读时 Gist 有约 1 分钟把旧文件再返回一次，
+            // 旧文件在字段级三方合并里和「别的设备改了云端」一模一样（本地 == base、
+            // 云端 != base），合并会把过期值当成最新采纳下来，再推上云端扩散。
+            // 版本号取文件内容哈希，同一版永远同一个指纹，因此只认这个不认时钟。
+            const remoteIsNew = !remote.revision || !hasCloudSyncBase(base) || !seenRevisions.includes(remote.revision);
+            // 旧版本不参与合并：拿 base 顶替它，合并结果就退回本机当前状态
+            const remoteSnapshot = remoteIsNew ? remote.data ?? {} : (base as SyncSnapshot) ?? {};
+
             // 首次同步没有 base，同 id 冲突无法判断哪端改过：改按「最后一次写入更晚」的一方胜出，
             // 否则新装设备那份出厂默认数据会把另一台已经改过的云端覆盖回去
             const localUpdatedAt = (await this.storage.get(STORAGE_KEYS.DATA_UPDATED_AT) as number | null) ?? 0;
             const tieBreak: MergeTieBreak =
                 !hasCloudSyncBase(base) && (remote.lastModified ?? 0) > localUpdatedAt ? 'remote' : 'local';
-            const merged = mergeSnapshots(CLOUD_SYNC_KEY_STRATEGIES, base, localData, remote.data ?? {}, tieBreak);
+            const merged = mergeSnapshots(CLOUD_SYNC_KEY_STRATEGIES, base, localData, remoteSnapshot, tieBreak);
 
             const applied = CLOUD_SYNC_DATA_KEYS.some((key) => !deepEqual(merged[key], localData[key]));
-            const uploaded = CLOUD_SYNC_DATA_KEYS.some((key) => !deepEqual(merged[key], remote.data?.[key]));
+            const uploaded = CLOUD_SYNC_DATA_KEYS.some((key) => !deepEqual(merged[key], remoteSnapshot[key]));
 
             trace('cloud-sync', {
                 outcome: `${applied ? 'applied ' : ''}${uploaded ? 'uploaded' : ''}`.trim() || 'no-change',
                 silent,
                 hasBase: hasCloudSyncBase(base),
                 tieBreak,
+                remoteIsNew,
                 localUpdatedAt,
                 remoteLastModified: remote.lastModified,
                 minimalModeRemote: pickMinimalMode(remote.data),
@@ -313,7 +336,16 @@ export class CloudSyncService {
             this.lastSyncTime = Date.now();
             await this.storage.setMany({
                 [STORAGE_KEYS.CLOUD_SYNC_BASE]: merged,
-                [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: this.lastSyncTime
+                [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: this.lastSyncTime,
+                // 本轮读到的版本号记下来：下一次再读到同一版，就说明云端没有新东西
+                ...(remote.revision
+                    ? {
+                        [STORAGE_KEYS.CLOUD_SYNC_SEEN_REVISIONS]: [
+                            remote.revision,
+                            ...seenRevisions.filter((item) => item !== remote.revision)
+                        ].slice(0, SEEN_REVISIONS_LIMIT)
+                    }
+                    : {})
             });
             // 这一轮走通了，下一次故障要重新提示
             this.autoSyncFailureReported = false;
@@ -723,6 +755,9 @@ export class CloudSyncService {
             throw new Error('同步文件不存在');
         }
         const syncData = JSON.parse(content) as SyncData;
+        // 指纹取自还原分片之前的原始文件内容：分片本身按内容命名，
+        // 所以「同一版文件」永远得到同一个指纹，跨设备、跨标签页都一样
+        syncData.revision = await hashKey(content);
         const token = this.token;
         syncData.data = (await internalizeAssets(
             syncData.data,

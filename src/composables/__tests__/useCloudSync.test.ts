@@ -59,6 +59,19 @@ function createTestComponent(options: Parameters<typeof useCloudSync>[0] = {}) {
     });
 }
 
+/**
+ * 推进虚拟时间直到条件成立（最多约 50 拍）
+ *
+ * 一轮同步要 await 多少次不固定：云端版本号指纹走 SubtleCrypto 的异步摘要，
+ * 落盘与否又取决于本机是否已见过那一版。固定次数的 flushPromises 偶尔会在
+ * 同步还没跑完时就走到断言，所以这里等条件而不是等次数。
+ */
+async function waitUntilReady(isReady: () => boolean): Promise<void> {
+    for (let attempt = 0; attempt < 50 && !isReady(); attempt++) {
+        await vi.advanceTimersByTimeAsync(1);
+    }
+}
+
 describe('useCloudSync composable', () => {
     enableAutoUnmount(afterEach);
 
@@ -225,7 +238,8 @@ describe('useCloudSync composable', () => {
         const result = await wrapper.vm.cloud.download();
 
         expect(result.success).toBe(true);
-        expect(result.data).toEqual(syncData);
+        // revision 是下载侧现挂的云端版本号指纹，不属于 Gist 文件本身的内容
+        expect(result.data).toEqual({ ...syncData, revision: expect.any(String) });
     });
 
     it('pullAndApply 将云端快照应用到本地', async () => {
@@ -311,8 +325,8 @@ describe('useCloudSync composable', () => {
             [STORAGE_KEYS.MAIN_DATA]: { categories: [allCategory], apps: [] }
         });
 
-        vi.advanceTimersByTime(3000);
-        await flushPromises();
+        await vi.advanceTimersByTimeAsync(3000);
+        await waitUntilReady(() => wrapper.vm.cloud.lastSyncTime.value > 0);
 
         // 防抖后执行 sync，至少发起 Gist 读取请求
         expect(fetchMock.mock.calls.length).toBeGreaterThan(0);
@@ -339,8 +353,7 @@ describe('useCloudSync composable', () => {
         const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
 
         await storageManager.setMany({ [STORAGE_KEYS.SELECTED_THEME]: 'material-rose' });
-        vi.advanceTimersByTime(3000);
-        await flushPromises();
+        await vi.advanceTimersByTimeAsync(3000);
 
         expect(fetchMock).toHaveBeenCalled();
     });
@@ -365,8 +378,7 @@ describe('useCloudSync composable', () => {
 
         // 侧栏折叠跟着屏幕走，不进同步范围
         await storageManager.setMany({ [STORAGE_KEYS.SIDEBAR_COLLAPSED]: true });
-        vi.advanceTimersByTime(3000);
-        await flushPromises();
+        await vi.advanceTimersByTimeAsync(3000);
 
         expect(fetchMock).not.toHaveBeenCalled();
     });
@@ -425,8 +437,7 @@ describe('useCloudSync composable', () => {
             [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [] }
         });
 
-        vi.advanceTimersByTime(3000);
-        await flushPromises();
+        await vi.advanceTimersByTimeAsync(3000);
 
         expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(fetchCount);
     });

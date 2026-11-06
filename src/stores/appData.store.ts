@@ -296,8 +296,16 @@ export const useAppDataStore = defineStore('appData', () => {
      *
      * 只是给云同步刷一遍盘，不算用户改动，所以不打 DATA_UPDATED_AT：
      * 首次同步要靠这个时间戳判断本地到底有没有被编辑过。
+     *
+     * 内存与存储一致时必须什么都不写：这一句是「同步完又触发一轮同步」的来源，
+     * 空写会让存储变更事件把自动同步重新排程，页面从此每 3 秒同步一次，
+     * 一直写到用户关掉标签页为止。
      */
     async function syncNow(): Promise<void> {
+        const stored = (await storageManager.get(STORAGE_KEYS.MAIN_DATA)) as AppNavigatorData | null;
+        if (valuesEqual(stored, data.value)) {
+            return;
+        }
         await slice.persist();
     }
 

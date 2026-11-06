@@ -347,7 +347,13 @@ describe('useAppDataStore', () => {
         it('syncNow 应将当前状态写入存储', async () => {
             const store = createStore();
             await store.init();
-            await store.addApp({ name: '同步应用', url: 'https://sync.test', category: 'dev' });
+            // 绕过 store 的动作直接改内存，制造「内存比存储新」这种 syncNow 真正要处理的局面
+            store.data.apps.push({
+                id: 'app_pending',
+                name: '未落盘应用',
+                url: 'https://pending.test',
+                category: 'dev'
+            });
 
             const setManySpy = vi.spyOn(storageManager, 'setMany');
             await store.syncNow();
@@ -363,6 +369,20 @@ describe('useAppDataStore', () => {
             // 刷盘不算用户改动：首次同步靠这个时间戳区分「本地编辑过」和「出厂默认数据」
             const lastWrite = setManySpy.mock.calls[setManySpy.mock.calls.length - 1]?.[0];
             expect(lastWrite).not.toHaveProperty(STORAGE_KEYS.DATA_UPDATED_AT);
+        });
+
+        it('syncNow 在内存与存储一致时不应该写存储', async () => {
+            // 空写会让存储变更事件把自动同步重新排程：同步完又同步，页面从此每 3 秒跑一次
+            const store = createStore();
+            await store.init();
+            await store.addApp({ name: '同步应用', url: 'https://sync.test', category: 'dev' });
+
+            const setManySpy = vi.spyOn(storageManager, 'setMany');
+            await store.syncNow();
+            expect(setManySpy).not.toHaveBeenCalled();
+
+            await store.syncNow();
+            expect(setManySpy).not.toHaveBeenCalled();
         });
 
         it('applyStorageSnapshot 应应用云端快照', async () => {

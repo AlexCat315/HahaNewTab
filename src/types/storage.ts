@@ -19,6 +19,14 @@ export const STORAGE_KEYS = {
     CLOUD_LAST_SYNC_TIME: 'appNavigator_cloudSync_lastSyncTime',
     CLOUD_USER_INFO: 'appNavigator_cloudSync_userInfo',
     CLOUD_SYNC_BASE: 'appNavigator_cloudSync_base',
+    /**
+     * 本机已经合并过的云端版本号（Gist 文件内容指纹，最新在前）。
+     *
+     * 存在的原因：写完紧接着读，Gist 有约 1 分钟会把旧版本再返回一次。
+     * 旧版本对「三方合并」来说长得和「别的设备改了云端」一模一样，
+     * 于是本机刚上传的设置会被这份过期内容倒灌回来。见过的版本号不再当新内容。
+     */
+    CLOUD_SYNC_SEEN_REVISIONS: 'appNavigator_cloudSync_seenRevisions',
     CLOUD_PROVIDER: 'appNavigator_cloudSync_provider',
     SELECTED_THEME: 'selectedTheme',
     /** 主题偏好设置（跟随系统开关 + 主题族），见 ThemeSettings */

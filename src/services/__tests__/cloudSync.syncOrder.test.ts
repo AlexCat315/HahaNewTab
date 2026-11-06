@@ -43,7 +43,12 @@ function jsonResponse(body: unknown): Response {
     } as Response;
 }
 
-/** 假 Gist：云端只存一份同步文件 */
+/**
+ * 假 Gist：云端只存一份同步文件
+ *
+ * freeze() 用来复现「写完立读拿到旧文件」：现场日志实测本机上传成功后约 1 分钟内，
+ * 下一次读到的还是上传前那一版（lastModified 与内容都停在旧值）。
+ */
 function createCloud(remoteData: Record<string, unknown>, remoteLastModified: number) {
     let content = JSON.stringify({
         version: '1.1',
@@ -51,11 +56,14 @@ function createCloud(remoteData: Record<string, unknown>, remoteLastModified: nu
         device: 'Chrome',
         data: remoteData
     });
+    let frozen = false;
 
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
         if (init?.method === 'PATCH') {
             const body = JSON.parse(String(init.body)) as { files: Record<string, { content: string }> };
-            content = body.files[SYNC_FILE].content;
+            if (!frozen) {
+                content = body.files[SYNC_FILE].content;
+            }
             return jsonResponse({ id: GIST_ID });
         }
         if (url.endsWith('/user')) {
@@ -70,6 +78,17 @@ function createCloud(remoteData: Record<string, unknown>, remoteLastModified: nu
     return {
         get layout(): LayoutSettings {
             return (JSON.parse(content).data[LAYOUT_KEY] ?? {}) as LayoutSettings;
+        },
+        freeze(): void {
+            frozen = true;
+        },
+        /** 换一个云端版本号：模拟别的设备真的写过了 */
+        setLayout(next: LayoutSettings): void {
+            const parsed = JSON.parse(content) as { lastModified: number; data: Record<string, unknown> };
+            parsed.data[LAYOUT_KEY] = next;
+            parsed.lastModified = Date.now();
+            content = JSON.stringify({ version: '1.1', ...parsed });
+            frozen = false;
         }
     };
 }
@@ -161,8 +180,7 @@ describe('自动同步的读取顺序', () => {
         expect(cloud.layout.minimalMode).toBe(true);
     });
 
-    it('别的标签页在这一轮下载期间同步完成时，本轮放弃并交给调用方重试', async () => {
-        const cloud = createCloud({ [LAYOUT_KEY]: layout({ minimalMode: false }) }, Date.now() - 60_000);
+    it('别的标签页在这一轮下载期间同步完成时，本轮放弃并交给调用方重试', async () => {        const cloud = createCloud({ [LAYOUT_KEY]: layout({ minimalMode: false }) }, Date.now() - 60_000);
         const seededBase = { [LAYOUT_KEY]: layout({ minimalMode: false }) };
         await seedCloudConfig(seededBase);
 
@@ -183,7 +201,8 @@ describe('自动同步的读取顺序', () => {
         let reads = 0;
         const staleFirstReads: CloudSyncDependencies['storage'] = {
             get: async key => {
-                if (++reads <= 2) return staleSnapshot[key] ?? null;
+                // 下载前的三次预读（base / 上次同步时间 / 已见版本号）都返回旧值
+                if (++reads <= 3) return staleSnapshot[key] ?? null;
                 return storageManager.get(key);
             },
             getMany: keys => storageManager.getMany(keys),
@@ -199,5 +218,50 @@ describe('自动同步的读取顺序', () => {
         expect(resultB.retry).toBe(true);
         expect(layoutStore.minimalMode).toBe(true);
         expect(cloud.layout.minimalMode).toBe(true);
+    });
+
+    it('云端把本机刚合并过的旧版本再返回一次时，不用它把设置改回去', async () => {
+        // 现场复现：切换 → 上传成功 → 3 秒后的下一轮自动同步又读到上传前那一版，
+        // 旧值在三方合并里和「别的设备改过云端」同形，于是本地被倒灌回去
+        const cloud = createCloud({ [LAYOUT_KEY]: layout({ minimalMode: true }) }, Date.now() - 1000);
+        await seedCloudConfig({ [LAYOUT_KEY]: layout({ minimalMode: true }) });
+
+        const layoutStore = useLayoutStore();
+        const service = createService();
+        await service.loadSettings();
+
+        await layoutStore.setMinimalMode(false);
+        cloud.freeze();
+
+        const first = await service.sync({ silent: true });
+        expect(layoutStore.minimalMode).toBe(false);
+        expect(first.uploaded).toBe(true);
+
+        // 关键一步：这一轮读到的还是上一轮已经合并过的旧文件（minimalMode: true）。
+        // 它不能当「别的设备改过云端」，否则刚改好的设置被倒灌回去。
+        await service.sync({ silent: true });
+        expect(layoutStore.minimalMode).toBe(false);
+
+        const base = (await storageManager.get(STORAGE_KEYS.CLOUD_SYNC_BASE)) as Record<string, unknown>;
+        expect((base[LAYOUT_KEY] as LayoutSettings).minimalMode).toBe(false);
+    });
+    it('云端换了新版本号时照常采纳别的设备写的值', async () => {
+        const cloud = createCloud({ [LAYOUT_KEY]: layout({ minimalMode: true }) }, Date.now() - 1000);
+        await seedCloudConfig({ [LAYOUT_KEY]: layout({ minimalMode: true }) });
+
+        const layoutStore = useLayoutStore();
+        const service = createService();
+        await service.loadSettings();
+
+        await layoutStore.setMinimalMode(false);
+        cloud.freeze();
+        await service.sync({ silent: true });
+
+        // 另一台设备真的写过了：内容变了，版本号也就变了
+        cloud.setLayout(layout({ minimalMode: true }));
+        const result = await service.sync({ silent: true });
+
+        expect(result.applied).toBe(true);
+        expect(layoutStore.minimalMode).toBe(true);
     });
 });

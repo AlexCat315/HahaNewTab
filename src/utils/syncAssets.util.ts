@@ -48,8 +48,11 @@ export interface ExternalizedPayload {
  * 有 SubtleCrypto 就用 SHA-256（扩展页面与 Firefox 都有）；
  * 没有时退回 FNV-1a，只为 jsdom 之类没有 SubtleCrypto 的测试环境能跑通，
  * 真实运行环境不会走到这条分支。
+ *
+ * 云同步也用它给「云端这一版」编号（见 cloudSync.service 的已见版本号），
+ * 所以这里导出：同一套指纹算法只有一份，避免两处判断对不上。
  */
-async function hashKey(text: string): Promise<string> {
+export async function hashKey(text: string): Promise<string> {
     const subtle = globalThis.crypto?.subtle;
     if (subtle) {
         const digest = await subtle.digest('SHA-256', new TextEncoder().encode(text));
