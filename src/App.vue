@@ -22,6 +22,7 @@ import { useUpdateCheck } from '@/composables/useUpdateCheck';
 import { useAppCardDrag, type AppCardDragCommit } from '@/composables/useAppCardDrag';
 import { useLayoutStore } from '@/stores/layout.store';
 import { storageManager } from '@/services/storage.service';
+import { watchMinimalMode } from '@/services/diag.service';
 import { isJsonFile, readTextFile } from '@/utils/file.util';
 import { openUrl } from '@/utils/navigation.util';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -209,6 +210,7 @@ watch(
 
 // ==================== 生命周期与持久化 ====================
 let storageUnsubscribe: (() => void) | null = null;
+let stopMinimalModeDomProbe: (() => void) | null = null;
 
 async function loadSettings(): Promise<void> {
     try {
@@ -267,11 +269,14 @@ onMounted(() => {
 
     // 检查是否有新版本（内部按 6 小时节流，失败静默）
     void checkForUpdate();
+
+    stopMinimalModeDomProbe = watchMinimalMode(() => useLayoutStore().minimalMode);
 });
 
 onUnmounted(() => {
     storageUnsubscribe?.();
     unsubscribeCardDragCommit();
+    stopMinimalModeDomProbe?.();
     document.removeEventListener('keydown', handleGlobalKeydown);
 });
 

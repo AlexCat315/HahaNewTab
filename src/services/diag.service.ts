@@ -6,7 +6,8 @@
  * 导出：控制台执行 `copy(JSON.parse(sessionStorage.getItem('haha-diag-v1')))`
  */
 
-import { storageManager } from '@/services/storage.service';
+import { setKernelChangeListener, storageManager } from '@/services/storage.service';
+import { STORAGE_KEYS } from '@/types/storage';
 
 export type TraceKind =
     | 'write'
@@ -14,7 +15,9 @@ export type TraceKind =
     | 'load-skipped-stale'
     | 'external-change'
     | 'cloud-apply'
-    | 'cloud-sync';
+    | 'cloud-sync'
+    | 'kernel-change'
+    | 'dom';
 
 export interface TraceEntry {
     t: number;
@@ -76,8 +79,43 @@ function scheduleFlush(): void {
     }, 1000);
 }
 
+/**
+ * 从一份快照里挑出极简约开关
+ *
+ * 整块设置在日志里是压缩字符串，控制台折叠后看不见值；把这一项摊到顶层，
+ * 「跳回去」的那一刻在纯文本日志里就能直接读。原始对象和压缩字符串都要认。
+ */
+export function pickMinimalMode(snapshot: unknown): unknown {
+    if (!snapshot || typeof snapshot !== 'object') {
+        return undefined;
+    }
+    const settings = (snapshot as Record<string, unknown>)[STORAGE_KEYS.LAYOUT_SETTINGS];
+    if (settings && typeof settings === 'object') {
+        return (settings as Record<string, unknown>).minimalMode;
+    }
+    if (typeof settings === 'string') {
+        const matched = /"minimalMode":(true|false)/.exec(settings);
+        return matched ? matched[1] === 'true' : undefined;
+    }
+    return undefined;
+}
+
+/** 每条记录自动带上极简约开关：不用先导出完整 JSON 也能看出值被改成了什么 */
+function withMinimalSignal(entry: TraceEntry): TraceEntry {
+    if (Object.keys(entry).some((field) => field.startsWith('minimalMode'))) {
+        return entry;
+    }
+    for (const field of ['items', 'values', 'read', 'local', 'remote', 'merged', 'base']) {
+        const value = pickMinimalMode(entry[field] as Record<string, unknown> | undefined);
+        if (value !== undefined) {
+            return { ...entry, minimalMode: value };
+        }
+    }
+    return entry;
+}
+
 export function trace(kind: TraceKind, detail: Record<string, unknown>): void {
-    const entry: TraceEntry = { t: Date.now(), page: pageId, kind, ...detail };
+    const entry = withMinimalSignal({ t: Date.now(), page: pageId, kind, ...detail });
     buffered.push(entry);
     if (buffered.length > MAX_ENTRIES) {
         buffered = buffered.slice(-MAX_ENTRIES);
@@ -89,4 +127,48 @@ export function trace(kind: TraceKind, detail: Record<string, unknown>): void {
     }
     console.debug('[haha-diag]', entry);
     scheduleFlush();
+}
+
+/**
+ * 内核变更观察者：把「这一页收到了谁的写入」记进环形缓冲
+ *
+ * 布局/主题/搜索的 slice 不订阅外部变更，slice 层日志看不到别的标签页的整块回写，
+ * 只能在这一层看到。source 为 native-other / storage 时即跨页面写入。
+ */
+setKernelChangeListener((report) => {
+    const minimalMode = (report.signals as Record<string, unknown>)?.minimalMode;
+    trace('kernel-change', {
+        source: report.source,
+        keys: report.keys,
+        minimalMode,
+        listenerCount: report.listenerCount,
+        signals: report.signals,
+    });
+});
+
+/**
+ * 渲染层探针：`#app-root` 的 minimal-mode 类名每次变化都记一条
+ *
+ * 用来区分「数据被改回去」和「数据没变、只是画面跳回去」。
+ * 类名变了但 storeValue 没变 ⇒ 渲染层问题。
+ */
+export function watchMinimalMode(getStoreValue: () => unknown): () => void {
+    const root = document.getElementById('app-root');
+    if (!root) {
+        return () => {};
+    }
+    let previous = root.classList.contains('minimal-mode');
+    const observer = new MutationObserver(() => {
+        const next = root.classList.contains('minimal-mode');
+        if (next === previous) {
+            return;
+        }
+        previous = next;
+        trace('dom', {
+            minimalModeClass: next,
+            storeValue: getStoreValue(),
+        });
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
 }

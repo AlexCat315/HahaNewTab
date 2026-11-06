@@ -25,6 +25,126 @@ import {
 /** 本地存储变更事件名 */
 export const STORAGE_EVENT = 'haha-storage-change';
 
+/**
+ * 现场诊断：内核收到的每一次变更来自哪一路
+ *
+ * 布局/主题/搜索的 slice 不订阅外部变更，所以「别的标签页把整块设置写回来」
+ * 在 slice 层一条日志都看不到。这里挂在订阅分发处，按业务键过滤，
+ * 并用「本页自己刚派发过的同一份值」识别 onChanged 自回声，剩下的就是跨页面写入。
+ */
+export type KernelChangeSource = 'local' | 'storage' | 'native-self' | 'native-other';
+
+export interface KernelChangeReport {
+    source: KernelChangeSource;
+    keys: string[];
+    signals: Record<string, unknown>;
+    listenerCount: number;
+}
+
+const KERNEL_WATCHED_KEYS = new Set<string>([
+    STORAGE_KEYS.LAYOUT_SETTINGS,
+    STORAGE_KEYS.SELECTED_THEME,
+    STORAGE_KEYS.THEME_SETTINGS,
+    STORAGE_KEYS.WALLPAPER,
+    STORAGE_KEYS.SELECTED_SEARCH_ENGINE,
+    STORAGE_KEYS.SEARCH_HISTORY,
+    STORAGE_KEYS.DATA_UPDATED_AT,
+    STORAGE_KEYS.CLOUD_SYNC_BASE,
+    STORAGE_KEYS.CLOUD_LAST_SYNC_TIME,
+]);
+
+/**
+ * 把设置整块里排查关心的那几个字段单独摊出来
+ *
+ * 整块 JSON 在日志里是折叠的，只有值本身能看；跳回去的那一刻到底写进了什么，
+ * 靠这个投影才不用先把整份导出贴回来。
+ */
+function pickSignals(key: string, value: unknown): Record<string, unknown> {
+    if (value === null || value === undefined) {
+        return { [`${key}=removed`]: true };
+    }
+    if (key === STORAGE_KEYS.LAYOUT_SETTINGS && typeof value === 'object') {
+        const settings = value as Record<string, unknown>;
+        return {
+            minimalMode: settings.minimalMode,
+            columns: settings.columns,
+            paginate: settings.paginate,
+            pageSize: settings.pageSize,
+        };
+    }
+    if (key === STORAGE_KEYS.DATA_UPDATED_AT || key === STORAGE_KEYS.CLOUD_LAST_SYNC_TIME) {
+        return { [key]: value };
+    }
+    return { [key]: safeStringify(value).slice(0, 120) };
+}
+
+let kernelChangeListener: ((report: KernelChangeReport) => void) | null = null;
+let activeListenerCount = 0;
+
+/** 注册内核变更观察者（诊断用；不注册时零开销） */
+export function setKernelChangeListener(
+    listener: ((report: KernelChangeReport) => void) | null
+): void {
+    kernelChangeListener = listener;
+}
+
+/** 本页刚通过 CustomEvent 通知过的键值，用于识别同一次写入的 onChanged 自回声 */
+const localSignals: { key: string; json: string; at: number }[] = [];
+
+function watchEntries(changes: StorageChanges): { key: string; json: string }[] {
+    const hits: { key: string; json: string }[] = [];
+    for (const key of KERNEL_WATCHED_KEYS) {
+        const change = changes[key];
+        if (!change || !('newValue' in change)) {
+            continue;
+        }
+        hits.push({ key, json: safeStringify(change.newValue) });
+    }
+    return hits;
+}
+
+function safeStringify(value: unknown): string {
+    try {
+        return JSON.stringify(value) ?? 'undefined';
+    } catch {
+        return '<unserializable>';
+    }
+}
+
+function isSelfEcho(key: string, json: string): boolean {
+    const now = Date.now();
+    for (let i = localSignals.length - 1; i >= 0; i--) {
+        if (now - localSignals[i].at > 2000) {
+            localSignals.splice(0, i + 1);
+            break;
+        }
+        if (localSignals[i].key === key && localSignals[i].json === json) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function reportKernelChange(
+    source: KernelChangeSource,
+    changes: StorageChanges,
+    hits: { key: string; json: string }[]
+): void {
+    if (!kernelChangeListener || hits.length === 0) {
+        return;
+    }
+    const signals: Record<string, unknown> = {};
+    for (const hit of hits) {
+        Object.assign(signals, pickSignals(hit.key, changes[hit.key]?.newValue));
+    }
+    kernelChangeListener({
+        source,
+        keys: hits.map((hit) => hit.key),
+        signals,
+        listenerCount: activeListenerCount,
+    });
+}
+
 /** 首帧快照键集合（注册表派生，保留此处导出便于上层引用） */
 export { SYNC_MIRROR_KEYS } from '@/services/storageSchema.service';
 
@@ -305,9 +425,19 @@ export class StorageManager implements IStorageManager {
      * 同时监听本地事件、跨标签页 storage 事件（非扩展环境）以及扩展原生 onChanged 事件。
      */
     subscribe(listener: StorageChangeListener): () => void {
+        activeListenerCount++;
         const localHandler = (event: Event) => {
             const customEvent = event as CustomEvent<StorageChanges>;
-            listener(customEvent.detail || {});
+            const changes = customEvent.detail || {};
+            const hits = watchEntries(changes);
+            for (const hit of hits) {
+                localSignals.push({ ...hit, at: Date.now() });
+            }
+            if (localSignals.length > 64) {
+                localSignals.splice(0, localSignals.length - 64);
+            }
+            reportKernelChange('local', changes, hits);
+            listener(changes);
         };
         window.addEventListener(STORAGE_EVENT, localHandler);
 
@@ -315,15 +445,29 @@ export class StorageManager implements IStorageManager {
             if (!event.key) {
                 return;
             }
-            listener({ [event.key]: { newValue: parseStoredValue(event.newValue) } });
+            const changes: StorageChanges = {
+                [event.key]: { newValue: parseStoredValue(event.newValue) },
+            };
+            reportKernelChange('storage', changes, watchEntries(changes));
+            listener(changes);
         };
         if (!this.isExtension) {
             window.addEventListener('storage', storageHandler);
         }
 
-        const unsubscribeNative = subscribeStorageArea('local', listener);
+        const unsubscribeNative = subscribeStorageArea('local', (changes) => {
+            const hits = watchEntries(changes);
+            const foreign = hits.filter((hit) => !isSelfEcho(hit.key, hit.json));
+            reportKernelChange(
+                foreign.length === hits.length ? 'native-other' : 'native-self',
+                changes,
+                foreign.length === 0 ? hits : foreign
+            );
+            listener(changes);
+        });
 
         return () => {
+            activeListenerCount--;
             window.removeEventListener(STORAGE_EVENT, localHandler);
             window.removeEventListener('storage', storageHandler);
             unsubscribeNative();

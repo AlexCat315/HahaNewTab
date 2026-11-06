@@ -7,7 +7,7 @@ import {
 } from '@/services/storageSchema.service';
 import { pushCrossDeviceAuth, pullCrossDeviceAuth, getCrossDeviceState } from '@/services/crossDeviceSync.service';
 import { deepEqual, mergeSnapshots } from '@/utils/syncMerge.util';
-import { compactSnapshot, trace } from '@/services/diag.service';
+import { compactSnapshot, pickMinimalMode, trace } from '@/services/diag.service';
 import type { MergeTieBreak, SyncSnapshot } from '@/utils/syncMerge.util';
 import {
     externalizeAssets,
@@ -294,6 +294,9 @@ export class CloudSyncService {
                 tieBreak,
                 localUpdatedAt,
                 remoteLastModified: remote.lastModified,
+                minimalModeRemote: pickMinimalMode(remote.data),
+                minimalModeLocal: pickMinimalMode(localData),
+                minimalModeMerged: pickMinimalMode(merged),
                 base: compactSnapshot(base),
                 remote: compactSnapshot(remote.data),
                 local: compactSnapshot(localData),
