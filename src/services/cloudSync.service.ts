@@ -7,6 +7,7 @@ import {
 } from '@/services/storageSchema.service';
 import { pushCrossDeviceAuth, pullCrossDeviceAuth, getCrossDeviceState } from '@/services/crossDeviceSync.service';
 import { deepEqual, mergeSnapshots } from '@/utils/syncMerge.util';
+import { compactSnapshot, trace } from '@/services/diag.service';
 import type { MergeTieBreak, SyncSnapshot } from '@/utils/syncMerge.util';
 import {
     externalizeAssets,
@@ -239,7 +240,10 @@ export class CloudSyncService {
      * 而且这个倒回去的结果会被推上云端扩散到其他设备。
      */
     async sync({ silent = false }: { silent?: boolean } = {}): Promise<SyncResult> {
-        if (this.syncInProgress) return { success: false, retry: true, message: '同步进行中' };
+        if (this.syncInProgress) {
+            trace('cloud-sync', { outcome: 'skipped-in-progress', silent });
+            return { success: false, retry: true, message: '同步进行中' };
+        }
         if (!this.token) {
             if (!silent) this.ui.showToast('请先配置 Token', 'error');
             return { success: false, message: '请先配置 Token' };
@@ -256,6 +260,12 @@ export class CloudSyncService {
 
             const syncTimeAfterDownload = await this.storage.get(STORAGE_KEYS.CLOUD_LAST_SYNC_TIME);
             if (syncTimeAfterDownload !== syncTimeBefore) {
+                trace('cloud-sync', {
+                    outcome: 'skipped-stale-base',
+                    syncTimeBefore,
+                    syncTimeAfterDownload,
+                    remoteLastModified: remote.lastModified
+                });
                 // 别的页面在这期间又同步完一次：手里的 base 与刚下载的云端已经对不上，
                 // 三方合并的结论不可信；放弃本轮，让调用方重来
                 return { success: false, retry: true, message: '其他标签页刚完成同步，稍后重试' };
@@ -276,6 +286,19 @@ export class CloudSyncService {
 
             const applied = CLOUD_SYNC_DATA_KEYS.some((key) => !deepEqual(merged[key], localData[key]));
             const uploaded = CLOUD_SYNC_DATA_KEYS.some((key) => !deepEqual(merged[key], remote.data?.[key]));
+
+            trace('cloud-sync', {
+                outcome: `${applied ? 'applied ' : ''}${uploaded ? 'uploaded' : ''}`.trim() || 'no-change',
+                silent,
+                hasBase: hasCloudSyncBase(base),
+                tieBreak,
+                localUpdatedAt,
+                remoteLastModified: remote.lastModified,
+                base: compactSnapshot(base),
+                remote: compactSnapshot(remote.data),
+                local: compactSnapshot(localData),
+                merged: compactSnapshot(merged)
+            });
 
             if (applied) {
                 await this.applyToLocal(merged);
@@ -304,6 +327,7 @@ export class CloudSyncService {
             await this.handleIfUnauthorized(e);
             const message = e instanceof Error ? e.message : String(e);
             console.error('[CloudSync] sync error:', e);
+            trace('cloud-sync', { outcome: 'failed', silent, message });
             if (!silent) {
                 this.ui.showToast('同步失败：' + message, 'error');
             } else if (!this.autoSyncFailureReported) {

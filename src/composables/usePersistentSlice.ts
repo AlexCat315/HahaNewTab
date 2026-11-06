@@ -16,6 +16,7 @@
  */
 
 import { storageManager } from '@/services/storage.service';
+import { compact, compactSnapshot, trace } from '@/services/diag.service';
 import { isBootKey, isCloudSyncedKey } from '@/services/storageSchema.service';
 import type { StorageChanges, StorageValue } from '@/types/storage';
 
@@ -117,7 +118,9 @@ export function usePersistentSlice(options: PersistentSliceOptions): PersistentS
     }
 
     async function write(selected: SliceKey[], touched: boolean): Promise<void> {
-        await storageManager.setMany(collectItems(selected, touched));
+        const items = collectItems(selected, touched);
+        trace('write', { store: label, at: callSite(), items: compactSnapshot(items) });
+        await storageManager.setMany(items);
     }
 
     async function persist(writeKeys?: string[]): Promise<void> {
@@ -140,9 +143,17 @@ export function usePersistentSlice(options: PersistentSliceOptions): PersistentS
         }
     }
 
+    /** 写入来源：谁调用 setMany 只能靠栈，跨页面覆盖类问题没有它就无法归因 */
+    function callSite(): string {
+        const stack = (new Error().stack || '').split('\n').slice(3);
+        const frame = stack.find(line => !line.includes('usePersistentSlice') && line.trim().startsWith('at '));
+        return (frame || '').trim().slice(0, 160);
+    }
+
     async function load(): Promise<Record<string, StorageValue | null>> {
         const revisionBeforeRead = revision;
         const stored = await storageManager.getMany(keys.map(sliceKey => sliceKey.key));
+        trace('load', { store: label, at: callSite(), read: compactSnapshot(stored) });
 
         // 回填首帧快照：老版本没有快照、快照被清掉过、
         // 或者这份数据压根没存过（用默认值），都要把当前值写进去，
@@ -156,6 +167,7 @@ export function usePersistentSlice(options: PersistentSliceOptions): PersistentS
         };
 
         if (revision !== revisionBeforeRead) {
+            trace('load-skipped-stale', { store: label, at: callSite(), read: compactSnapshot(stored) });
             // 读取期间本机内存改过（用户改动 / 其他标签页 / 云同步下发）：
             // 这批值读的是改动前的存储状态，铺回去就是把改动倒回去。
             // 内存不需要回写——每次本机改动都是写穿式的，存储里已经是最新值；
@@ -197,11 +209,13 @@ export function usePersistentSlice(options: PersistentSliceOptions): PersistentS
 
     function applyExternalChanges(changes: StorageChanges): boolean {
         let applied = false;
+        const seen: Record<string, string> = {};
         for (const sliceKey of keys) {
             const change = changes[sliceKey.key];
             if (!change || !('newValue' in change)) {
                 continue;
             }
+            seen[sliceKey.key] = compact(change.newValue);
             sliceKey.apply(
                 change.newValue === undefined ? null : (change.newValue as StorageValue)
             );
@@ -209,6 +223,7 @@ export function usePersistentSlice(options: PersistentSliceOptions): PersistentS
         }
         if (applied) {
             revision++;
+            trace('external-change', { store: label, values: seen });
         }
         return applied;
     }
@@ -224,6 +239,7 @@ export function usePersistentSlice(options: PersistentSliceOptions): PersistentS
             sliceKey.apply(values[sliceKey.key] as StorageValue | null);
         });
         revision++;
+        trace('cloud-apply', { store: label, values: compactSnapshot(values) });
         try {
             await write(selected, false);
         } catch (error) {
