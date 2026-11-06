@@ -1,245 +1,131 @@
 import { STORAGE_KEYS } from '@/types/storage';
-import type { StorageChanges } from '@/types/storage';
-import {
-    CLOUD_SYNC_DATA_KEYS,
-    CLOUD_SYNC_KEY_STRATEGIES,
-    findCloudSyncViolation,
-    hasCloudSyncBase
-} from '@/services/storageSchema.service';
-import { pushCrossDeviceAuth, pullCrossDeviceAuth, getCrossDeviceState } from '@/services/crossDeviceSync.service';
-import { deepEqual, mergeSnapshots } from '@/utils/syncMerge.util';
+import { CLOUD_SYNC_DATA_KEYS } from '@/services/storageSchema.service';
 import { compactSnapshot, pickMinimalMode, trace } from '@/services/diag.service';
-import type { MergeTieBreak, SyncSnapshot } from '@/utils/syncMerge.util';
-import {
-    externalizeAssets,
-    hashKey,
-    internalizeAssets,
-    isAssetFileName,
-    manifestFileNames
-} from '@/utils/syncAssets.util';
-import { createGistProvider, SyncProviderError } from '@/services/gistProvider.service';
+import type { SyncSnapshot } from '@/utils/syncMerge.util';
+import { SyncProviderError } from '@/services/gistProvider.service';
+import * as transport from '@/services/cloudSync/transport';
+import { assertRemoteUsable, planSync } from '@/services/cloudSync/engine';
+import { CloudSettings, DEFAULT_CLOUD_PROVIDER } from '@/services/cloudSync/settings';
+import type { SettingsDelta } from '@/services/cloudSync/settings';
+import { SyncLedger } from '@/services/cloudSync/ledger';
 import type {
+    CloudBundle,
     CloudSyncDependencies,
     CloudSyncProviderId,
     CloudSyncSettings,
     CloudSyncStorage,
+    CloudTarget,
+    ConnectResult,
     DownloadResult,
     GitHubUserInfo,
     ICloudSyncDataManager,
-    ICloudSyncUIAdapter,
-    ISyncProvider,
-    PullResult,
-    SyncData,
     SyncResult,
     UploadResult
 } from '@/types/cloudSync.types';
 
-const SYNC_FILE_NAME = 'haha-newtab-sync.json';
-const GIST_DESCRIPTION = 'HahaNewTab 导航数据云同步备份';
+/** 一次设置变化的完整描述：新的快照 + 这一轮该做什么 */
+export interface CloudSettingsChange {
+    settings: CloudSyncSettings;
+    /** 凭据或平台换了：界面要清空错误提示、重新读取浏览器同步区 */
+    authChanged: boolean;
+    /** 变化来自同一浏览器的其他页面 */
+    fromOtherPage: boolean;
+}
 
 /**
- * 记住最近几版的云端版本号
- * 只留最新的一版不够：一轮同步里本机可能连着读到同一个旧版本两次
- * （上传后 1 分钟内旧版本还在服务），而多标签页各自同步时读到的新旧顺序也不固定。
- */
-const SEEN_REVISIONS_LIMIT = 5;
-
-/**
- * 同步包结构版本
- * 1.1 起 payload 里的大对象改走 `assets` 清单 + 分片文件；1.0 的老包仍能读（没有清单就是全内联）。
- */
-const SYNC_DATA_VERSION = '1.1';
-
-/**
- * 单个资源分片占平台上限的比例
- * 留两成余量：Base64 之外还有文件名与请求体本身的开销，贴着上限写容易被拒。
- */
-const ASSET_CHUNK_RATIO = 0.8;
-
-/** 默认同步平台（老用户有 token 但无 provider 记录时按 GitHub 处理） */
-const DEFAULT_PROVIDER: CloudSyncProviderId = 'github';
-
-/**
- * 云同步服务
- * 通过 ISyncProvider 适配 GitHub / Gitee 的 Gist（代码片段）API。
- * 多端同步通过 `sync()` 完成：以本地保存的上次同步快照为 base 做三方合并，
- * 冲突时本地优先，避免全量覆盖丢失其他设备的修改。
- * 同步哪些键、怎么校验、怎么合并全部由存储键注册表决定，本服务只按表执行；
- * 「数据变了就自动同步」的触发与防抖在 cloudSync store（它才是要把结果写回界面状态的那一方），
+ * 云同步编排层
+ *
+ * 四类知识各自只在一个地方，本类只负责按顺序把它们串起来：
+ *   - `cloudSync/settings.ts` —— 账号与开关（Token、Gist、平台、自动同步、用户信息）；
+ *   - `cloudSync/ledger.ts` —— 本机与云端对齐到哪一版（base 快照、已见版本、上次同步时间）；
+ *   - `cloudSync/transport.ts` —— 云端长什么样（文件、分片、平台与超时差异）；
+ *   - `cloudSync/engine.ts` —— 三份数据怎么合成一份（校验、旧版本顶替、首次同步定方向、冲突取向）。
+ *
+ * 同步哪些键、怎么校验、怎么合并全部由存储键注册表决定。
+ * 方法一律只返回结构化结果：弹什么提示、要不要用户确认，是要把结果写回界面的那一层
+ * （cloudSync store）决定的事——这一层既不知道有没有人看着，也不该被打断去等人点按钮。
+ * 「数据变了就自动同步」的触发与防抖同样在 store，
  * 这里只负责在把云端数据写回本地期间给出 isApplyingRemoteData 信号。
- * 所有平台请求带 10s 超时，失败按网络/401/频率限制分类并 Toast 提示。
  */
 export class CloudSyncService {
     private readonly storage: CloudSyncStorage;
     private readonly dataManager: ICloudSyncDataManager;
-    private readonly ui: ICloudSyncUIAdapter;
+    /** 账号与开关的唯一所有者 */
+    private readonly account: CloudSettings;
+    /** 与云端对齐到哪一版的唯一记录者 */
+    private readonly ledger: SyncLedger;
 
-    private token: string | null = null;
-    private gistId: string | null = null;
-    private autoSync = false;
-    private lastSyncTime = 0;
-    private userInfo: GitHubUserInfo | null = null;
-    private providerId: CloudSyncProviderId = DEFAULT_PROVIDER;
     private syncInProgress = false;
     /**
      * 正在把云端数据写回本地
      * 内核会把这次写入也当成「本地数据变更」通知回来，不抑制掉就会同步完再自动同步一次。
      */
     private applyingRemote = false;
-    /**
-     * 静默（自动）同步的这一轮故障已经提示过
-     * 失败会自动重试若干次，断网时每次都要再提示一遍；只在第一次提示，
-     * 成功之后复位，下一次故障仍会提示。
-     */
-    private autoSyncFailureReported = false;
 
     constructor(deps: CloudSyncDependencies) {
         this.storage = deps.storage;
         this.dataManager = deps.dataManager;
-        this.ui = deps.ui;
+        this.account = new CloudSettings(deps.storage);
+        this.ledger = new SyncLedger(deps.storage);
+        // 从这一刻起就跟住存储变更：设置只有「本机写的」和「别的页面写的」两种来源，
+        // 晚一步挂监听就会出现「启动读取之前那段时间里的改动没人认」的空窗
+        this.account.observe();
+        this.ledger.observe();
     }
 
-    /** 当前平台的同步适配器 */
-    private get provider(): ISyncProvider {
-        return createGistProvider(this.providerId);
+    private get token(): string | null {
+        return this.account.get().token;
+    }
+
+    private get gistId(): string | null {
+        return this.account.get().gistId;
+    }
+
+    private get autoSync(): boolean {
+        return this.account.get().autoSync;
+    }
+
+    private get providerId(): CloudSyncProviderId {
+        return this.account.get().provider;
     }
 
     /**
-     * 初始化云同步服务
-     * 加载设置，若已登录则验证 Token；开启自动同步时启动即执行一次双向合并同步
+     * 本轮云端请求用的凭据快照
+     * 服务层不再逐个方法碰适配器：平台差异、文件名、分片大小全在传输层，这里只交出一份凭据。
+     * @throws 未登录
      */
-    async init(): Promise<void> {
+    private target(): CloudTarget {
+        const token = this.token;
+        if (!token) {
+            throw new Error('未配置 Token');
+        }
+        return { token, providerId: this.providerId };
+    }
+
+    /**
+     * 启动：读回设置，已登录则验证 Token；开着自动同步时补一次静默同步
+     *
+     * @returns 启动那一轮同步的结果（没登录、Token 无效或没开自动同步时为 null）；
+     *          调用方（store）据此决定要不要提示——启动失败也属于「没人主动操作时的故障」，
+     *          要不要说、说几次由它定
+     */
+    async init(): Promise<SyncResult | null> {
         await this.loadSettings();
 
-        // 本机没有 Token 时，尝试从浏览器账号同步区还原（跨设备登录状态）
-        if (!this.token) {
-            await this.adoptCrossDeviceAuth();
-        }
+        if (!this.token) return null;
+        if (!await this.validateToken(this.token)) return null;
 
-        if (this.token) {
-            const valid = await this.validateToken(this.token);
-            if (valid && this.autoSync) {
-                await this.sync({ silent: true });
-            }
-        }
+        return this.autoSync ? this.sync({ silent: true }) : null;
     }
 
     /**
-     * 尝试从 storage.sync 还原登录凭据
-     * 解密失败（例如另一台设备用了不同口令）时静默跳过，不影响正常流程
-     */
-    private async adoptCrossDeviceAuth(): Promise<void> {
-        try {
-            const auth = await pullCrossDeviceAuth();
-            if (!auth) return;
-
-            this.token = auth.token;
-            this.providerId = auth.provider as CloudSyncProviderId;
-            await this.saveSettings();
-        } catch (error) {
-            console.warn('[CloudSync] 跨设备登录状态还原失败:', error);
-        }
-    }
-
-    /**
-     * 从存储中加载云同步设置
+     * 读回设置与账本
+     *
+     * 别的页面的改动从服务创建起就一直跟着（见构造函数），这里只补上本机启动时那一份。
      */
     async loadSettings(): Promise<void> {
-        const stored = await this.storage.getMany([
-            STORAGE_KEYS.CLOUD_TOKEN,
-            STORAGE_KEYS.CLOUD_GIST_ID,
-            STORAGE_KEYS.CLOUD_AUTO_SYNC,
-            STORAGE_KEYS.CLOUD_LAST_SYNC_TIME,
-            STORAGE_KEYS.CLOUD_USER_INFO,
-            STORAGE_KEYS.CLOUD_PROVIDER
-        ]);
-
-        this.token = (stored[STORAGE_KEYS.CLOUD_TOKEN] as string | null) ?? null;
-        this.gistId = (stored[STORAGE_KEYS.CLOUD_GIST_ID] as string | null) ?? null;
-        this.autoSync = (stored[STORAGE_KEYS.CLOUD_AUTO_SYNC] as boolean | null) ?? false;
-        this.lastSyncTime = (stored[STORAGE_KEYS.CLOUD_LAST_SYNC_TIME] as number | null) ?? 0;
-        this.userInfo = (stored[STORAGE_KEYS.CLOUD_USER_INFO] as GitHubUserInfo | null) ?? null;
-        this.providerId = (stored[STORAGE_KEYS.CLOUD_PROVIDER] as CloudSyncProviderId | null) ?? DEFAULT_PROVIDER;
-    }
-
-    /**
-     * 将当前设置保存到存储
-     */
-    async saveSettings(): Promise<void> {
-        await this.storage.setMany({
-            [STORAGE_KEYS.CLOUD_TOKEN]: this.token,
-            [STORAGE_KEYS.CLOUD_GIST_ID]: this.gistId,
-            [STORAGE_KEYS.CLOUD_AUTO_SYNC]: this.autoSync,
-            [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: this.lastSyncTime,
-            [STORAGE_KEYS.CLOUD_USER_INFO]: this.userInfo,
-            [STORAGE_KEYS.CLOUD_PROVIDER]: this.providerId
-        });
-    }
-
-    /**
-     * 采纳同一浏览器里其他页面写入的云同步设置（登录 / 换 Token / 断开 / 改开关）
-     *
-     * 只改内存，绝不回写存储：回写等于把同一个值再广播一轮，别的页面又采纳又回写，
-     * 两个页面就此互相触发。值相同直接判成「没变化」。
-     *
-     * 云同步面板是常驻挂载的（模态框用 v-show），设置只在页面启动时读一次；
-     * 缺了这条路径，A 标签页登录完，同时开着的 B 标签页会一直停在「未登录」，
-     * 既不自动同步，界面上也像 Token 丢了。
-     *
-     * @returns changed：设置里至少有一项真的变了；authChanged：变的这一项是凭据或平台
-     */
-    applyExternalSettings(changes: StorageChanges): { changed: boolean; authChanged: boolean } {
-        /** 这批变更里没有这个键（和「被删成 null」区分开） */
-        const MISSING = Symbol('missing');
-        const read = (key: string): unknown =>
-            Object.prototype.hasOwnProperty.call(changes, key) ? (changes[key].newValue ?? null) : MISSING;
-
-        const sameJson = (left: unknown, right: unknown): boolean =>
-            left === right || JSON.stringify(left) === JSON.stringify(right);
-
-        const gistId = read(STORAGE_KEYS.CLOUD_GIST_ID);
-        const userInfo = read(STORAGE_KEYS.CLOUD_USER_INFO);
-
-        const before = {
-            token: this.token,
-            providerId: this.providerId,
-            gistId: this.gistId,
-            userInfo: this.userInfo,
-            autoSync: this.autoSync,
-            lastSyncTime: this.lastSyncTime
-        };
-
-        const authChanged =
-            (read(STORAGE_KEYS.CLOUD_TOKEN) !== MISSING && read(STORAGE_KEYS.CLOUD_TOKEN) !== this.token)
-            || (read(STORAGE_KEYS.CLOUD_PROVIDER) !== MISSING && read(STORAGE_KEYS.CLOUD_PROVIDER) !== this.providerId);
-
-        if (authChanged) {
-            // 换的是账号：Gist 与用户信息必须跟着新账号走，这一批里没带的就清空，
-            // 留着上一个账号的缓存会让本页拿着对的 Token 去读别人的 Gist
-            this.token = read(STORAGE_KEYS.CLOUD_TOKEN) as string | null;
-            this.providerId = (read(STORAGE_KEYS.CLOUD_PROVIDER) ?? DEFAULT_PROVIDER) as CloudSyncProviderId;
-            this.gistId = (gistId === MISSING ? null : gistId) as string | null;
-            this.userInfo = (userInfo === MISSING ? null : userInfo) as GitHubUserInfo | null;
-        } else {
-            if (gistId !== MISSING && gistId !== this.gistId) this.gistId = gistId as string | null;
-            if (userInfo !== MISSING && !sameJson(userInfo, this.userInfo)) this.userInfo = userInfo as GitHubUserInfo | null;
-        }
-
-        const autoSync = read(STORAGE_KEYS.CLOUD_AUTO_SYNC);
-        const lastSyncTime = read(STORAGE_KEYS.CLOUD_LAST_SYNC_TIME);
-
-        if (autoSync !== MISSING) this.autoSync = autoSync as boolean;
-        if (lastSyncTime !== MISSING) this.lastSyncTime = lastSyncTime as number;
-
-        const changed = !sameJson(before, {
-            token: this.token,
-            providerId: this.providerId,
-            gistId: this.gistId,
-            userInfo: this.userInfo,
-            autoSync: this.autoSync,
-            lastSyncTime: this.lastSyncTime
-        });
-        return { changed, authChanged };
+        await this.account.load();
+        await this.ledger.load();
     }
 
     /**
@@ -248,14 +134,8 @@ export class CloudSyncService {
     async validateToken(token: string | null = this.token): Promise<boolean> {
         if (!token) return false;
         try {
-            const user = await this.provider.validateToken(token);
-            this.userInfo = user;
-            if (token !== this.token) {
-                this.token = token;
-                await this.saveSettings();
-            } else {
-                await this.storage.set(STORAGE_KEYS.CLOUD_USER_INFO, this.userInfo);
-            }
+            const user = await transport.validateToken(token, this.providerId);
+            await this.account.save({ token, userInfo: user });
             return true;
         } catch (e) {
             console.error('[CloudSync] validateToken error:', e);
@@ -264,47 +144,28 @@ export class CloudSyncService {
     }
 
     /**
-     * 查找或创建同步用的 Gist
+     * 找到（或建出）放同步包的 Gist，并把认领到的 id 记回设置
+     * 传输层不认识存储：它只回答「这个账号的同步空间是哪个」，认领结果由这里落盘。
      */
+    private async resolveGistId(target: CloudTarget): Promise<string> {
+        const known = this.gistId;
+        const gistId = await transport.findOrCreateGist(target, known);
+        if (gistId !== known) {
+            await this.account.save({ gistId });
+        }
+        return gistId;
+    }
+
+    /** 查找或创建同步用的 Gist（用当前凭据） */
     async findOrCreateGist(): Promise<string> {
-        if (!this.token) {
-            throw new Error('未配置 Token');
-        }
-
-        if (this.gistId) {
-            try {
-                const content = await this.provider.getGistFileContent(this.token, this.gistId, SYNC_FILE_NAME);
-                if (content !== null) {
-                    return this.gistId;
-                }
-            } catch (e) {
-                console.warn('[CloudSync] stored gist not found, creating new one');
-            }
-        }
-
-        const gists = await this.provider.listGists(this.token);
-        const existing = gists.find((gist) => gist.files && gist.files[SYNC_FILE_NAME]);
-        if (existing) {
-            this.gistId = existing.id;
-            await this.storage.set(STORAGE_KEYS.CLOUD_GIST_ID, this.gistId);
-            return this.gistId;
-        }
-
-        this.gistId = await this.provider.createGist(
-            this.token,
-            SYNC_FILE_NAME,
-            JSON.stringify(this.createEmptySyncData(), null, 2),
-            GIST_DESCRIPTION
-        );
-        await this.storage.set(STORAGE_KEYS.CLOUD_GIST_ID, this.gistId);
-        return this.gistId;
+        return this.resolveGistId(this.target());
     }
 
     /**
      * 双向增量同步
      * 下载云端数据，以本地保存的上次同步快照为 base 与本地数据做三方合并（冲突本地优先），
      * 合并结果按需应用到本地并上传云端，成功后更新 base 快照。
-     * 合并非破坏性，无需用户确认。手动同步失败必定 Toast；自动同步（silent）同一轮故障只提示一次。
+     * 合并非破坏性，无需用户确认。
      * 返回 retry=true 表示本地改动这一轮没送出去（被进行中的同步挡下、下载期间别的页面同步完成、请求失败），
      * 调用方应当重新排程再来一次，否则会一直搁置到下一次编辑为止。
      *
@@ -317,126 +178,81 @@ export class CloudSyncService {
     async sync({ silent = false }: { silent?: boolean } = {}): Promise<SyncResult> {
         if (this.syncInProgress) {
             trace('cloud-sync', { outcome: 'skipped-in-progress', silent });
-            return { success: false, retry: true, message: '同步进行中' };
+            return { success: false, retry: true, skipped: 'in-progress', message: '同步进行中' };
         }
         if (!this.token) {
-            if (!silent) this.ui.showToast('请先配置 Token', 'error');
-            return { success: false, message: '请先配置 Token' };
+            return { success: false, skipped: 'not-authenticated', message: '请先配置 Token' };
         }
 
         this.syncInProgress = true;
         try {
-            const base = (await this.storage.get(STORAGE_KEYS.CLOUD_SYNC_BASE)) as SyncSnapshot | null;
-            // base 与上次同步时间是同一批写进去的，用它当「别的页面有没有同步完」的探针，
-            // 比逐次深比较整份快照（含本地壁纸 Base64）便宜得多
-            const syncTimeBefore = await this.storage.get(STORAGE_KEYS.CLOUD_LAST_SYNC_TIME);
-            // 已合并过的云端版本号也要在下载前取：它和 base 同批写入，
-            // 下载后再读就会拿到别的页面刚写的那一份，探针就失效了
-            const seenRevisions = ((await this.storage.get(
-                STORAGE_KEYS.CLOUD_SYNC_SEEN_REVISIONS
-            )) as string[] | null) ?? [];
-            const gistId = await this.findOrCreateGist();
-            const remote = await this.downloadSyncData(gistId);
+            // 一轮之内凭据、基线、云端内容各自只取一次：中途换了 Token 或别的页面写完 base，
+            // 都不能让这一轮拿着半新半旧的三份数据去做合并
+            const target = this.target();
+            const round = await this.ledger.beginRound();
+            const gistId = await this.resolveGistId(target);
+            const remote = await transport.readBundle(target, gistId);
 
-            const syncTimeAfterDownload = await this.storage.get(STORAGE_KEYS.CLOUD_LAST_SYNC_TIME);
-            if (syncTimeAfterDownload !== syncTimeBefore) {
+            if (await this.ledger.isStale(round)) {
                 trace('cloud-sync', {
                     outcome: 'skipped-stale-base',
-                    syncTimeBefore,
-                    syncTimeAfterDownload,
+                    syncTimeBefore: round.startedAt,
                     remoteLastModified: remote.lastModified
                 });
                 // 别的页面在这期间又同步完一次：手里的 base 与刚下载的云端已经对不上，
                 // 三方合并的结论不可信；放弃本轮，让调用方重来
-                return { success: false, retry: true, message: '其他标签页刚完成同步，稍后重试' };
+                return { success: false, retry: true, skipped: 'stale-base', message: '其他标签页刚完成同步，稍后重试' };
             }
 
             // 先刷入内存变更，再收集本地数据
             await this.dataManager.syncNow();
-            const localData = await this.collectLocalSnapshot();
-
-            this.assertSyncData(localData, remote.data ?? {});
-
-            // 云端这一版是不是本机没见过的新内容。
-            // 判断不能靠 lastModified：写后立读时 Gist 有约 1 分钟把旧文件再返回一次，
-            // 旧文件在字段级三方合并里和「别的设备改了云端」一模一样（本地 == base、
-            // 云端 != base），合并会把过期值当成最新采纳下来，再推上云端扩散。
-            // 版本号取文件内容哈希，同一版永远同一个指纹，因此只认这个不认时钟。
-            const remoteIsNew = !remote.revision || !hasCloudSyncBase(base) || !seenRevisions.includes(remote.revision);
-            // 旧版本不参与合并：拿 base 顶替它，合并结果就退回本机当前状态
-            const remoteSnapshot = remoteIsNew ? remote.data ?? {} : (base as SyncSnapshot) ?? {};
-
-            // 首次同步没有 base，同 id 冲突无法判断哪端改过：改按「最后一次写入更晚」的一方胜出，
-            // 否则新装设备那份出厂默认数据会把另一台已经改过的云端覆盖回去
+            const local = await this.collectLocalSnapshot();
             const localUpdatedAt = (await this.storage.get(STORAGE_KEYS.DATA_UPDATED_AT) as number | null) ?? 0;
-            const tieBreak: MergeTieBreak =
-                !hasCloudSyncBase(base) && (remote.lastModified ?? 0) > localUpdatedAt ? 'remote' : 'local';
-            const merged = mergeSnapshots(CLOUD_SYNC_KEY_STRATEGIES, base, localData, remoteSnapshot, tieBreak);
+            // 云端这一版是不是本机没见过的新内容，判断只认文件内容哈希（见 SyncLedger）
+            const remoteIsNew = this.ledger.isNewRevision(round, remote.revision);
 
-            const applied = CLOUD_SYNC_DATA_KEYS.some((key) => !deepEqual(merged[key], localData[key]));
-            const uploaded = CLOUD_SYNC_DATA_KEYS.some((key) => !deepEqual(merged[key], remoteSnapshot[key]));
+            const plan = planSync({
+                base: round.base,
+                local,
+                remote: remote.data,
+                remoteIsNew,
+                localUpdatedAt,
+                remoteLastModified: remote.lastModified
+            });
 
             trace('cloud-sync', {
-                outcome: `${applied ? 'applied ' : ''}${uploaded ? 'uploaded' : ''}`.trim() || 'no-change',
+                outcome: `${plan.applied ? 'applied ' : ''}${plan.uploaded ? 'uploaded' : ''}`.trim() || 'no-change',
                 silent,
-                hasBase: hasCloudSyncBase(base),
-                tieBreak,
+                hasBase: plan.hasBase,
+                tieBreak: plan.tieBreak,
                 remoteIsNew,
                 localUpdatedAt,
                 remoteLastModified: remote.lastModified,
                 minimalModeRemote: pickMinimalMode(remote.data),
-                minimalModeLocal: pickMinimalMode(localData),
-                minimalModeMerged: pickMinimalMode(merged),
-                base: compactSnapshot(base),
+                minimalModeLocal: pickMinimalMode(local),
+                minimalModeMerged: pickMinimalMode(plan.merged),
+                base: compactSnapshot(round.base),
                 remote: compactSnapshot(remote.data),
-                local: compactSnapshot(localData),
-                merged: compactSnapshot(merged)
+                local: compactSnapshot(local),
+                merged: compactSnapshot(plan.merged)
             });
 
-            if (applied) {
-                await this.applyToLocal(merged);
+            if (plan.applied) {
+                await this.applyToLocal(plan.merged);
             }
-            if (uploaded) {
-                await this.uploadData(gistId, merged);
+            if (plan.uploaded) {
+                await transport.writeBundle(target, gistId, plan.merged);
             }
 
-            this.lastSyncTime = Date.now();
-            await this.storage.setMany({
-                [STORAGE_KEYS.CLOUD_SYNC_BASE]: merged,
-                [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: this.lastSyncTime,
-                // 本轮读到的版本号记下来：下一次再读到同一版，就说明云端没有新东西
-                ...(remote.revision
-                    ? {
-                        [STORAGE_KEYS.CLOUD_SYNC_SEEN_REVISIONS]: [
-                            remote.revision,
-                            ...seenRevisions.filter((item) => item !== remote.revision)
-                        ].slice(0, SEEN_REVISIONS_LIMIT)
-                    }
-                    : {})
-            });
-            // 这一轮走通了，下一次故障要重新提示
-            this.autoSyncFailureReported = false;
+            const lastSyncTime = Date.now();
+            await this.ledger.commit(round, plan.merged, remote.revision, lastSyncTime);
 
-            if (!silent) {
-                const actions = [
-                    applied ? '已拉取云端更新' : '',
-                    uploaded ? '已上传本地更新' : ''
-                ].filter(Boolean);
-                this.ui.showToast(actions.length ? `同步完成：${actions.join('，')}` : '同步完成：本地与云端已一致', 'success');
-            }
-            return { success: true, uploaded, applied, time: this.lastSyncTime };
+            return { success: true, uploaded: plan.uploaded, applied: plan.applied, time: lastSyncTime };
         } catch (e) {
             await this.handleIfUnauthorized(e);
             const message = e instanceof Error ? e.message : String(e);
             console.error('[CloudSync] sync error:', e);
             trace('cloud-sync', { outcome: 'failed', silent, message });
-            if (!silent) {
-                this.ui.showToast('同步失败：' + message, 'error');
-            } else if (!this.autoSyncFailureReported) {
-                // 自动同步失败：本轮故障只提示一次，后面的重试静默进行
-                this.autoSyncFailureReported = true;
-                this.ui.showToast('同步失败：' + message, 'error');
-            }
             return { success: false, retry: true, message };
         } finally {
             this.syncInProgress = false;
@@ -447,33 +263,25 @@ export class CloudSyncService {
      * 上传本地数据到云端（全量覆盖远端，并用上传结果更新 base 快照）
      * 多端场景请优先使用 sync()，此方法主要用于兼容与强制上传
      */
-    async upload({ silent = false }: { silent?: boolean } = {}): Promise<UploadResult> {
-        if (this.syncInProgress) return { success: false, message: '同步进行中' };
-        if (!this.token) {
-            if (!silent) this.ui.showToast('请先配置 Token', 'error');
-            return { success: false, message: '请先配置 Token' };
-        }
+    async upload(): Promise<UploadResult> {
+        if (this.syncInProgress) return { success: false, skipped: 'in-progress', message: '同步进行中' };
+        if (!this.token) return { success: false, skipped: 'not-authenticated', message: '请先配置 Token' };
 
         this.syncInProgress = true;
+        const target = this.target();
         try {
-            const gistId = await this.findOrCreateGist();
-            const syncData = await this.collectLocalData();
-            await this.uploadData(gistId, syncData.data);
+            const gistId = await this.resolveGistId(target);
+            await this.dataManager.syncNow();
+            const snapshot = await this.collectLocalSnapshot();
+            const lastModified = await transport.writeBundle(target, gistId, snapshot);
 
-            this.lastSyncTime = syncData.lastModified;
-            await this.storage.setMany({
-                [STORAGE_KEYS.CLOUD_SYNC_BASE]: syncData.data,
-                [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: this.lastSyncTime
-            });
+            await this.ledger.rebase(snapshot, lastModified);
 
-            if (!silent) this.ui.showToast(`数据已同步到 ${this.provider.name}`, 'success');
-            return { success: true, time: this.lastSyncTime };
+            return { success: true, time: lastModified };
         } catch (e) {
             await this.handleIfUnauthorized(e);
             console.error('[CloudSync] upload error:', e);
             const message = e instanceof Error ? e.message : String(e);
-            // 失败策略：每次失败都提示
-            this.ui.showToast('同步失败：' + message, 'error');
             return { success: false, message };
         } finally {
             this.syncInProgress = false;
@@ -481,17 +289,17 @@ export class CloudSyncService {
     }
 
     /**
-     * 从云端下载数据
+     * 从云端下载数据（不做任何本地写入）
      */
     async download(): Promise<DownloadResult> {
-        if (this.syncInProgress) return { success: false, message: '同步进行中' };
-        if (!this.token) return { success: false, message: '请先配置 Token' };
+        if (this.syncInProgress) return { success: false, skipped: 'in-progress', message: '同步进行中' };
+        if (!this.token) return { success: false, skipped: 'not-authenticated', message: '请先配置 Token' };
 
         this.syncInProgress = true;
+        const target = this.target();
         try {
-            const gistId = await this.findOrCreateGist();
-            const syncData = await this.downloadSyncData(gistId);
-            return { success: true, data: syncData };
+            const gistId = await this.resolveGistId(target);
+            return { success: true, data: await transport.readBundle(target, gistId) };
         } catch (e) {
             await this.handleIfUnauthorized(e);
             console.error('[CloudSync] download error:', e);
@@ -503,71 +311,14 @@ export class CloudSyncService {
     }
 
     /**
-     * 将云端数据应用到本地（覆盖），并同步更新 base 快照
+     * 将云端数据整份覆盖到本地，并把 base 对齐到这一版
+     * 覆盖是不可撤销的，因此先验结构再落盘；结构非法时抛出，什么都不写。
      */
-    async applyDownloadedData(syncData: SyncData): Promise<boolean> {
-        if (!syncData?.data) return false;
+    async applyDownloadedData(bundle: CloudBundle): Promise<void> {
+        assertRemoteUsable(bundle.data);
 
-        const snapshot = this.pickCloudSyncData(syncData.data);
-        const violation = findCloudSyncViolation(snapshot);
-        if (violation) {
-            throw new Error(`云端${violation}`);
-        }
-
-        await this.applyToLocal(snapshot);
-
-        this.lastSyncTime = syncData.lastModified ?? Date.now();
-        await this.storage.setMany({
-            [STORAGE_KEYS.CLOUD_SYNC_BASE]: snapshot,
-            [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: this.lastSyncTime
-        });
-
-        return true;
-    }
-
-    /**
-     * 强制恢复：拉取云端数据并覆盖本地（用户主动点击「强制恢复云端」）
-     * 覆盖前弹确认框；此操作是兜底手段，日常同步请使用 sync()
-     */
-    async pullAndApply({ force = false, silent = false }: { force?: boolean; silent?: boolean } = {}): Promise<PullResult> {
-        if (!this.token) {
-            if (!silent) this.ui.showToast('请先配置 Token', 'error');
-            return { success: false };
-        }
-
-        const result = await this.download();
-        if (!result.success || !result.data) {
-            if (!silent) this.ui.showToast('拉取失败：' + result.message, 'error');
-            return result;
-        }
-
-        const remote = result.data;
-        const remoteTime = new Date(remote.lastModified).toLocaleString();
-        const localSyncTime = this.lastSyncTime ? new Date(this.lastSyncTime).toLocaleString() : '从未上传';
-
-        if (!force) {
-            const TIME_BUFFER = 5000;
-            const remoteNewer = remote.lastModified > (this.lastSyncTime ?? 0) + TIME_BUFFER;
-            if (!remoteNewer) {
-                return { success: true, applied: false, message: '本地数据已是最新' };
-            }
-
-            const confirmed = await this.ui.showConfirm(
-                `检测到云端数据更新（云端 ${remoteTime}，本地上次上传 ${localSyncTime}），是否用云端数据覆盖本地？`,
-                { title: '恢复云端数据', okText: '覆盖本地', isDanger: true }
-            );
-            if (!confirmed) return { success: true, applied: false, message: '用户取消' };
-        } else {
-            const confirmed = await this.ui.showConfirm(
-                `将用云端数据覆盖本地（云端更新时间：${remoteTime}），此操作不可撤销，是否继续？`,
-                { title: '强制恢复云端', okText: '覆盖本地', isDanger: true }
-            );
-            if (!confirmed) return { success: true, applied: false, message: '用户取消' };
-        }
-
-        await this.applyDownloadedData(remote);
-        if (!silent) this.ui.showToast('已从云端恢复数据', 'success');
-        return { success: true, applied: true };
+        await this.applyToLocal(bundle.data);
+        await this.ledger.rebase(bundle.data, bundle.lastModified);
     }
 
     /**
@@ -575,130 +326,67 @@ export class CloudSyncService {
      * @param providerId 目标平台；切换平台会重置 gistId/base 快照/上次同步时间，
      *                   避免旧平台的 base 让新平台的空远端被误判为「远端删除全部」
      */
-    async saveToken(token: string, providerId: CloudSyncProviderId = this.providerId): Promise<boolean> {
+    async saveToken(token: string, providerId: CloudSyncProviderId = this.providerId): Promise<ConnectResult> {
         token = token.trim();
         if (!token) {
-            this.ui.showToast('请输入 Token', 'error');
-            return false;
+            return { success: false, reason: 'empty' };
         }
 
-        const provider = createGistProvider(providerId);
-        this.ui.showToast('正在验证 Token...', 'info');
         let userInfo: GitHubUserInfo;
         try {
-            userInfo = await provider.validateToken(token);
+            userInfo = await transport.validateToken(token, providerId);
         } catch (e) {
             const message = e instanceof Error ? e.message : String(e);
-            this.ui.showToast('Token 验证失败：' + message, 'error');
-            return false;
+            console.error('[CloudSync] Token 验证失败:', e);
+            return { success: false, reason: 'invalid-token', message };
         }
 
-        if (providerId !== this.providerId || token !== this.token) {
-            this.gistId = null;
-            this.lastSyncTime = 0;
-            await this.storage.set(STORAGE_KEYS.CLOUD_SYNC_BASE, null);
+        // 换平台或换账号：上一家的基线与 Gist 一并作废，
+        // 留着旧平台的 base 会让新平台的空远端被误判为「远端删除全部」
+        const switchingAccount = providerId !== this.providerId || token !== this.token;
+        if (switchingAccount) {
+            await this.ledger.discard();
         }
-        this.providerId = providerId;
-        this.token = token;
-        this.userInfo = userInfo;
-        await this.saveSettings();
-        await this.pushAuthToCrossDevice();
+        await this.account.save({
+            token,
+            provider: providerId,
+            userInfo,
+            ...(switchingAccount ? { gistId: null } : {})
+        });
 
         // Gist 初始化失败（无 gist 权限 / 网络受限）不应让整次登录失败：
         // Token 已验证且已保存，用户至少已经「连上」，可以稍后重试同步。
         try {
-            await this.findOrCreateGist();
+            await this.resolveGistId({ token, providerId });
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             console.warn('[CloudSync] 初始化 Gist 失败:', error);
-            this.ui.showToast(`账号已连接，但同步空间初始化失败：${message}`, 'error');
-            return true;
+            return { success: true, reason: 'gist-unavailable', message, userInfo };
         }
 
-        this.ui.showToast(`${provider.name} 账号已连接`, 'success');
-        return true;
+        return { success: true, userInfo };
     }
 
     /**
-     * 把当前登录凭据推送到浏览器账号同步区（未启用跨设备同步时为 no-op）
+     * 断开云同步：清空云同步配置（含 base 快照与平台选择），本地数据一律不动
      *
-     * 已开启浏览器同步但推送失败（例如本机口令丢失、同步区配额不足）时必须提示，
-     * 否则用户会以为「浏览器同步已经生效」，换设备时才发现根本没有凭据。
-     */
-    private async pushAuthToCrossDevice(): Promise<void> {
-        try {
-            const state = await getCrossDeviceState();
-            if (!state.enabled) {
-                return;
-            }
-
-            const pushed = await pushCrossDeviceAuth(
-                this.token ? { token: this.token, provider: this.providerId } : null
-            );
-
-            if (!pushed && this.token) {
-                this.ui.showToast(
-                    state.hasPassphrase
-                        ? '浏览器同步未写入：同步区不可用，请检查浏览器账号同步设置'
-                        : '浏览器同步未写入：本机缺少同步密码，请重新设置',
-                    'error'
-                );
-            }
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            console.warn('[CloudSync] 浏览器同步失败:', error);
-            this.ui.showToast('浏览器同步失败：' + message, 'error');
-        }
-    }
-
-    /**
-     * 显示 Token 输入对话框并尝试保存（使用当前平台）
-     */
-    async showLoginDialog(): Promise<void> {
-        const provider = this.provider;
-        const token = await this.ui.showPrompt(
-            `请输入 ${provider.name} Token（${provider.tokenHint}）`,
-            {
-                title: `连接 ${provider.name}`,
-                confirmText: '连接',
-                cancelText: '取消',
-                inputPlaceholder: this.providerId === 'gitee' ? 'xxxxxxxxxxxxxxxx' : 'ghp_xxxxxxxxxxxxxxxxxxxx',
-                inputType: 'password'
-            }
-        );
-        if (token) {
-            await this.saveToken(token);
-        }
-    }
-
-    /**
-     * 退出登录，清空云同步配置（含 base 快照与平台选择）
+     * 「真的要断开吗」是界面要问的话，见 store.logout。
      */
     async logout(): Promise<void> {
-        const confirmed = await this.ui.showConfirm('确定要断开云同步吗？本地数据不会删除。', {
-            title: '断开同步',
-            okText: '断开',
-            isDanger: true
+        await this.account.save({
+            token: null,
+            gistId: null,
+            userInfo: null,
+            provider: DEFAULT_CLOUD_PROVIDER
         });
-        if (!confirmed) return;
-
-        this.token = null;
-        this.gistId = null;
-        this.userInfo = null;
-        this.lastSyncTime = 0;
-        this.providerId = DEFAULT_PROVIDER;
-        await this.saveSettings();
-        await this.pushAuthToCrossDevice();
-        await this.storage.set(STORAGE_KEYS.CLOUD_SYNC_BASE, null);
-        this.ui.showToast('已断开云同步', 'success');
+        await this.ledger.discard();
     }
 
     /**
      * 切换自动同步（开启后：数据变更时自动上传、启动时自动拉取合并）
      */
     async setAutoSync(enabled: boolean): Promise<void> {
-        this.autoSync = !!enabled;
-        await this.storage.set(STORAGE_KEYS.CLOUD_AUTO_SYNC, this.autoSync);
+        await this.account.save({ autoSync: !!enabled });
     }
 
     /**
@@ -713,15 +401,34 @@ export class CloudSyncService {
 
     /**
      * 当前设置快照
+     * 账号侧来自 CloudSettings，上次同步时间来自账本，两份合起来才是界面看到的六项。
      */
     get settings(): CloudSyncSettings {
-        return {
-            token: this.token,
-            gistId: this.gistId,
-            autoSync: this.autoSync,
-            lastSyncTime: this.lastSyncTime,
-            userInfo: this.userInfo,
-            provider: this.providerId
+        return { ...this.account.get(), lastSyncTime: this.ledger.lastSyncTime() };
+    }
+
+    /**
+     * 订阅设置快照变化：本机改动、同一浏览器其他页面的改动、账本更新都走这一条路
+     *
+     * 订阅者（store 的界面镜像）不需要知道变化来自哪一层，也不需要再各自对账。
+     */
+    watchSettings(listener: (change: CloudSettingsChange) => void): () => void {
+        const emit = (delta: SettingsDelta): void => {
+            listener({
+                settings: this.settings,
+                authChanged: delta.authChanged,
+                fromOtherPage: delta.fromOtherPage
+            });
+        };
+        const stopAccount = this.account.watch((_settings, delta) => emit(delta));
+        const stopLedger = this.ledger.watch((_lastSyncTime, fromOtherPage) => emit({
+            changed: true,
+            authChanged: false,
+            fromOtherPage
+        }));
+        return () => {
+            stopAccount();
+            stopLedger();
         };
     }
 
@@ -744,9 +451,7 @@ export class CloudSyncService {
      */
     private async handleIfUnauthorized(e: unknown): Promise<void> {
         if (e instanceof SyncProviderError && e.status === 401) {
-            this.token = null;
-            this.userInfo = null;
-            await this.saveSettings();
+            await this.account.save({ token: null, userInfo: null });
         }
     }
 
@@ -767,34 +472,6 @@ export class CloudSyncService {
         return snapshot;
     }
 
-    /**
-     * 从任意数据里挑出注册表登记的同步键
-     * 云端 data 可能带着旧版本、别的分支写过的多余键，收进来前先按表过滤；
-     * null 与「键不存在」同义（另一端没有这份数据），一并丢掉。
-     */
-    private pickCloudSyncData(data: Record<string, unknown>): SyncSnapshot {
-        const snapshot: SyncSnapshot = {};
-        for (const key of CLOUD_SYNC_DATA_KEYS) {
-            const value = data[key];
-            if (value !== undefined && value !== null) {
-                snapshot[key] = value;
-            }
-        }
-        return snapshot;
-    }
-
-    /** 两端数据任一份结构非法就中止同步：坏数据一旦被合并上传，会覆盖掉好那一端 */
-    private assertSyncData(localData: SyncSnapshot, remoteData: SyncSnapshot): void {
-        const localViolation = findCloudSyncViolation(localData);
-        if (localViolation) {
-            throw new Error(`本地${localViolation}`);
-        }
-        const remoteViolation = findCloudSyncViolation(remoteData);
-        if (remoteViolation) {
-            throw new Error(`云端${remoteViolation}`);
-        }
-    }
-
     /** 把快照写回本地；写入期间抑制自动同步，免得「同步完成 → 触发变更 → 又同步一次」 */
     private async applyToLocal(snapshot: SyncSnapshot): Promise<void> {
         this.applyingRemote = true;
@@ -803,102 +480,6 @@ export class CloudSyncService {
         } finally {
             this.applyingRemote = false;
         }
-    }
-
-    /**
-     * 下载并解析远端同步数据
-     * 主文件与被引用的资源分片共用同一次文件表请求；资源还原成 data URL 后才交给校验与合并，
-     * 因此本地形态与 base 快照始终一致，不会出现「引用 vs 原文」永远比不相等的情况。
-     */
-    private async downloadSyncData(gistId: string): Promise<SyncData> {
-        if (!this.token) {
-            throw new Error('未配置 Token');
-        }
-        const files = await this.provider.getGistFileMap(this.token, gistId);
-        const content = files
-            ? await this.provider.readFileFromMap(this.token, files[SYNC_FILE_NAME])
-            : null;
-        if (content === null) {
-            throw new Error('同步文件不存在');
-        }
-        const syncData = JSON.parse(content) as SyncData;
-        // 指纹取自还原分片之前的原始文件内容：分片本身按内容命名，
-        // 所以「同一版文件」永远得到同一个指纹，跨设备、跨标签页都一样
-        syncData.revision = await hashKey(content);
-        const token = this.token;
-        syncData.data = (await internalizeAssets(
-            syncData.data,
-            syncData.assets,
-            name => this.provider.readFileFromMap(token, files?.[name])
-        )) as Record<string, unknown>;
-        return syncData;
-    }
-
-    /**
-     * 上传合并后的数据到云端
-     *
-     * 大对象拆成 `haha-asset-*` 分片文件：分片名由内容哈希决定，云端已有同名文件就意味着
-     * 内容一致，因此只补传缺失的分片；本次不再引用的分片随后删除。
-     */
-    private async uploadData(gistId: string, data: SyncSnapshot): Promise<void> {
-        if (!this.token) {
-            throw new Error('未配置 Token');
-        }
-        const externalized = await externalizeAssets(data, this.assetChunkChars());
-        const syncData: SyncData = {
-            version: SYNC_DATA_VERSION,
-            lastModified: Date.now(),
-            device: this.getDeviceName(),
-            data: externalized.data as Record<string, unknown>,
-            assets: externalized.manifest
-        };
-
-        const files = await this.provider.getGistFileMap(this.token, gistId) ?? {};
-        const upsert: Record<string, string> = { [SYNC_FILE_NAME]: JSON.stringify(syncData, null, 2) };
-        for (const [name, part] of Object.entries(externalized.chunks)) {
-            if (!files[name]) {
-                upsert[name] = part;
-            }
-        }
-
-        const keep = manifestFileNames(externalized.manifest);
-        const deleteFileNames = Object.keys(files).filter(name => isAssetFileName(name) && !keep.has(name));
-
-        await this.provider.updateGistFiles(this.token, gistId, upsert, deleteFileNames);
-    }
-
-    /** 单个资源分片的字符数上限，由平台单文件上限换算 */
-    private assetChunkChars(): number {
-        return Math.floor(this.provider.maxFileBytes * ASSET_CHUNK_RATIO);
-    }
-
-    private createEmptySyncData(): SyncData {
-        return {
-            version: SYNC_DATA_VERSION,
-            lastModified: Date.now(),
-            device: this.getDeviceName(),
-            data: {}
-        };
-    }
-
-    private async collectLocalData(): Promise<SyncData> {
-        await this.dataManager.syncNow();
-        return {
-            version: SYNC_DATA_VERSION,
-            lastModified: Date.now(),
-            device: this.getDeviceName(),
-            data: await this.collectLocalSnapshot()
-        };
-    }
-
-    private getDeviceName(): string {
-        if (typeof navigator === 'undefined') return 'Browser';
-        const ua = navigator.userAgent;
-        if (ua.includes('Chrome')) return 'Chrome';
-        if (ua.includes('Firefox')) return 'Firefox';
-        if (ua.includes('Safari')) return 'Safari';
-        if (ua.includes('Edg')) return 'Edge';
-        return 'Browser';
     }
 }
 

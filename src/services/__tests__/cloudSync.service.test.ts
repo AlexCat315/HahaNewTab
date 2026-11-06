@@ -1,12 +1,12 @@
 /**
  * CloudSyncService 测试
  * 覆盖：设置加载、Token 验证、双向合并同步 sync()（下载-合并-应用-上传-base 更新）、
- * 全量上传 upload() 写 base、applyDownloadedData 过滤与 base 更新、
+ * 全量上传 upload() 写 base、download → applyDownloadedData 覆盖本地并更新 base、
  * 按注册表校验拒绝结构非法的数据、写回本地期间的 isApplyingRemoteData 信号、
  * 拖动排序这类纯顺序变更的采纳与 base 更新、
- * 失败策略 Toast 分类（网络错误 / 超时 / 401 清 Token / 频率限制）、
- * 自动同步连续失败时提示收敛为一轮一次。
- * 自动同步的触发与防抖已移到 cloudSync store（监听存储内核），不在此文件覆盖。
+ * 失败时返回的 message 分类（网络错误 / 超时 / 401 清 Token / 频率限制 / 其他 HTTP）。
+ * 服务层只返回结构化结果：弹不弹提示、提示几次由 cloudSync store 决定，
+ * 自动同步的触发与防抖同样在 store，这两件事都在 cloudSync.store.test.ts 覆盖。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CloudSyncService } from '@/services/cloudSync.service';
@@ -16,10 +16,9 @@ import type { AppNavigatorData, AppItem } from '@/types/app';
 import type { UserUiLib } from '@/types/ui';
 import type {
     CloudSyncStorage,
-    ICloudSyncDataManager,
-    ICloudSyncUIAdapter
+    ICloudSyncDataManager
 } from '@/types/cloudSync.types';
-import type { StorageValue } from '@/types/storage';
+import type { StorageChanges, StorageValue } from '@/types/storage';
 
 const TEST_TOKEN = 'ghp_test';
 const TEST_GIST_ID = 'gist_1';
@@ -28,6 +27,16 @@ const SYNC_FILE_NAME = 'haha-newtab-sync.json';
 /** 存储内核的内存替身：云同步只按内核接口读写，这里逐一对齐 */
 function createMockStorage(): CloudSyncStorage {
     const store = new Map<string, StorageValue>();
+    const listeners = new Set<(changes: StorageChanges) => void>();
+    const emit = (items: Record<string, StorageValue>): void => {
+        const changes: StorageChanges = {};
+        for (const [key, value] of Object.entries(items)) {
+            changes[key] = { newValue: value };
+        }
+        for (const listener of listeners) {
+            listener(changes);
+        }
+    };
     return {
         get: vi.fn(async (key: string): Promise<StorageValue | null> => store.get(key) ?? null),
         getMany: vi.fn(async (keys: string[]) =>
@@ -35,11 +44,17 @@ function createMockStorage(): CloudSyncStorage {
         ),
         set: vi.fn(async (key: string, value: StorageValue) => {
             store.set(key, value);
+            emit({ [key]: value });
         }),
         setMany: vi.fn(async (items: Record<string, StorageValue>) => {
             for (const [key, value] of Object.entries(items)) {
                 store.set(key, value);
             }
+            emit(items);
+        }),
+        subscribe: vi.fn((listener: (changes: StorageChanges) => void) => {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
         })
     };
 }
@@ -51,20 +66,11 @@ function createMockDataManager(): ICloudSyncDataManager {
     };
 }
 
-function createMockUI(): ICloudSyncUIAdapter {
-    return {
-        showToast: vi.fn(),
-        showConfirm: vi.fn(async () => true),
-        showPrompt: vi.fn(async () => null)
-    };
-}
-
 function createService() {
     const storage = createMockStorage();
     const dataManager = createMockDataManager();
-    const ui = createMockUI();
-    const service = new CloudSyncService({ storage, dataManager, ui });
-    return { service, storage, dataManager, ui };
+    const service = new CloudSyncService({ storage, dataManager });
+    return { service, storage, dataManager };
 }
 
 function createResponse(body: unknown, status = 200): Response {
@@ -177,10 +183,8 @@ describe('CloudSyncService', () => {
     });
 
     it('saveToken 拒绝空字符串', async () => {
-        const { service, ui } = createService();
-        const result = await service.saveToken('   ');
-        expect(result).toBe(false);
-        expect(ui.showToast).toHaveBeenCalledWith('请输入 Token', 'error');
+        const { service } = createService();
+        expect(await service.saveToken('   ')).toEqual({ success: false, reason: 'empty' });
     });
 
     it('validateToken 无 Token 返回 false', async () => {
@@ -223,10 +227,11 @@ describe('CloudSyncService', () => {
     });
 
     it('upload 在未登录时返回错误', async () => {
-        const { service, ui } = createService();
+        const { service } = createService();
         const result = await service.upload();
         expect(result.success).toBe(false);
-        expect(ui.showToast).toHaveBeenCalledWith('请先配置 Token', 'error');
+        expect(result.message).toBe('请先配置 Token');
+        expect(result.skipped).toBe('not-authenticated');
     });
 
     it('download 在未登录时返回错误', async () => {
@@ -236,41 +241,37 @@ describe('CloudSyncService', () => {
         expect(result.message).toBe('请先配置 Token');
     });
 
-    it('applyDownloadedData 只应用注册表登记的同步键并更新 base', async () => {
-        const { service, dataManager, storage } = createService();
+    it('download 只留注册表登记的同步键，applyDownloadedData 据此覆盖本地并更新 base', async () => {
+        const { service, storage, dataManager } = createService();
         const mainData = { categories: [], apps: [] };
         const uiLib = { categories: [], items: [] };
-        const syncData = {
-            version: '1.0',
-            lastModified: 1700000000000,
-            device: 'Chrome',
-            data: {
-                [STORAGE_KEYS.MAIN_DATA]: mainData,
-                [STORAGE_KEYS.USER_UI_LIB]: uiLib,
-                // 个性化设置现在也参与同步
-                [STORAGE_KEYS.SELECTED_THEME]: 'material-rose',
-                // 未登记的键与设备本地态一律忽略
-                unknown_key: 'should_be_ignored',
-                [STORAGE_KEYS.SIDEBAR_COLLAPSED]: true
-            }
-        };
-        const result = await service.applyDownloadedData(syncData);
-        expect(result).toBe(true);
-        // 只保留注册表登记过的同步键
-        expect(dataManager.applyStorageSnapshot).toHaveBeenCalledWith({
+        await seedSignedIn(service, storage);
+        stubSyncFetch({
+            [STORAGE_KEYS.MAIN_DATA]: mainData,
+            [STORAGE_KEYS.USER_UI_LIB]: uiLib,
+            // 个性化设置现在也参与同步
+            [STORAGE_KEYS.SELECTED_THEME]: 'material-rose',
+            // 未登记的键与设备本地态一律忽略
+            unknown_key: 'should_be_ignored',
+            [STORAGE_KEYS.SIDEBAR_COLLAPSED]: true
+        });
+
+        const downloaded = await service.download();
+        expect(downloaded.success).toBe(true);
+
+        const snapshot = {
             [STORAGE_KEYS.MAIN_DATA]: mainData,
             [STORAGE_KEYS.USER_UI_LIB]: uiLib,
             [STORAGE_KEYS.SELECTED_THEME]: 'material-rose'
-        });
+        };
+        await service.applyDownloadedData(downloaded.data!);
+        // 只保留注册表登记过的同步键
+        expect(dataManager.applyStorageSnapshot).toHaveBeenCalledWith(snapshot);
         // 成功后写入 base 快照与同步时间
-        expect(storage.setMany).toHaveBeenCalledWith({
-            [STORAGE_KEYS.CLOUD_SYNC_BASE]: {
-                [STORAGE_KEYS.MAIN_DATA]: mainData,
-                [STORAGE_KEYS.USER_UI_LIB]: uiLib,
-                [STORAGE_KEYS.SELECTED_THEME]: 'material-rose'
-            },
-            [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: 1700000000000
-        });
+        expect(storage.setMany).toHaveBeenCalledWith(expect.objectContaining({
+            [STORAGE_KEYS.CLOUD_SYNC_BASE]: snapshot,
+            [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: downloaded.data!.lastModified
+        }));
     });
 
     it('应用云端数据到本地期间给出 isApplyingRemoteData 信号（自动同步据此不回调）', async () => {
@@ -283,9 +284,8 @@ describe('CloudSyncService', () => {
         });
 
         await service.applyDownloadedData({
-            version: '1.0',
             lastModified: 1700000000000,
-            device: 'Chrome',
+            revision: 'rev-1',
             data: { [STORAGE_KEYS.MAIN_DATA]: mainData, [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB }
         });
 
@@ -294,7 +294,7 @@ describe('CloudSyncService', () => {
     });
 
     it('sync 拒绝结构非法的云端数据：不合并、不应用、不上传', async () => {
-        const { service, storage, dataManager, ui } = createService();
+        const { service, storage, dataManager } = createService();
         await seedSignedIn(service, storage, seedMergeFixture([app('a1', 'A')], [app('a1', 'A')]));
         const fetchMock = stubSyncFetch({ [STORAGE_KEYS.MAIN_DATA]: { categories: 'broken' } });
 
@@ -304,28 +304,29 @@ describe('CloudSyncService', () => {
         expect(result.message).toBe('云端应用数据格式无效');
         expect(dataManager.applyStorageSnapshot).not.toHaveBeenCalled();
         expect(hasPatchCall(fetchMock)).toBe(false);
-        expect(ui.showToast).toHaveBeenCalledWith('同步失败：云端应用数据格式无效', 'error');
     });
 
     it('setAutoSync 更新状态并写入存储', async () => {
         const { service, storage } = createService();
         await service.setAutoSync(true);
         expect(service.settings.autoSync).toBe(true);
-        expect(storage.set).toHaveBeenCalledWith('appNavigator_cloudSync_autoSync', true);
+        expect(storage.setMany).toHaveBeenCalledWith(
+            expect.objectContaining({ 'appNavigator_cloudSync_autoSync': true })
+        );
     });
 
     // ==================== sync() 双向合并同步 ====================
 
-    it('sync 在未登录时返回错误（silent 时不提示）', async () => {
-        const { service, ui } = createService();
+    it('sync 在未登录时标记为「没走到云端」', async () => {
+        const { service } = createService();
         const result = await service.sync({ silent: true });
         expect(result.success).toBe(false);
         expect(result.message).toBe('请先配置 Token');
-        expect(ui.showToast).not.toHaveBeenCalled();
+        expect(result.skipped).toBe('not-authenticated');
     });
 
     it('sync 三方合并：本地与远端各有更新时，应用合并结果并上传，更新 base', async () => {
-        const { service, storage, dataManager, ui } = createService();
+        const { service, storage, dataManager } = createService();
         // base: a1='A'；本地改 a1 并新增 a2；远端未改 a1、新增 a3
         await seedSignedIn(service, storage, seedMergeFixture(
             [app('a1', 'A-local'), app('a2', 'A2')],
@@ -360,11 +361,10 @@ describe('CloudSyncService', () => {
             [STORAGE_KEYS.CLOUD_SYNC_BASE]: expectedMerged,
             [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: expect.any(Number)
         }));
-        expect(ui.showToast).toHaveBeenCalledWith('同步完成：已拉取云端更新，已上传本地更新', 'success');
     });
 
     it('sync 本地、远端与 base 一致时，不应用也不上传', async () => {
-        const { service, storage, dataManager, ui } = createService();
+        const { service, storage, dataManager } = createService();
         const sameData = seedMergeFixture([app('a1', 'A')], [app('a1', 'A')]);
         await seedSignedIn(service, storage, sameData);
         const remoteData = {
@@ -385,11 +385,10 @@ describe('CloudSyncService', () => {
             [STORAGE_KEYS.CLOUD_SYNC_BASE]: remoteData,
             [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: expect.any(Number)
         }));
-        expect(ui.showToast).toHaveBeenCalledWith('同步完成：本地与云端已一致', 'success');
     });
 
     it('sync 仅远端有更新时应用到本地，不上传', async () => {
-        const { service, storage, dataManager, ui } = createService();
+        const { service, storage, dataManager } = createService();
         // 本地与 base 一致，远端修改了 a1
         await seedSignedIn(service, storage, seedMergeFixture([app('a1', 'A')], [app('a1', 'A')]));
         const remoteData = {
@@ -405,11 +404,10 @@ describe('CloudSyncService', () => {
         expect(result.uploaded).toBe(false);
         expect(dataManager.applyStorageSnapshot).toHaveBeenCalledWith(remoteData);
         expect(hasPatchCall(fetchMock)).toBe(false);
-        expect(ui.showToast).toHaveBeenCalledWith('同步完成：已拉取云端更新', 'success');
     });
 
     it('sync 仅本地有更新时上传远端，不应用本地', async () => {
-        const { service, storage, dataManager, ui } = createService();
+        const { service, storage, dataManager } = createService();
         // 远端与 base 一致，本地修改了 a1
         await seedSignedIn(service, storage, seedMergeFixture([app('a1', 'A-local')], [app('a1', 'A')]));
         const remoteData = {
@@ -425,7 +423,6 @@ describe('CloudSyncService', () => {
         expect(result.uploaded).toBe(true);
         expect(dataManager.applyStorageSnapshot).not.toHaveBeenCalled();
         expect(hasPatchCall(fetchMock)).toBe(true);
-        expect(ui.showToast).toHaveBeenCalledWith('同步完成：已上传本地更新', 'success');
     });
 
     it('sync 另一端拖动排序时本机采纳新顺序，也不把旧顺序推回云端', async () => {
@@ -514,20 +511,6 @@ describe('CloudSyncService', () => {
         });
     });
 
-    it('sync 静默模式成功时不 Toast', async () => {
-        const { service, storage, ui } = createService();
-        await seedSignedIn(service, storage, seedMergeFixture([app('a1', 'A')], [app('a1', 'A')]));
-        stubSyncFetch({
-            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [app('a1', 'A')] },
-            [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB
-        });
-
-        const result = await service.sync({ silent: true });
-
-        expect(result.success).toBe(true);
-        expect(ui.showToast).not.toHaveBeenCalled();
-    });
-
     it('sync 并发调用时第二次直接返回「同步进行中」', async () => {
         const { service, storage } = createService();
         await seedSignedIn(service, storage, seedMergeFixture([], []));
@@ -559,82 +542,35 @@ describe('CloudSyncService', () => {
         expect(r1.success).toBe(true);
     });
 
-    // ==================== sync() 失败策略 ====================
+    // ==================== sync() 失败时交出的信息 ====================
+    // 传输层的错误分类（网络 / 超时 / 401 / 频率限制 / 其他 HTTP）原样进 result.message，
+    // 「同步失败：」前缀与提示次数由 cloudSync store 负责，见 cloudSync.store.test.ts。
 
-    it('sync 网络不可达（TypeError）时提示无法连接 GitHub，silent 也提示', async () => {
-        const { service, storage, ui } = createService();
+    it('sync 网络不可达（TypeError）时给出无法连接的分类信息', async () => {
+        const { service, storage } = createService();
         await seedSignedIn(service, storage);
         vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
 
         const result = await service.sync({ silent: true });
 
         expect(result.success).toBe(false);
-        expect(ui.showToast).toHaveBeenCalledWith(
-            '同步失败：无法连接 GitHub，请检查网络或代理（国内可能需代理访问）',
-            'error'
-        );
+        expect(result.retry).toBe(true);
+        expect(result.message).toBe('无法连接 GitHub，请检查网络或代理（国内可能需代理访问）');
     });
 
-    it('自动同步连续失败只提示一次', async () => {
-        const { service, storage, ui } = createService();
-        await seedSignedIn(service, storage);
-        vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
-
-        const first = await service.sync({ silent: true });
-        const second = await service.sync({ silent: true });
-        const third = await service.sync({ silent: true });
-
-        // 每一轮都要求调用方重新排程，但断网期间的提示不跟着重试一遍遍弹
-        expect([first.retry, second.retry, third.retry]).toEqual([true, true, true]);
-        expect(ui.showToast).toHaveBeenCalledTimes(1);
-    });
-
-    it('失败提示过后若有一轮同步成功，下一次故障重新提示', async () => {
-        const { service, storage, ui } = createService();
-        await seedSignedIn(service, storage, seedMergeFixture([app('a1', 'A')], [app('a1', 'A')]));
-        const remoteData = {
-            [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [app('a1', 'A')] },
-            [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB
-        };
-        const okFetch = stubSyncFetch(remoteData);
-        let offline = true;
-        vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
-            if (offline) {
-                return Promise.reject(new TypeError('Failed to fetch'));
-            }
-            return okFetch(url, init);
-        }));
-
-        await service.sync({ silent: true });
-        expect(ui.showToast).toHaveBeenCalledTimes(1);
-
-        // 网络恢复：这一轮走通，故障标记复位
-        offline = false;
-        const recovered = await service.sync({ silent: true });
-        expect(recovered.success).toBe(true);
-
-        // 再次断网仍要提示
-        offline = true;
-        await service.sync({ silent: true });
-        expect(ui.showToast).toHaveBeenCalledTimes(2);
-    });
-
-    it('sync 请求超时（AbortError）时提示超时', async () => {
-        const { service, storage, ui } = createService();
+    it('sync 请求超时（AbortError）时给出超时信息', async () => {
+        const { service, storage } = createService();
         await seedSignedIn(service, storage);
         vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('The operation was aborted.', 'AbortError')));
 
         const result = await service.sync({ silent: true });
 
         expect(result.success).toBe(false);
-        expect(ui.showToast).toHaveBeenCalledWith(
-            '同步失败：无法连接 GitHub（请求超时），请检查网络或代理（国内可能需代理访问）',
-            'error'
-        );
+        expect(result.message).toBe('无法连接 GitHub（请求超时），请检查网络或代理（国内可能需代理访问）');
     });
 
-    it('sync 收到 401（未缓存 gistId）时清空本地 Token 并提示重新连接', async () => {
-        const { service, storage, ui } = createService();
+    it('sync 收到 401（未缓存 gistId）时清空本地 Token 并说明原因', async () => {
+        const { service, storage } = createService();
         // 不预置 gistId：findOrCreateGist 直接走 listGists，401 经 throwForStatus 分类
         await storage.set(STORAGE_KEYS.CLOUD_TOKEN, TEST_TOKEN);
         await service.loadSettings();
@@ -643,45 +579,42 @@ describe('CloudSyncService', () => {
         const result = await service.sync();
 
         expect(result.success).toBe(false);
-        expect(ui.showToast).toHaveBeenCalledWith('同步失败：Token 已失效，请重新连接 GitHub', 'error');
-        // 本地 Token 与用户信息被清空
+        expect(result.message).toBe('Token 已失效，请重新连接 GitHub');
+        // 本地 Token 被清空；这一批里只有真的变了的那一项（用户信息本来就没有）
         expect(service.settings.token).toBeNull();
-        expect(storage.setMany).toHaveBeenCalledWith(expect.objectContaining({
-            [STORAGE_KEYS.CLOUD_TOKEN]: null,
-            [STORAGE_KEYS.CLOUD_USER_INFO]: null
-        }));
+        expect(storage.setMany).toHaveBeenCalledWith({ [STORAGE_KEYS.CLOUD_TOKEN]: null });
     });
 
-    it('sync 收到 401（已缓存 gistId）时同样清空 Token 并提示重新连接', async () => {
+    it('sync 收到 401（已缓存 gistId）时同样清空 Token', async () => {
         // 已缓存 gistId 时 getGistFileContent 的 401 被 findOrCreateGist 捕获后继续走 listGists，
         // listGists 再次 401，provider 抛出「Token 已失效」，sync 捕获后统一清空本地 Token
-        const { service, storage, ui } = createService();
+        const { service, storage } = createService();
         await seedSignedIn(service, storage);
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createResponse({ message: 'Bad credentials' }, 401)));
 
         const result = await service.sync();
 
         expect(result.success).toBe(false);
-        expect(ui.showToast).toHaveBeenCalledWith('同步失败：Token 已失效，请重新连接 GitHub', 'error');
+        expect(result.message).toBe('Token 已失效，请重新连接 GitHub');
         expect(service.settings.token).toBeNull();
         expect(storage.setMany).toHaveBeenCalledWith(expect.objectContaining({
             [STORAGE_KEYS.CLOUD_TOKEN]: null
         }));
     });
 
-    it('sync 收到 403 频率限制时提示稍后再试', async () => {
-        const { service, storage, ui } = createService();
+    it('sync 收到 403 频率限制时说明稍后再试', async () => {
+        const { service, storage } = createService();
         await seedSignedIn(service, storage);
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createResponse({ message: 'API rate limit exceeded' }, 403)));
 
         const result = await service.sync();
 
         expect(result.success).toBe(false);
-        expect(ui.showToast).toHaveBeenCalledWith('同步失败：GitHub API 频率限制，请稍后再试', 'error');
+        expect(result.message).toBe('GitHub API 频率限制，请稍后再试');
     });
 
-    it('sync 其他 HTTP 错误时提示状态码与消息', async () => {
-        const { service, storage, ui } = createService();
+    it('sync 其他 HTTP 错误时带上状态码与消息', async () => {
+        const { service, storage } = createService();
         await seedSignedIn(service, storage);
         // getGist 失败后 findOrCreateGist 会尝试 listGists，全部返回 500
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createResponse({ message: 'Server Error' }, 500)));
@@ -689,13 +622,13 @@ describe('CloudSyncService', () => {
         const result = await service.sync();
 
         expect(result.success).toBe(false);
-        expect(ui.showToast).toHaveBeenCalledWith('同步失败：Server Error (500)', 'error');
+        expect(result.message).toBe('Server Error (500)');
     });
 
     // ==================== init() 启动同步 ====================
 
     it('init 在已登录且开启自动同步时执行静默双向同步', async () => {
-        const { service, storage, dataManager, ui } = createService();
+        const { service, storage, dataManager } = createService();
         // 远端比本地多一个站点，启动同步应静默拉取合并
         await seedSignedIn(service, storage, {
             [STORAGE_KEYS.CLOUD_AUTO_SYNC]: true,
@@ -714,11 +647,9 @@ describe('CloudSyncService', () => {
 
         await service.init();
 
-        // 合并结果应用到本地（不弹确认、静默无 Toast）
+        // 合并结果应用到本地，且服务层不会为启动那一轮停下来等谁确认
         expect(dataManager.applyStorageSnapshot).toHaveBeenCalledWith(remoteData);
         expect(service.settings.lastSyncTime).toBeGreaterThan(0);
-        expect(ui.showToast).not.toHaveBeenCalled();
-        expect(ui.showConfirm).not.toHaveBeenCalled();
     });
 
     it('init 未开启自动同步时仅验证 Token，不发起同步', async () => {
@@ -740,7 +671,7 @@ describe('CloudSyncService', () => {
     // ==================== upload() 全量上传 ====================
 
     it('upload 成功后用上传内容更新 base 快照', async () => {
-        const { service, storage, ui } = createService();
+        const { service, storage } = createService();
         const localData: AppNavigatorData = { categories: [], apps: [app('a1', 'A')] };
         await seedSignedIn(service, storage, {
             [STORAGE_KEYS.MAIN_DATA]: localData,
@@ -759,21 +690,17 @@ describe('CloudSyncService', () => {
             },
             [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: expect.any(Number)
         }));
-        expect(ui.showToast).toHaveBeenCalledWith('数据已同步到 GitHub', 'success');
     });
 
-    it('upload 失败时即使 silent 也提示同步失败', async () => {
-        const { service, storage, ui } = createService();
+    it('upload 失败时给出与 sync 同一套分类信息', async () => {
+        const { service, storage } = createService();
         await seedSignedIn(service, storage);
         vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
 
-        const result = await service.upload({ silent: true });
+        const result = await service.upload();
 
         expect(result.success).toBe(false);
-        expect(ui.showToast).toHaveBeenCalledWith(
-            '同步失败：无法连接 GitHub，请检查网络或代理（国内可能需代理访问）',
-            'error'
-        );
+        expect(result.message).toBe('无法连接 GitHub，请检查网络或代理（国内可能需代理访问）');
     });
 
     // ==================== 多平台（GitHub / Gitee）行为 ====================
@@ -798,7 +725,7 @@ describe('CloudSyncService', () => {
 
         const result = await service.saveToken('gitee_token', 'gitee');
 
-        expect(result).toBe(true);
+        expect(result.success).toBe(true);
         // Token 验证请求发往 Gitee，且通过 query 传 access_token
         const [firstUrl] = fetchMock.mock.calls[0] as [string];
         expect(firstUrl).toContain('https://gitee.com/api/v5/user');
@@ -825,14 +752,16 @@ describe('CloudSyncService', () => {
 
         const result = await service.saveToken('gitee_token', 'gitee');
 
-        expect(result).toBe(true);
-        // 旧平台的 base 快照被清空，避免新平台空远端被误判为「远端删除全部」
-        expect(storage.set).toHaveBeenCalledWith(STORAGE_KEYS.CLOUD_SYNC_BASE, null);
-        // gistId 与 lastSyncTime 重置（saveSettings 时点上为 null / 0）
+        expect(result.success).toBe(true);
+        // 旧平台的账本整批作废：base 快照与上次同步时间，避免新平台空远端被误判为「远端删除全部」
+        expect(storage.setMany).toHaveBeenCalledWith({
+            [STORAGE_KEYS.CLOUD_SYNC_BASE]: null,
+            [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: 0
+        });
+        // 设置侧记下新平台，并把上一个账号的 Gist 清空
         expect(storage.setMany).toHaveBeenCalledWith(expect.objectContaining({
             [STORAGE_KEYS.CLOUD_PROVIDER]: 'gitee',
-            [STORAGE_KEYS.CLOUD_GIST_ID]: null,
-            [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: 0
+            [STORAGE_KEYS.CLOUD_GIST_ID]: null
         }));
         // 新平台完成 findOrCreateGist 后使用新 Gist
         expect(service.settings.gistId).toBe('gitee_gist_1');
@@ -861,7 +790,10 @@ describe('CloudSyncService', () => {
 
         expect(service.settings.token).toBeNull();
         expect(service.settings.provider).toBe('github');
-        expect(storage.set).toHaveBeenCalledWith(STORAGE_KEYS.CLOUD_SYNC_BASE, null);
+        expect(storage.setMany).toHaveBeenCalledWith({
+            [STORAGE_KEYS.CLOUD_SYNC_BASE]: null,
+            [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: 0
+        });
         expect(storage.setMany).toHaveBeenCalledWith(expect.objectContaining({
             [STORAGE_KEYS.CLOUD_TOKEN]: null,
             [STORAGE_KEYS.CLOUD_PROVIDER]: 'github'
@@ -921,7 +853,7 @@ describe('CloudSyncService 资源通道', () => {
         });
         const { patchBodies } = stubUploadFetch({});
 
-        await service.upload({ silent: true });
+        await service.upload();
 
         const files = patchBodies[0];
         const syncData = JSON.parse(mainFileContent(files)) as {
@@ -955,7 +887,7 @@ describe('CloudSyncService 资源通道', () => {
             'haha-asset-gone-0.txt': { content: 'STALE' }
         });
 
-        await service.upload({ silent: true });
+        await service.upload();
 
         const files = patchBodies[0];
         expect(keepName in files).toBe(false);

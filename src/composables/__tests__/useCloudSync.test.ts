@@ -238,8 +238,12 @@ describe('useCloudSync composable', () => {
         const result = await wrapper.vm.cloud.download();
 
         expect(result.success).toBe(true);
-        // revision 是下载侧现挂的云端版本号指纹，不属于 Gist 文件本身的内容
-        expect(result.data).toEqual({ ...syncData, revision: expect.any(String) });
+        // 下载交出的是一等公民 CloudBundle：数据、写入时间、这一版的指纹同批送达
+        expect(result.data).toEqual({
+            data: syncData.data,
+            lastModified: syncData.lastModified,
+            revision: expect.any(String)
+        });
     });
 
     it('pullAndApply 将云端快照应用到本地', async () => {

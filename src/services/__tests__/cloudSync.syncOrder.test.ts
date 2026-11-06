@@ -13,7 +13,7 @@ import { storageManager } from '@/services/storage.service';
 import { createCloudSyncDataManager } from '@/stores/cloudSyncDataManager';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { LayoutSettings } from '@/types/storage';
-import type { CloudSyncDependencies, ICloudSyncUIAdapter } from '@/types/cloudSync.types';
+import type { CloudSyncDependencies } from '@/types/cloudSync.types';
 
 const TOKEN = 'ghp_test';
 const GIST_ID = 'gist_1';
@@ -57,6 +57,7 @@ function createCloud(remoteData: Record<string, unknown>, remoteLastModified: nu
         data: remoteData
     });
     let frozen = false;
+    let downloads = 0;
 
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
         if (init?.method === 'PATCH') {
@@ -72,12 +73,21 @@ function createCloud(remoteData: Record<string, unknown>, remoteLastModified: nu
         if (url.endsWith('/gists') || url.includes('/gists?')) {
             return jsonResponse([]);
         }
+        downloads++;
         return jsonResponse({ id: GIST_ID, files: { [SYNC_FILE]: { content } } });
     }));
 
     return {
         get layout(): LayoutSettings {
             return (JSON.parse(content).data[LAYOUT_KEY] ?? {}) as LayoutSettings;
+        },
+        /** 云端被读过几次：用它划分「本机这一轮的下载之前 / 之后」 */
+        get downloads(): number {
+            return downloads;
+        },
+        /** 从下一轮同步开始重新计数 */
+        resetDownloads(): void {
+            downloads = 0;
         },
         freeze(): void {
             frozen = true;
@@ -93,18 +103,11 @@ function createCloud(remoteData: Record<string, unknown>, remoteLastModified: nu
     };
 }
 
-const quietUI: ICloudSyncUIAdapter = {
-    showToast: () => {},
-    showConfirm: async () => true,
-    showPrompt: async () => null
-};
-
 /** 起一个用真实存储内核的服务实例（等同于一个标签页自己的同步服务） */
 function createService(storage: CloudSyncDependencies['storage'] = storageManager): CloudSyncService {
     return new CloudSyncService({
         storage,
-        dataManager: createCloudSyncDataManager(),
-        ui: quietUI
+        dataManager: createCloudSyncDataManager()
     });
 }
 
@@ -193,24 +196,27 @@ describe('自动同步的读取顺序', () => {
         await tabA.sync({ silent: true });
 
         // B 标签页：读到的 base 与上次同步时间是 A 写完之前的值（真实场景是它先发起这几步、
-        // 在这几次网络往返里 A 才同步完），下载回来的云端又比这份 base 旧
-        const staleSnapshot: Record<string, unknown> = {
+        // 在这几次网络往返里 A 才同步完），下载回来的云端又比这份 base 旧。
+        // 「A 的新账本什么时候可见」跟着网络走：下载一发生就可见，与读了几次无关。
+        const staleLedger: Record<string, unknown> = {
             [STORAGE_KEYS.CLOUD_SYNC_BASE]: seededBase,
-            [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: null
+            [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: null,
+            [STORAGE_KEYS.CLOUD_SYNC_SEEN_REVISIONS]: []
         };
-        let reads = 0;
         const staleFirstReads: CloudSyncDependencies['storage'] = {
-            get: async key => {
-                // 下载前的三次预读（base / 上次同步时间 / 已见版本号）都返回旧值
-                if (++reads <= 3) return staleSnapshot[key] ?? null;
-                return storageManager.get(key);
-            },
+            get: async key => (
+                cloud.downloads === 0 && key in staleLedger
+                    ? staleLedger[key] ?? null
+                    : storageManager.get(key)
+            ),
             getMany: keys => storageManager.getMany(keys),
             set: (key, value) => storageManager.set(key, value),
-            setMany: items => storageManager.setMany(items)
+            setMany: items => storageManager.setMany(items),
+            subscribe: listener => storageManager.subscribe(listener)
         };
         const tabB = createService(staleFirstReads);
         await tabB.loadSettings();
+        cloud.resetDownloads();
 
         const resultB = await tabB.sync({ silent: true });
 

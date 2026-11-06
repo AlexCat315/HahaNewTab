@@ -1,14 +1,14 @@
 /**
  * 云同步 Composable
- * 封装 cloudSync store，为 Vue 组件提供登录、退出、上传、下载、拉取、自动同步能力。
- * 处理副作用清理：本地数据变更监听、未完成的操作、跨设备凭据监听。
+ * 把 cloudSync store（同步本身）与 crossDeviceAuth store（浏览器账号同步区）拼成面板要的那一份接口，
+ * 并处理副作用清理：本地数据变更监听、未完成的操作、同步区凭据变更监听。
  */
 
 import { computed, onMounted, onUnmounted } from 'vue';
 import type { ComputedRef } from 'vue';
 import { useCloudSyncStore } from '@/stores/cloudSync.store';
+import { useCrossDeviceAuthStore } from '@/stores/crossDeviceAuth.store';
 import type { EnableCrossDeviceOutcome } from '@/stores/cloudSync.store';
-import { watchRemoteCrossDeviceAuth } from '@/services/crossDeviceSync.service';
 import type { CrossDeviceRemoteMeta } from '@/services/crossDeviceSync.service';
 import type {
     CloudSyncProviderId,
@@ -108,6 +108,7 @@ function createAbortControllerSet(): {
  */
 export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncReturn {
     const store = useCloudSyncStore();
+    const crossDevice = useCrossDeviceAuthStore();
     const { uiAdapter } = options;
 
     const abortControllers = createAbortControllerSet();
@@ -232,7 +233,7 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         // 本地数据一落盘就防抖触发自动同步；变更源是存储内核，覆盖所有写入路径
         store.startAutoSyncWatch();
         // 其他设备推送浏览器同步凭据后，本机即时感知并尝试免 Token 登录
-        unwatchRemoteAuth = watchRemoteCrossDeviceAuth(() => {
+        unwatchRemoteAuth = crossDevice.watchRemote(() => {
             refreshCrossDevice()
                 .then(() => tryRestoreCrossDevice())
                 .catch(() => {
@@ -261,11 +262,11 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         isLoading: computed(() => store.isLoading),
         error: computed(() => store.error),
         isLoggedIn,
-        crossDeviceEnabled: computed(() => store.crossDeviceEnabled),
-        crossDeviceHasPassphrase: computed(() => store.crossDeviceHasPassphrase),
-        crossDeviceRemoteAvailable: computed(() => store.crossDeviceRemoteAvailable),
-        crossDeviceRemoteMeta: computed(() => store.crossDeviceRemoteMeta),
-        syncAreaNative: computed(() => store.syncAreaNative),
+        crossDeviceEnabled: computed(() => crossDevice.enabled),
+        crossDeviceHasPassphrase: computed(() => crossDevice.hasPassphrase),
+        crossDeviceRemoteAvailable: computed(() => crossDevice.remoteAvailable),
+        crossDeviceRemoteMeta: computed(() => crossDevice.remoteMeta),
+        syncAreaNative: computed(() => crossDevice.syncAreaNative),
         statusText,
         formattedLastSyncTime,
         init,

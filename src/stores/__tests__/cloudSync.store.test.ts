@@ -257,8 +257,12 @@ describe('cloudSync store', () => {
         const result = await store.download();
 
         expect(result.success).toBe(true);
-        // revision 是下载侧现挂的云端版本号指纹，不属于 Gist 文件本身的内容
-        expect(result.data).toEqual({ ...syncData, revision: expect.any(String) });
+        // 下载交出的是一等公民 CloudBundle：数据、写入时间、这一版的指纹同批送达
+        expect(result.data).toEqual({
+            data: syncData.data,
+            lastModified: syncData.lastModified,
+            revision: expect.any(String)
+        });
     });
 
     it('pullAndApply 将云端快照应用到本地 appData', async () => {
@@ -613,6 +617,115 @@ describe('cloudSync store', () => {
         expect(result.uploaded).toBe(false);
         expect(store.isLoading).toBe(false);
         expect(store.error).toBeNull();
+    });
+
+    // ==================== 提示口径（界面归 store，服务层只交结果） ====================
+
+    /** 传输层给出的网络分类信息（store 只负责加「同步失败：」前缀） */
+    const OFFLINE = '无法连接 GitHub，请检查网络或代理（国内可能需代理访问）';
+
+    /** 装一个只记录提示的界面适配器：这些用例关心「说了什么」，不关心弹窗长什么样 */
+    function trackToasts() {
+        const messages: string[] = [];
+        const store = useCloudSyncStore();
+        store.setUIAdapter({
+            showToast: message => { messages.push(message); },
+            showConfirm: async () => true,
+            showPrompt: async () => null
+        });
+        return { store, messages };
+    }
+
+    it('后台同步的同一轮故障只提示一次，成功一轮后再次故障重新提示', async () => {
+        const { store, messages } = trackToasts();
+        const syncSpy = vi.spyOn(CloudSyncService.prototype, 'sync');
+        try {
+            syncSpy.mockResolvedValue({ success: false, retry: true, message: OFFLINE });
+            await store.sync({ silent: true });
+            await store.sync({ silent: true });
+            // 失败会自动重试，断网时不能每次重试都弹一遍
+            expect(messages).toEqual([`同步失败：${OFFLINE}`]);
+
+            syncSpy.mockResolvedValue({ success: true });
+            await store.sync({ silent: true });
+            expect(messages).toHaveLength(1);
+
+            syncSpy.mockResolvedValue({ success: false, retry: true, message: OFFLINE });
+            await store.sync({ silent: true });
+            expect(messages).toHaveLength(2);
+        } finally {
+            syncSpy.mockRestore();
+        }
+    });
+
+    it('手动同步按结果措辞：拉取与上传各说一半，都没动就说已一致', async () => {
+        const { store, messages } = trackToasts();
+        const syncSpy = vi.spyOn(CloudSyncService.prototype, 'sync');
+        try {
+            syncSpy.mockResolvedValue({ success: true, applied: true, uploaded: true });
+            await store.sync();
+            syncSpy.mockResolvedValue({ success: true, applied: true, uploaded: false });
+            await store.sync();
+            syncSpy.mockResolvedValue({ success: true, applied: false, uploaded: true });
+            await store.sync();
+            syncSpy.mockResolvedValue({ success: true });
+            await store.sync();
+
+            expect(messages).toEqual([
+                '同步完成：已拉取云端更新，已上传本地更新',
+                '同步完成：已拉取云端更新',
+                '同步完成：已上传本地更新',
+                '同步完成：本地与云端已一致'
+            ]);
+        } finally {
+            syncSpy.mockRestore();
+        }
+    });
+
+    it('手动同步成功时后台轮不再重复播报', async () => {
+        const { store, messages } = trackToasts();
+        const syncSpy = vi.spyOn(CloudSyncService.prototype, 'sync');
+        try {
+            syncSpy.mockResolvedValue({ success: true, applied: true });
+            await store.sync();
+            await store.sync({ silent: true });
+            expect(messages).toEqual(['同步完成：已拉取云端更新']);
+        } finally {
+            syncSpy.mockRestore();
+        }
+    });
+
+    it('没登录时只有手动操作要说清楚，后台轮保持安静', async () => {
+        const { store, messages } = trackToasts();
+        const syncSpy = vi.spyOn(CloudSyncService.prototype, 'sync');
+        try {
+            syncSpy.mockResolvedValue({ success: false, skipped: 'not-authenticated', message: '请先配置 Token' });
+            await store.sync({ silent: true });
+            expect(messages).toEqual([]);
+
+            await store.sync();
+            expect(messages).toEqual(['请先配置 Token']);
+        } finally {
+            syncSpy.mockRestore();
+        }
+    });
+
+    it('这一轮被挡下（正在同步 / 别的页面刚同步完）不当故障播报', async () => {
+        const { store, messages } = trackToasts();
+        const syncSpy = vi.spyOn(CloudSyncService.prototype, 'sync');
+        try {
+            syncSpy.mockResolvedValue({ success: false, retry: true, skipped: 'in-progress', message: '同步进行中' });
+            const inProgress = await store.sync();
+            syncSpy.mockResolvedValue({ success: false, retry: true, skipped: 'stale-base', message: '其他标签页刚完成同步，稍后重试' });
+            const stale = await store.sync();
+            await store.sync({ silent: true });
+
+            expect(messages).toEqual([]);
+            // 只是本轮没送出去，重试的线索必须原样交给调度方
+            expect([inProgress.retry, stale.retry]).toEqual([true, true]);
+        } finally {
+            syncSpy.mockRestore();
+        }
     });
 
     /**

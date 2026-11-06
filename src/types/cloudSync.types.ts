@@ -1,3 +1,4 @@
+import type { SyncSnapshot } from '@/utils/syncMerge.util';
 import type { IStorageManager } from '@/services/storage.service';
 
 /**
@@ -6,8 +7,14 @@ import type { IStorageManager } from '@/services/storage.service';
  */
 export type CloudSyncStorage = Pick<
     IStorageManager,
-    'get' | 'getMany' | 'set' | 'setMany'
+    'get' | 'getMany' | 'set' | 'setMany' | 'subscribe'
 >;
+
+/** 设置模块（账号与开关）需要的存储能力 */
+export type CloudSettingsStorage = Pick<IStorageManager, 'getMany' | 'setMany' | 'subscribe'>;
+
+/** 同步账本（base 快照 + 已见版本 + 上次同步时间）需要的存储能力 */
+export type CloudLedgerStorage = Pick<IStorageManager, 'get' | 'setMany' | 'subscribe'>;
 
 /**
  * GitHub 用户信息
@@ -116,7 +123,7 @@ export interface SyncAssetEntry {
 export type SyncAssetManifest = Record<string, SyncAssetEntry>;
 
 /**
- * 同步数据包结构
+ * 同步包在云端文件里的样子（只在传输层读写，服务层拿到的是 CloudBundle）
  * data 是存储键注册表里登记了云同步策略的键值快照；
  * 其中的大对象（Base64 站点图标、本地壁纸图片）在上传前换成 `haha-asset://{哈希}` 引用，
  * 原文按内容哈希分片写进同一个 Gist，清单记在 assets；下载时再还原回 data URL。
@@ -128,15 +135,49 @@ export interface SyncData {
     data: Record<string, unknown>;
     /** 本次 payload 的资源清单；没有大对象时缺省 */
     assets?: SyncAssetManifest;
-    /**
-     * 这一版云端文件的指纹，只在下载侧挂上，不参与序列化上传。
-     *
-     * 用来认出「云端把刚才那版又还给我了一次」：写后立读时 Gist 有约 1 分钟
-     * 会返回旧文件，旧文件在三方合并里和「别的设备改了云端」完全同形，
-     * 会把本机刚改好的设置倒灌回去。
-     */
-    revision?: string;
 }
+
+/**
+ * 一轮传输用的凭据
+ *
+ * 整轮都用同一份：Token 或平台在几次网络往返之间被别的页面改掉时，
+ * 不能出现「前半截用旧 Token 读、后半截用新 Token 写」的半新半旧的包。
+ */
+export interface CloudTarget {
+    token: string;
+    providerId: CloudSyncProviderId;
+}
+
+/**
+ * 从云端读回来的一版内容
+ *
+ * 版本号、写入时间、数据本来就是一回事，拆开传就会有人在某一边忘记传：
+ * 判断「云端这一版本机是否已经见过」靠 revision，首次同步定方向靠 lastModified，
+ * 两者都必须和 data 来自同一次请求。
+ */
+export interface CloudBundle {
+    /** 资源已还原成本地形态（data URL）、且只留注册表登记的键的云端数据 */
+    data: SyncSnapshot;
+    /** 云端这份数据记录的写入时间 */
+    lastModified: number;
+    /**
+     * 这一版文件的指纹：同步文件原文的内容哈希，取自还原分片之前。
+     *
+     * 分片本身按内容命名，所以「同一版文件」永远得到同一个指纹，跨设备、跨标签页都一样。
+     * 用它认出「云端把刚才那版又还给我了一次」：写后立读时 Gist 有约 1 分钟会返回旧文件，
+     * 旧文件在三方合并里和「别的设备改了云端」完全同形，会把本机刚改好的设置倒灌回去。
+     */
+    revision: string;
+}
+
+/**
+ * 这一轮没走到云端就返回的原因
+ *
+ * 界面据此决定说不说：「没登录」是用户能自己修的状态，手动操作时要说清楚；
+ * 「同步进行中」「别的页面刚同步完」是本机马上会自己重来一次的过场，说出来只是噪音。
+ * 缺省表示这一轮真的向云端发起过请求并且失败了。
+ */
+export type SyncSkipReason = 'not-authenticated' | 'in-progress' | 'stale-base';
 
 /**
  * 上传结果
@@ -145,6 +186,7 @@ export interface UploadResult {
     success: boolean;
     time?: number;
     message?: string;
+    skipped?: SyncSkipReason;
 }
 
 /**
@@ -152,8 +194,9 @@ export interface UploadResult {
  */
 export interface DownloadResult {
     success: boolean;
-    data?: SyncData;
+    data?: CloudBundle;
     message?: string;
+    skipped?: SyncSkipReason;
 }
 
 /**
@@ -163,6 +206,22 @@ export interface PullResult {
     success: boolean;
     applied?: boolean;
     message?: string;
+}
+
+/**
+ * 连接账号（保存并验证 Token）的结果
+ *
+ * `success` 只说「Token 是不是能用」；同步空间没建出来算「连上了但有话要说」，
+ * 该说哪句由界面层按 reason 决定，服务不猜有没有人在看。
+ */
+export interface ConnectResult {
+    success: boolean;
+    /** 这一句该不该说、怎么说 */
+    reason?: 'empty' | 'invalid-token' | 'gist-unavailable';
+    /** 随 reason 带出的原始错误信息（网络/权限的分类在传输层已经做过） */
+    message?: string;
+    /** 验证通过的账号信息 */
+    userInfo?: GitHubUserInfo;
 }
 
 /**
@@ -181,6 +240,8 @@ export interface SyncResult {
     retry?: boolean;
     time?: number;
     message?: string;
+    /** 没走到云端的原因；缺省表示这一轮请求发出去过并失败了 */
+    skipped?: SyncSkipReason;
 }
 
 /**
@@ -200,6 +261,13 @@ export interface CloudSyncSettings {
     /** 当前连接的同步平台 */
     provider: CloudSyncProviderId;
 }
+
+/**
+ * 账号侧设置
+ * 这五项由用户直接左右；`lastSyncTime` 不是——它是一轮同步走通后的记账结果，
+ * 归同步账本（cloudSync/ledger.ts）所有，所以这里单独切出一份。
+ */
+export type CloudAccountSettings = Omit<CloudSyncSettings, 'lastSyncTime'>;
 
 /**
  * 云同步数据管理器适配器
@@ -247,9 +315,10 @@ export interface ICloudSyncUIAdapter {
  * storage 直接就是存储内核（services/storage.service.ts）用到的那部分能力，
  * 云同步不再自带一层「看起来一样但签名不同」的适配器接口——
  * 那层接口只会让内核改签名时这里悄悄失配，还得靠 as unknown as 蒙过去。
+ *
+ * 没有 ui：服务只交出结构化结果，提示与确认归把结果写回界面的那一层。
  */
 export interface CloudSyncDependencies {
     storage: CloudSyncStorage;
     dataManager: ICloudSyncDataManager;
-    ui: ICloudSyncUIAdapter;
 }
