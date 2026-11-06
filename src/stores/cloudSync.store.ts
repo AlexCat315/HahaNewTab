@@ -272,7 +272,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     }
 
     /**
-     * 初始化：读回设置、验证已有 Token、必要时从浏览器同步区恢复登录，最后跟一句启动同步的结果
+     * 初始化：读回设置、确认保存的凭据还认得、必要时从浏览器同步区恢复登录，最后跟一句启动同步的结果
      */
     async function init(): Promise<void> {
         isLoading.value = true;
@@ -280,18 +280,25 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         try {
             const startup = await cloudSyncService.init();
             await refreshCrossDevice();
-            if (!token.value) {
-                await tryRestoreCrossDevice();
-                await refreshCrossDevice();
-            } else if (crossDevice.enabled && !crossDevice.remoteAvailable) {
+            if (startup.rejectedReason) {
+                // 服务层已经把这份凭据清掉了；不说一句，用户只会看到「已连接」莫名变回「未连接」
+                error.value = startup.rejectedReason;
+                uiAdapter.value.showToast(startup.rejectedReason, 'error');
+            }
+            // 本机没有可用凭据（从没登录、或刚被平台拒绝）时，先看浏览器同步区里
+            // 另一台设备推来的那份还能不能用——这才是「换设备免 Token」的正路
+            const adopted = token.value ? false : await tryRestoreCrossDevice();
+            await refreshCrossDevice();
+            if (!adopted && token.value && crossDevice.enabled && !crossDevice.remoteAvailable) {
                 // 已登录、已开启，同步区里却没有凭据：上一次推送没成，这里补一次。
                 // 后台静默补推，成没成由面板那行状态如实显示，不额外弹提示。
                 await crossDevice.pushIfMissing(currentAuth());
                 await refreshCrossDevice();
             }
-            // 启动那一轮是后台同步：失败了提示一次，不弹窗、不挡任何人
-            if (startup) {
-                reportSyncResult(startup, true);
+            // 启动那一轮是后台同步：失败了提示一次，不弹窗、不挡任何人。
+            // 失败是因为本机凭据被拒、而且已经换上同步区里那份可用的了，这句失败就不再重复
+            if (startup.sync && !(startup.sync.authRejected && adopted)) {
+                reportSyncResult(startup.sync, true);
             }
         } catch (e) {
             error.value = e instanceof Error ? e.message : String(e);
@@ -495,6 +502,12 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         try {
             const result = await cloudSyncService.sync(options);
             reportSyncResult(result, options.silent === true);
+            if (result.authRejected) {
+                // 被拒的只是本机这一份 Token：另一台设备多半早就换掉了，
+                // 同步区里那份才是在用的凭据。跟上它，不用等用户重启浏览器。
+                await tryRestoreCrossDevice();
+                await refreshCrossDevice();
+            }
             return result;
         } catch (e) {
             error.value = e instanceof Error ? e.message : String(e);

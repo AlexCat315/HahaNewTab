@@ -32,6 +32,17 @@ export interface CloudSettingsChange {
     fromOtherPage: boolean;
 }
 
+/** 启动那一轮的结果：凭据判定的结论 + 是否真跑了一次同步 */
+export interface CloudSyncStartupResult {
+    /**
+     * 平台明确拒绝本机保存的 Token（已撤销或过期）时的原因，此时凭据已被清掉；
+     * 其余情况（凭据有效、没登录、只是连不上）为 null
+     */
+    rejectedReason: string | null;
+    /** 启动那一轮同步的结果；没登录、凭据被拒或没开自动同步时为 null */
+    sync: SyncResult | null;
+}
+
 /**
  * 云同步编排层
  *
@@ -103,19 +114,33 @@ export class CloudSyncService {
     }
 
     /**
-     * 启动：读回设置，已登录则验证 Token；开着自动同步时补一次静默同步
+     * 启动：读回设置，确认保存的凭据还认得，开着自动同步就补一次静默同步
      *
-     * @returns 启动那一轮同步的结果（没登录、Token 无效或没开自动同步时为 null）；
-     *          调用方（store）据此决定要不要提示——启动失败也属于「没人主动操作时的故障」，
-     *          要不要说、说几次由它定
+     * @returns 见 `CloudSyncStartupResult`。启动失败属于「没人主动操作时的故障」，
+     *          要不要说、说几次由调用方（store）定
      */
-    async init(): Promise<SyncResult | null> {
+    async init(): Promise<CloudSyncStartupResult> {
         await this.loadSettings();
 
-        if (!this.token) return null;
-        if (!await this.validateToken(this.token)) return null;
+        if (!this.token) {
+            return { rejectedReason: null, sync: null };
+        }
 
-        return this.autoSync ? this.sync({ silent: true }) : null;
+        const rejected = await this.checkToken(this.token);
+        if (rejected) {
+            // 到这一步，云端账号六项里唯一还能骗过界面的就是这份 Token：留着它，
+            // 界面按缓存的用户信息一路显示「已连接」，而每一次同步都注定失败。
+            // 与 sync()/upload() 撞到 401 时同一个处理，差别只在于这里要说明原因。
+            await this.account.save({ token: null, userInfo: null });
+            return { rejectedReason: rejected, sync: null };
+        }
+
+        // 连不上、超时都不等于 Token 失效（见 checkToken）：照常走启动那一轮，
+        // 失败原因由 sync() 如实交出去，而不是在这里替它决定「那就不用试了」
+        return {
+            rejectedReason: null,
+            sync: this.autoSync ? await this.sync({ silent: true }) : null
+        };
     }
 
     /**
@@ -129,17 +154,23 @@ export class CloudSyncService {
     }
 
     /**
-     * 验证 Token 是否有效（使用当前平台）
+     * 确认本机保存的凭据平台还认不认
+     *
+     * @returns 平台明确拒绝（401）时返回它给出的原因，其余情况（连不上、超时、其他状态码）
+     *          返回 null。只有 401 才说明「这份 Token 解不开任何云端请求」；把网络问题
+     *          当成凭据失效会在断网启动时把用户的登录状态抹掉。
      */
-    async validateToken(token: string | null = this.token): Promise<boolean> {
-        if (!token) return false;
+    private async checkToken(token: string): Promise<string | null> {
         try {
             const user = await transport.validateToken(token, this.providerId);
             await this.account.save({ token, userInfo: user });
-            return true;
+            return null;
         } catch (e) {
-            console.error('[CloudSync] validateToken error:', e);
-            return false;
+            if (e instanceof SyncProviderError && e.status === 401) {
+                return e.message;
+            }
+            console.warn('[CloudSync] 启动校验未能确认凭据（不是平台拒绝）:', e);
+            return null;
         }
     }
 
@@ -249,11 +280,11 @@ export class CloudSyncService {
 
             return { success: true, uploaded: plan.uploaded, applied: plan.applied, time: lastSyncTime };
         } catch (e) {
-            await this.handleIfUnauthorized(e);
+            const authRejected = await this.handleIfUnauthorized(e);
             const message = e instanceof Error ? e.message : String(e);
             console.error('[CloudSync] sync error:', e);
             trace('cloud-sync', { outcome: 'failed', silent, message });
-            return { success: false, retry: true, message };
+            return { success: false, retry: true, message, authRejected };
         } finally {
             this.syncInProgress = false;
         }
@@ -449,10 +480,12 @@ export class CloudSyncService {
     /**
      * Token 失效（401）：清空本地 Token 与用户信息，保留 gistId 以便重新连接后复用
      */
-    private async handleIfUnauthorized(e: unknown): Promise<void> {
+    private async handleIfUnauthorized(e: unknown): Promise<boolean> {
         if (e instanceof SyncProviderError && e.status === 401) {
             await this.account.save({ token: null, userInfo: null });
+            return true;
         }
+        return false;
     }
 
     /**

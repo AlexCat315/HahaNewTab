@@ -242,6 +242,12 @@ export interface SyncResult {
     message?: string;
     /** 没走到云端的原因；缺省表示这一轮请求发出去过并失败了 */
     skipped?: SyncSkipReason;
+    /**
+     * 平台明确拒绝了本机这份 Token（401），凭据已被清掉
+     * 与「只是连不上」区别对待：前者该去浏览器同步区拿另一台设备推来的新凭据，
+     * 后者不能——否则断网启动就把用户的登录状态抹了。
+     */
+    authRejected?: boolean;
 }
 
 /**

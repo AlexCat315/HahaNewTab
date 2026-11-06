@@ -187,38 +187,58 @@ describe('CloudSyncService', () => {
         expect(await service.saveToken('   ')).toEqual({ success: false, reason: 'empty' });
     });
 
-    it('validateToken 无 Token 返回 false', async () => {
+    it('启动时没有保存的凭据：什么都不做', async () => {
         const { service } = createService();
-        const result = await service.validateToken(null);
-        expect(result).toBe(false);
+        expect(await service.init()).toEqual({ rejectedReason: null, sync: null });
     });
 
-    it('validateToken 成功时解析用户信息并保存', async () => {
+    it('启动时凭据有效：刷新用户信息，并按开关决定是否走那一轮同步', async () => {
         const { service, storage } = createService();
-        const mockFetch = vi.fn().mockResolvedValue({
-            status: 200,
-            ok: true,
-            json: async () => ({ login: 'tester', id: 123, avatar_url: 'https://avatar.png' })
-        });
-        vi.stubGlobal('fetch', mockFetch);
+        await seedSignedIn(service, storage);
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createResponse(
+            { login: 'tester', id: 123, avatar_url: 'https://avatar.png' }
+        )));
 
-        const result = await service.validateToken('ghp_valid');
-        expect(result).toBe(true);
+        const result = await service.init();
+
+        expect(result.rejectedReason).toBeNull();
+        // 没开自动同步：启动只确认凭据，不发同步请求
+        expect(result.sync).toBeNull();
         expect(service.settings.userInfo).toEqual({
             login: 'tester',
             id: 123,
             avatar: 'https://avatar.png'
         });
-        expect(storage.setMany).toHaveBeenCalledWith(
-            expect.objectContaining({
-                appNavigator_cloudSync_userInfo: {
-                    login: 'tester',
-                    id: 123,
-                    avatar: 'https://avatar.png'
-                },
-                appNavigator_cloudSync_token: 'ghp_valid'
-            })
-        );
+        expect(service.settings.token).toBe(TEST_TOKEN);
+    });
+
+    it('启动时平台拒绝这份 Token（401）：给出原因并清掉凭据', async () => {
+        const { service, storage } = createService();
+        await seedSignedIn(service, storage, { [STORAGE_KEYS.CLOUD_AUTO_SYNC]: true });
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createResponse({ message: 'Bad credentials' }, 401)));
+
+        const result = await service.init();
+
+        expect(result.rejectedReason).toContain('Token 已失效');
+        expect(result.sync).toBeNull();
+        expect(service.settings.token).toBeNull();
+        expect(service.settings.userInfo).toBeNull();
+    });
+
+    it('启动时只是连不上：不清凭据，仍然按开关走那一轮同步', async () => {
+        const { service, storage } = createService();
+        await seedSignedIn(service, storage, { [STORAGE_KEYS.CLOUD_AUTO_SYNC]: true });
+        // 断网启动（新标签页比网络先就绪）不是 Token 失效：把两者混为一谈会抹掉登录状态，
+        // 还会让启动那一轮同步根本没机会跑
+        vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+
+        const result = await service.init();
+
+        expect(result.rejectedReason).toBeNull();
+        expect(service.settings.token).toBe(TEST_TOKEN);
+        expect(result.sync).not.toBeNull();
+        expect(result.sync?.success).toBe(false);
+        expect(result.sync?.message).toContain('无法连接');
     });
 
     it('findOrCreateGist 在未登录时抛出错误', async () => {
