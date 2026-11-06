@@ -1,4 +1,5 @@
 import { STORAGE_KEYS } from '@/types/storage';
+import type { StorageChanges } from '@/types/storage';
 import {
     CLOUD_SYNC_DATA_KEYS,
     CLOUD_SYNC_KEY_STRATEGIES,
@@ -173,6 +174,72 @@ export class CloudSyncService {
             [STORAGE_KEYS.CLOUD_USER_INFO]: this.userInfo,
             [STORAGE_KEYS.CLOUD_PROVIDER]: this.providerId
         });
+    }
+
+    /**
+     * 采纳同一浏览器里其他页面写入的云同步设置（登录 / 换 Token / 断开 / 改开关）
+     *
+     * 只改内存，绝不回写存储：回写等于把同一个值再广播一轮，别的页面又采纳又回写，
+     * 两个页面就此互相触发。值相同直接判成「没变化」。
+     *
+     * 云同步面板是常驻挂载的（模态框用 v-show），设置只在页面启动时读一次；
+     * 缺了这条路径，A 标签页登录完，同时开着的 B 标签页会一直停在「未登录」，
+     * 既不自动同步，界面上也像 Token 丢了。
+     *
+     * @returns changed：设置里至少有一项真的变了；authChanged：变的这一项是凭据或平台
+     */
+    applyExternalSettings(changes: StorageChanges): { changed: boolean; authChanged: boolean } {
+        /** 这批变更里没有这个键（和「被删成 null」区分开） */
+        const MISSING = Symbol('missing');
+        const read = (key: string): unknown =>
+            Object.prototype.hasOwnProperty.call(changes, key) ? (changes[key].newValue ?? null) : MISSING;
+
+        const sameJson = (left: unknown, right: unknown): boolean =>
+            left === right || JSON.stringify(left) === JSON.stringify(right);
+
+        const gistId = read(STORAGE_KEYS.CLOUD_GIST_ID);
+        const userInfo = read(STORAGE_KEYS.CLOUD_USER_INFO);
+
+        const before = {
+            token: this.token,
+            providerId: this.providerId,
+            gistId: this.gistId,
+            userInfo: this.userInfo,
+            autoSync: this.autoSync,
+            lastSyncTime: this.lastSyncTime
+        };
+
+        const authChanged =
+            (read(STORAGE_KEYS.CLOUD_TOKEN) !== MISSING && read(STORAGE_KEYS.CLOUD_TOKEN) !== this.token)
+            || (read(STORAGE_KEYS.CLOUD_PROVIDER) !== MISSING && read(STORAGE_KEYS.CLOUD_PROVIDER) !== this.providerId);
+
+        if (authChanged) {
+            // 换的是账号：Gist 与用户信息必须跟着新账号走，这一批里没带的就清空，
+            // 留着上一个账号的缓存会让本页拿着对的 Token 去读别人的 Gist
+            this.token = read(STORAGE_KEYS.CLOUD_TOKEN) as string | null;
+            this.providerId = (read(STORAGE_KEYS.CLOUD_PROVIDER) ?? DEFAULT_PROVIDER) as CloudSyncProviderId;
+            this.gistId = (gistId === MISSING ? null : gistId) as string | null;
+            this.userInfo = (userInfo === MISSING ? null : userInfo) as GitHubUserInfo | null;
+        } else {
+            if (gistId !== MISSING && gistId !== this.gistId) this.gistId = gistId as string | null;
+            if (userInfo !== MISSING && !sameJson(userInfo, this.userInfo)) this.userInfo = userInfo as GitHubUserInfo | null;
+        }
+
+        const autoSync = read(STORAGE_KEYS.CLOUD_AUTO_SYNC);
+        const lastSyncTime = read(STORAGE_KEYS.CLOUD_LAST_SYNC_TIME);
+
+        if (autoSync !== MISSING) this.autoSync = autoSync as boolean;
+        if (lastSyncTime !== MISSING) this.lastSyncTime = lastSyncTime as number;
+
+        const changed = !sameJson(before, {
+            token: this.token,
+            providerId: this.providerId,
+            gistId: this.gistId,
+            userInfo: this.userInfo,
+            autoSync: this.autoSync,
+            lastSyncTime: this.lastSyncTime
+        });
+        return { changed, authChanged };
     }
 
     /**

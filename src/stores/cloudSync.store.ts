@@ -7,7 +7,8 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { storageManager } from '@/services/storage.service';
-import { CLOUD_SYNC_DATA_KEYS } from '@/services/storageSchema.service';
+import { CLOUD_SYNC_DATA_KEYS, CLOUD_SYNC_SETTING_KEYS } from '@/services/storageSchema.service';
+import { trace } from '@/services/diag.service';
 import { CloudSyncService, createCloudSyncService } from '@/services/cloudSync.service';
 import { getSyncAreaStatus } from '@/services/syncStorage.service';
 import {
@@ -139,6 +140,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
      * 刚把云端结果写回本地的那次写入也不能算本机改动，否则同步完又触发一轮。
      */
     function handleDataChanges(changes: StorageChanges): void {
+        adoptExternalCloudSettings(changes);
         if (!CLOUD_SYNC_DATA_KEYS.some(key => key in changes)) {
             return;
         }
@@ -146,6 +148,34 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
             return;
         }
         scheduleAutoSync();
+    }
+
+    /**
+     * 同一浏览器里其他页面改了云同步设置 → 本页跟着刷新登录状态
+     *
+     * 面板常驻挂载，设置只在启动时读一次；没有这一步，A 标签页输入 Token 后，
+     * 同时开着的 B 标签页仍然显示未登录、也不会参与自动同步，看起来就像「Token 没同步过来」。
+     * 服务层只改内存不回写，因此这里不会和别的页面互相触发。
+     */
+    function adoptExternalCloudSettings(changes: StorageChanges): void {
+        if (!CLOUD_SYNC_SETTING_KEYS.some(key => key in changes)) {
+            return;
+        }
+        const outcome = getService().applyExternalSettings(changes);
+        if (!outcome.changed) {
+            return;
+        }
+        syncStateFromService();
+        trace('cloud-sync', {
+            outcome: 'adopted-page-settings',
+            loggedIn: !!token.value,
+            provider: provider.value,
+            authChanged: outcome.authChanged
+        });
+        if (outcome.authChanged) {
+            error.value = null;
+            void refreshCrossDevice();
+        }
     }
 
     function cancelScheduledAutoSync(): void {

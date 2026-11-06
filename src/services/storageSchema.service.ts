@@ -357,6 +357,23 @@ export const CLOUD_SYNC_KEY_STRATEGIES: CloudSyncKeyStrategy[] = CLOUD_KEY_DEFIN
     definition => ({ key: definition.id, merge: definition.cloud!.merge })
 );
 
+/**
+ * 云同步的本机设置键（不进云端，但要跟着浏览器里其他页面的改动走）
+ *
+ * 名单与 `CloudSyncService.loadSettings()` 读的键一一对应：面板常驻挂载（模态框用
+ * v-show），只在页面启动时读一次这几项，所以同一个浏览器里另一个标签页登录、换 Token
+ * 或断开同步时，本页面若不改这里就永远停在旧状态——界面上看就是「Token 没同步过来」。
+ * 口令与同步区密文不在名单内：那是加密凭据的载体，不是登录状态本身。
+ */
+export const CLOUD_SYNC_SETTING_KEYS: string[] = [
+    STORAGE_KEYS.CLOUD_TOKEN,
+    STORAGE_KEYS.CLOUD_GIST_ID,
+    STORAGE_KEYS.CLOUD_AUTO_SYNC,
+    STORAGE_KEYS.CLOUD_LAST_SYNC_TIME,
+    STORAGE_KEYS.CLOUD_USER_INFO,
+    STORAGE_KEYS.CLOUD_PROVIDER
+];
+
 /** 某个键是否需要写进首帧快照 */
 export function isBootKey(id: string): boolean {
     return SYNC_MIRROR_KEYS.has(id);

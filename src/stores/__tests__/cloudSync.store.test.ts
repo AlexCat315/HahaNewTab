@@ -614,4 +614,91 @@ describe('cloudSync store', () => {
         expect(store.isLoading).toBe(false);
         expect(store.error).toBeNull();
     });
+
+    /**
+     * 同一个浏览器的两个新标签页：各自一份 store，共用同一个存储后端。
+     * 云同步设置只在本页启动时读一次，跨页传播全靠存储变更事件，所以必须两个页面都挂上监听。
+     */
+    function createTwoPages() {
+        const pageA = useCloudSyncStore();
+        pageA.startAutoSyncWatch();
+
+        setActivePinia(createPinia());
+        const pageB = useCloudSyncStore();
+        pageB.startAutoSyncWatch();
+
+        return {
+            pageA,
+            pageB,
+            dispose: () => {
+                pageA.stopAutoSyncWatch();
+                pageB.stopAutoSyncWatch();
+            }
+        };
+    }
+
+    it('另一个标签页登录后，本页立刻拿到 Token', async () => {
+        const { pageA, pageB, dispose } = createTwoPages();
+        try {
+            expect(pageB.isLoggedIn).toBe(false);
+
+            mockFetchSequence([
+                createResponse(TEST_USER_API),
+                createResponse([]),
+                createResponse({ id: TEST_GIST_ID, files: {} })
+            ]);
+            await pageA.login(TEST_TOKEN);
+
+            expect(pageA.isLoggedIn).toBe(true);
+            expect(pageB.token).toBe(TEST_TOKEN);
+            expect(pageB.isLoggedIn).toBe(true);
+            expect(pageB.gistId).toBe(TEST_GIST_ID);
+            expect(pageB.userInfo).toEqual(TEST_USER);
+        } finally {
+            dispose();
+        }
+    });
+
+    it('另一个标签页断开同步后，本页也跟着退出登录', async () => {
+        const { pageA, pageB, dispose } = createTwoPages();
+        try {
+            mockFetchSequence([
+                createResponse(TEST_USER_API),
+                createResponse([]),
+                createResponse({ id: TEST_GIST_ID, files: {} })
+            ]);
+            await pageA.login(TEST_TOKEN);
+            expect(pageB.isLoggedIn).toBe(true);
+
+            await pageA.logout();
+
+            expect(pageB.isLoggedIn).toBe(false);
+            expect(pageB.token).toBeNull();
+            expect(pageB.gistId).toBeNull();
+        } finally {
+            dispose();
+        }
+    });
+
+    it('采纳别的页面的设置时本页不再回写存储，避免两页互相触发', async () => {
+        const { pageA, pageB, dispose } = createTwoPages();
+        try {
+            const setManySpy = vi.spyOn(storageManager, 'setMany');
+            await storageManager.setMany({ [STORAGE_KEYS.CLOUD_TOKEN]: TEST_TOKEN });
+
+            // 两页同时收到同一次变更：先改内存的那页不该再写一遍，否则事件会来回打转
+            expect(pageA.token).toBe(TEST_TOKEN);
+            expect(pageB.token).toBe(TEST_TOKEN);
+
+            const writesBefore = setManySpy.mock.calls.length;
+            await storageManager.setMany({ [STORAGE_KEYS.CLOUD_AUTO_SYNC]: true });
+
+            expect(pageA.autoSync).toBe(true);
+            expect(pageB.autoSync).toBe(true);
+            // 只有我上面这一次写；采纳设置不该再触发任何写入
+            expect(setManySpy.mock.calls.length).toBe(writesBefore + 1);
+        } finally {
+            dispose();
+        }
+    });
 });
