@@ -3,6 +3,7 @@ import { setActivePinia, createPinia } from 'pinia';
 import { useCloudSyncStore } from '../cloudSync.store';
 import { useAppDataStore } from '../appData.store';
 import { CloudSyncService } from '@/services/cloudSync.service';
+import { enableCrossDevice, hasRemoteCrossDeviceAuth } from '@/services/crossDeviceSync.service';
 import { storageManager } from '@/services/storage.service';
 import { browserApi } from '@/services/browserApi.service';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -803,7 +804,7 @@ describe('cloudSync store', () => {
             expect(pageA.token).toBe(TEST_TOKEN);
             expect(pageB.token).toBe(TEST_TOKEN);
 
-            const writesBefore = setManySpy.mock.calls.length;
+                const writesBefore = setManySpy.mock.calls.length;
             await storageManager.setMany({ [STORAGE_KEYS.CLOUD_AUTO_SYNC]: true });
 
             expect(pageA.autoSync).toBe(true);
@@ -813,5 +814,132 @@ describe('cloudSync store', () => {
         } finally {
             dispose();
         }
+    });
+
+    /**
+     * 浏览器同步的凭据写入与恢复
+     *
+     * 推送原先只发生在「登录」和「开启」那两个瞬间，那一次没写进去（同步区当时不可用、
+     * 网络抖动）就再也没人补，而面板照样显示「已加密写入」。
+     * 现在启动时补一次、界面上可以手动重试，另外还有一条不依赖浏览器存储的恢复码退路。
+     */
+    describe('浏览器同步凭据（补推与恢复码）', () => {
+        const PASSPHRASE = 'my-sync-pass';
+        const SYNC_AUTH_ITEM = '__mnt_sync__:haha_cross_device_auth';
+
+        function trackUI() {
+            const messages: string[] = [];
+            const store = useCloudSyncStore();
+            store.setUIAdapter({
+                showToast: message => { messages.push(message); },
+                showConfirm: async () => true,
+                showPrompt: async () => null
+            });
+            return { store, messages };
+        }
+
+        it('已登录、已开启，同步区却是空的：启动时补推一次', async () => {
+            mockFetchSequence([createResponse(TEST_USER_API)]);
+            await storageManager.setMany({
+                [STORAGE_KEYS.CLOUD_TOKEN]: TEST_TOKEN,
+                [STORAGE_KEYS.CROSS_DEVICE_ENABLED]: true,
+                [STORAGE_KEYS.CROSS_DEVICE_PASSPHRASE]: PASSPHRASE
+            });
+
+            const store = useCloudSyncStore();
+            expect(await hasRemoteCrossDeviceAuth()).toBe(false);
+            await store.init();
+
+            expect(store.token).toBe(TEST_TOKEN);
+            expect(await hasRemoteCrossDeviceAuth()).toBe(true);
+        });
+
+        it('同步区里已有别的设备推来的凭据：补推不把它顶掉', async () => {
+            await enableCrossDevice(PASSPHRASE, { token: 'ghp_from_other_device', provider: 'github' });
+            const before = localStorage.getItem(SYNC_AUTH_ITEM);
+            mockFetchSequence([createResponse(TEST_USER_API)]);
+            await storageManager.setMany({
+                [STORAGE_KEYS.CLOUD_TOKEN]: TEST_TOKEN,
+                [STORAGE_KEYS.CROSS_DEVICE_ENABLED]: true,
+                [STORAGE_KEYS.CROSS_DEVICE_PASSPHRASE]: PASSPHRASE
+            });
+
+            const store = useCloudSyncStore();
+            await store.init();
+
+            expect(localStorage.getItem(SYNC_AUTH_ITEM)).toBe(before);
+        });
+
+        it('手动重试写入：成功要报，口令丢了要说「缺少同步密码」', async () => {
+            mockFetchSequence([
+                createResponse(TEST_USER_API),
+                createResponse([]),
+                createResponse({ id: TEST_GIST_ID, files: {} })
+            ]);
+            const { store, messages } = trackUI();
+            await store.login(TEST_TOKEN);
+
+            // 已开启但本机口令没了（清过浏览器数据）
+            await storageManager.setMany({ [STORAGE_KEYS.CROSS_DEVICE_ENABLED]: true });
+            expect(await store.retryCrossDevicePush()).toBe(false);
+            expect(messages).toContain('浏览器同步未写入：本机缺少同步密码，请重新设置');
+
+            await storageManager.setMany({ [STORAGE_KEYS.CROSS_DEVICE_PASSPHRASE]: PASSPHRASE });
+            expect(await store.retryCrossDevicePush()).toBe(true);
+            expect(messages).toContain('登录状态已加密写入浏览器同步区');
+            expect(await hasRemoteCrossDeviceAuth()).toBe(true);
+        });
+
+        it('恢复码：导出后连浏览器存储一起清掉，仍能凭码重新登录', async () => {
+            mockFetchSequence([
+                createResponse(TEST_USER_API),
+                createResponse([]),
+                createResponse({ id: TEST_GIST_ID, files: {} })
+            ]);
+            const store = useCloudSyncStore();
+            await store.login(TEST_TOKEN);
+            await store.enableCrossDeviceSync(PASSPHRASE);
+
+            const code = await store.exportRecoveryCode();
+            expect(code.startsWith('HANTAB1.')).toBe(true);
+            expect(code).not.toContain(TEST_TOKEN);
+
+            // 卸载重装：storage.local 与同步区一起没了
+            localStorage.clear();
+            await storageManager.setMany({
+                [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [] },
+                [STORAGE_KEYS.USER_UI_LIB]: { categories: [], items: [] }
+            });
+            expect(await hasRemoteCrossDeviceAuth()).toBe(false);
+
+            mockFetchSequence([
+                createResponse(TEST_USER_API),
+                createResponse([]),
+                createResponse({ id: TEST_GIST_ID, files: {} }),
+                createGistResponse(),
+                createGistResponse(),
+                createGistResponse(),
+                createGistResponse()
+            ]);
+            expect(await store.restoreFromRecoveryCode(code, PASSPHRASE)).toBe(true);
+            expect(store.token).toBe(TEST_TOKEN);
+            expect(await storageManager.get(STORAGE_KEYS.CROSS_DEVICE_PASSPHRASE)).toBe(PASSPHRASE);
+        });
+
+        it('没登录时不给导出恢复码，口令缺失时要求输入', async () => {
+            const store = useCloudSyncStore();
+            await expect(store.exportRecoveryCode()).rejects.toThrow('请先连接');
+
+            mockFetchSequence([
+                createResponse(TEST_USER_API),
+                createResponse([]),
+                createResponse({ id: TEST_GIST_ID, files: {} })
+            ]);
+            await store.login(TEST_TOKEN);
+            // 登录了但从没设过同步密码：本机没有口令可用，不能悄悄生成一份没人记得的码
+            await expect(store.exportRecoveryCode()).rejects.toThrow('请输入同步密码');
+
+            expect(await store.exportRecoveryCode(PASSPHRASE)).toMatch(/^HANTAB1\./);
+        });
     });
 });

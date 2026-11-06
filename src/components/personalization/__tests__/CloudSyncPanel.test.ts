@@ -252,4 +252,187 @@ describe('CloudSyncPanel', () => {
 
         vi.unstubAllGlobals();
     });
+
+    describe('同步区补推与恢复码', () => {
+        afterEach(() => {
+            delete (window as unknown as { chrome?: unknown }).chrome;
+        });
+
+        /** 只找文案精确匹配的按钮，避免「恢复登录」误命中「用恢复码恢复登录」 */
+        function findButton(wrapper: ReturnType<typeof mount>, text: string, exact = true) {
+            return wrapper
+                .findAll('.mnt-base-button')
+                .find((btn) => (exact ? btn.text().trim() === text : btn.text().includes(text)));
+        }
+
+        /** 判定「同步区没凭据」要区分本机模拟与真实浏览器账号同步区，这里造一个原生环境 */
+        function installNativeSyncArea(): { store: Record<string, unknown>; failWrites: boolean } {
+            const api = {
+                store: {} as Record<string, unknown>,
+                failWrites: false
+            };
+            (window as unknown as { chrome?: unknown }).chrome = {
+                storage: {
+                    sync: {
+                        get: (key: string, cb: (items: Record<string, unknown>) => void) => {
+                            cb(key in api.store ? { [key]: api.store[key] } : {});
+                        },
+                        set: (items: Record<string, unknown>, cb: () => void) => {
+                            // failWrites 模拟「调用没报错，但同步区里就是没有」：配额满、账号同步刚关掉等
+                            if (!api.failWrites) Object.assign(api.store, items);
+                            cb();
+                        },
+                        remove: (key: string, cb: () => void) => {
+                            delete api.store[key];
+                            cb();
+                        }
+                    },
+                    onChanged: { addListener: () => {}, removeListener: () => {} }
+                },
+                runtime: {}
+            };
+            return api;
+        }
+
+        /** 恢复码要等 PBKDF2 派生完成才有内容，只等区块渲染出来会读到空串 */
+        async function waitForRecoveryCode(wrapper: ReturnType<typeof mount>): Promise<string> {
+            await vi.waitFor(() => {
+                const box = wrapper.find('.cloud-sync-cross__code').element as HTMLTextAreaElement;
+                expect(box.value.startsWith('HANTAB1.')).toBe(true);
+            });
+            return (wrapper.find('.cloud-sync-cross__code').element as HTMLTextAreaElement).value;
+        }
+
+        it('已开启、已登录但同步区为空时如实说明并给出「重试写入同步区」', async () => {
+            // 先在没有原生同步区的环境里开启（凭据写进了本机模拟区）
+            await prepareLoggedIn();
+            await enableCrossDevice('my-sync-pass', { token: 'ghp_test', provider: 'github' });
+
+            // 换到原生同步区且写入不落地，等价于「启动时补推也没成」
+            const syncArea = installNativeSyncArea();
+            syncArea.failWrites = true;
+
+            const wrapper = mount(CloudSyncPanel);
+            await vi.waitFor(() => {
+                expect(wrapper.text()).toContain('已开启 · 但同步区还没有凭据，上一次写入没成功');
+            });
+            expect(wrapper.text()).not.toContain('登录状态已加密写入浏览器同步区');
+            expect(findButton(wrapper, '重试写入同步区')).toBeTruthy();
+
+            syncArea.failWrites = false;
+            await findButton(wrapper, '重试写入同步区')!.trigger('click');
+            await vi.waitFor(() => {
+                expect(wrapper.text()).toContain('已开启 · 登录状态已加密写入浏览器同步区');
+            });
+            expect(Object.keys(syncArea.store).some((key) => key.includes('cross_device'))).toBe(true);
+            // 补推成功后按钮消失，不再对着已经写好的凭据喊重试
+            expect(findButton(wrapper, '重试写入同步区')).toBeUndefined();
+
+            vi.unstubAllGlobals();
+        });
+
+        it('本机模拟同步区：凭据在就照说在，不显示「重试写入同步区」', async () => {
+            await prepareLoggedIn();
+            await enableCrossDevice('my-sync-pass', { token: 'ghp_test', provider: 'github' });
+
+            const wrapper = mount(CloudSyncPanel);
+            await vi.waitFor(() => {
+                expect(wrapper.text()).toContain('凭据在本机模拟同步区（预览环境不会同步到其他设备）');
+            });
+            expect(findButton(wrapper, '重试写入同步区')).toBeUndefined();
+
+            // 清掉模拟同步区里的凭据，只留本机开关与密码：改成「写不进去」的口径
+            for (const key of Object.keys(localStorage)) {
+                if (key.startsWith('__mnt_sync__:haha_cross_device')) {
+                    localStorage.removeItem(key);
+                }
+            }
+            await wrapper.find('.cloud-sync-cross__refresh').trigger('click');
+            await vi.waitFor(() => {
+                expect(wrapper.text()).toContain('当前环境无法写入浏览器同步区');
+            });
+            expect(wrapper.text()).toContain('凭据：暂无');
+            expect(findButton(wrapper, '重试写入同步区')).toBeUndefined();
+
+            vi.unstubAllGlobals();
+        });
+
+        it('「导出恢复码」生成一段可解回的密文', async () => {
+            await prepareLoggedIn();
+            await enableCrossDevice('my-sync-pass', { token: 'ghp_test', provider: 'github' });
+
+            const wrapper = mount(CloudSyncPanel);
+            await flushPromises();
+
+            await findButton(wrapper, '导出恢复码')!.trigger('click');
+
+            const code = await waitForRecoveryCode(wrapper);
+            // 恢复码里不能夹带明文 Token
+            expect(code).not.toContain('ghp_test');
+
+            vi.unstubAllGlobals();
+        });
+
+        it('卸载重装后：用恢复码 + 同步密码恢复登录', async () => {
+            await prepareLoggedIn();
+            await enableCrossDevice('my-sync-pass', { token: 'ghp_test', provider: 'github' });
+
+            const first = mount(CloudSyncPanel);
+            await flushPromises();
+            await findButton(first, '导出恢复码')!.trigger('click');
+            const code = await waitForRecoveryCode(first);
+            first.unmount();
+            vi.unstubAllGlobals();
+
+            // 卸载扩展：本机存储与同步区一起清空
+            localStorage.clear();
+
+            // 重装后的新面板：未登录，只留下用户自己保存的恢复码
+            const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+                const url = String(input);
+                const body = url.endsWith('/user')
+                    ? { login: 'tester', id: 1, avatar_url: 'https://avatar.png' }
+                    : url.includes('/gists?')
+                        ? []
+                        : { id: 'gist_1', files: {} };
+                return {
+                    status: 200,
+                    ok: true,
+                    json: async () => body,
+                    text: async () => JSON.stringify(body)
+                } as Response;
+            });
+            vi.stubGlobal('fetch', fetchMock);
+
+            const wrapper = mount(CloudSyncPanel);
+            await flushPromises();
+
+            await findButton(wrapper, '用恢复码恢复登录')!.trigger('click');
+            await flushPromises();
+            expect(wrapper.text()).toContain('粘贴当初保存的恢复码');
+
+            // 只粘码不给密码：拦在本地，不发请求
+            await wrapper
+                .find('.cloud-sync-cross__recovery textarea')
+                .setValue(code);
+            await findButton(wrapper, '恢复登录')!.trigger('click');
+            await flushPromises();
+            expect(wrapper.text()).toContain('未连接');
+            expect(fetchMock).not.toHaveBeenCalled();
+
+            await wrapper
+                .find('.cloud-sync-cross__recovery input[type="password"]')
+                .setValue('my-sync-pass');
+            await findButton(wrapper, '恢复登录')!.trigger('click');
+
+            await vi.waitFor(() => {
+                expect(wrapper.text()).toContain('已连接');
+            });
+            // 恢复走的是码里的 Token，用户不需要再填一遍
+            expect(fetchMock.mock.calls.some(([req]) => String(req).endsWith('/user'))).toBe(true);
+            expect(localStorage.getItem('appNavigator_crossDevice_passphrase')).toBe('my-sync-pass');
+
+            vi.unstubAllGlobals();
+        });
+    });
 });

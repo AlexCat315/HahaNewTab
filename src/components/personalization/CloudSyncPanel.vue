@@ -65,7 +65,10 @@ const {
     disableCrossDeviceSync,
     restoreFromCrossDevice,
     refreshCrossDevice,
-    tryRestoreCrossDevice
+    tryRestoreCrossDevice,
+    retryCrossDevicePush,
+    exportRecoveryCode,
+    restoreFromRecoveryCode
 } = useCloudSync({
     uiAdapter: {
         showToast: (message, type = 'info') => {
@@ -84,6 +87,15 @@ const browserBusy = ref(false);
 const browserExpanded = ref(false);
 /** 浏览器同步：用户放弃恢复旧凭据，直接在本机开启 */
 const browserSkipRestore = ref(false);
+
+/** 恢复码：生成后显示在只读框里，由用户自己复制保存 */
+const recoveryCode = ref('');
+/** 恢复码：导出区块是否展开 */
+const recoveryExpanded = ref(false);
+/** 恢复码：用码恢复时粘进来的内容 */
+const recoveryInput = ref('');
+/** 恢复码：用码恢复的区块是否展开 */
+const recoveryRestoreExpanded = ref(false);
 
 const tokenInput = ref('');
 
@@ -203,13 +215,32 @@ const browserHint = computed(() => {
     }
 });
 
+/**
+ * 已开启、已登录，但同步区里还没有凭据
+ *
+ * 这一行以前只看「开没开」就宣称「已加密写入」，写失败时界面与下面的「凭据：暂无」
+ * 自相矛盾，用户要到换设备那天才发现根本没同步上。状态改成照着实说，并给出重试入口。
+ */
+const browserPushMissing = computed(() =>
+    browserMode.value === 'enabled'
+    && isLoggedIn.value
+    && syncAreaNative.value
+    && !crossDeviceRemoteAvailable.value
+);
+
 const browserStatusText = computed(() => {
     if (browserMode.value === 'enabled') {
         if (!isLoggedIn.value) {
             return '已开启 · 登录后会把登录状态加密写入同步区';
         }
         if (!syncAreaNative.value) {
-            return '已开启 · 当前环境无法写入浏览器同步区';
+            // 网页预览环境写的是本机模拟同步区：凭据确实在，但它出不了这台机器
+            return crossDeviceRemoteAvailable.value
+                ? '已开启 · 凭据在本机模拟同步区（预览环境不会同步到其他设备）'
+                : '已开启 · 当前环境无法写入浏览器同步区';
+        }
+        if (!crossDeviceRemoteAvailable.value) {
+            return '已开启 · 但同步区还没有凭据，上一次写入没成功';
         }
         return '已开启 · 登录状态已加密写入浏览器同步区';
     }
@@ -418,6 +449,78 @@ function handleSkipRestore(): void {
     browserSkipRestore.value = true;
     browserExpanded.value = true;
     browserPassphrase.value = '';
+}
+
+/** 手动把当前凭据补写进同步区 */
+async function handleRetryPush(): Promise<void> {
+    browserBusy.value = true;
+    try {
+        await retryCrossDevicePush();
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        emit('error', message);
+    } finally {
+        browserBusy.value = false;
+    }
+}
+
+/** 展开恢复码区块；第一次展开时生成一份 */
+async function toggleRecovery(): Promise<void> {
+    recoveryExpanded.value = !recoveryExpanded.value;
+    if (!recoveryExpanded.value || recoveryCode.value) {
+        return;
+    }
+    browserBusy.value = true;
+    try {
+        recoveryCode.value = await exportRecoveryCode();
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        recoveryExpanded.value = false;
+        toast.show(message, { type: 'error' });
+    } finally {
+        browserBusy.value = false;
+    }
+}
+
+async function handleCopyRecovery(): Promise<void> {
+    try {
+        await navigator.clipboard.writeText(recoveryCode.value);
+        toast.show('恢复码已复制，请存到你自己的密码管理器或备忘录', { type: 'success' });
+    } catch {
+        toast.show('浏览器拒绝了剪贴板，请手动全选复制', { type: 'info' });
+    }
+}
+
+/** 本机口令丢了（重装 / 清过数据）时，用恢复码 + 口令重新拿到凭据 */
+async function handleRestoreWithRecovery(): Promise<void> {
+    const passphrase = browserPassphrase.value;
+    if (!recoveryInput.value.trim()) {
+        toast.show('请整段粘贴恢复码', { type: 'error' });
+        return;
+    }
+    if (passphrase.length < MIN_PASSPHRASE_LENGTH) {
+        toast.show(`同步密码至少 ${MIN_PASSPHRASE_LENGTH} 位`, { type: 'error' });
+        return;
+    }
+
+    browserBusy.value = true;
+    try {
+        const success = await restoreFromRecoveryCode(recoveryInput.value, passphrase);
+        if (success) {
+            recoveryInput.value = '';
+            browserPassphrase.value = '';
+            recoveryRestoreExpanded.value = false;
+            toast.show('已用恢复码恢复登录状态，正在同步数据', { type: 'success' });
+        } else {
+            toast.show('恢复码里没有可用的登录凭据', { type: 'error' });
+        }
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        emit('error', message);
+        toast.show(message, { type: 'error' });
+    } finally {
+        browserBusy.value = false;
+    }
 }
 
 const statusClass = computed(() => {
@@ -638,6 +741,23 @@ const statusClass = computed(() => {
                     {{ browserExpanded ? '收起' : '更新密码' }}
                 </BaseButton>
                 <BaseButton
+                    v-if="browserPushMissing"
+                    variant="text"
+                    size="small"
+                    :disabled="browserBusy"
+                    @click="handleRetryPush"
+                >
+                    重试写入同步区
+                </BaseButton>
+                <BaseButton
+                    variant="text"
+                    size="small"
+                    :disabled="browserBusy"
+                    @click="toggleRecovery"
+                >
+                    {{ recoveryExpanded ? '收起恢复码' : '导出恢复码' }}
+                </BaseButton>
+                <BaseButton
                     variant="text"
                     size="small"
                     :disabled="browserBusy"
@@ -645,6 +765,77 @@ const statusClass = computed(() => {
                 >
                     关闭浏览器同步
                 </BaseButton>
+            </div>
+
+            <div v-if="!isLoggedIn && !recoveryRestoreExpanded" class="cloud-sync-cross__actions">
+                <BaseButton
+                    variant="text"
+                    size="small"
+                    :disabled="browserBusy"
+                    @click="recoveryRestoreExpanded = true"
+                >
+                    用恢复码恢复登录
+                </BaseButton>
+            </div>
+
+            <!-- 恢复码：唯一活得过「卸载扩展」的凭据副本，交给用户自己存 -->
+            <div v-if="recoveryExpanded" class="cloud-sync-cross__recovery">
+                <p class="cloud-sync-panel__hint">
+                    卸载扩展时，浏览器会把扩展的本地存储和同步区一起清掉，重装后同步区就是空的。
+                    恢复码是加密后的登录凭据，只有配上同步密码才解得开——请整段存到你自己的密码管理器或备忘录。
+                </p>
+                <textarea
+                    class="cloud-sync-cross__code"
+                    rows="3"
+                    readonly
+                    :value="recoveryCode"
+                    aria-label="恢复码"
+                    @focus="($event.target as HTMLTextAreaElement).select()"
+                ></textarea>
+                <div class="cloud-sync-cross__actions">
+                    <BaseButton variant="text" size="small" @click="handleCopyRecovery">复制</BaseButton>
+                </div>
+            </div>
+
+            <div v-if="recoveryRestoreExpanded" class="cloud-sync-cross__recovery">
+                <p class="cloud-sync-panel__hint">
+                    粘贴当初保存的恢复码，再输入对应的同步密码，即可免 Token 恢复登录。
+                </p>
+                <textarea
+                    v-model="recoveryInput"
+                    class="cloud-sync-cross__code"
+                    rows="3"
+                    placeholder="粘贴恢复码（HANTAB1. 开头）"
+                    aria-label="恢复码"
+                    :disabled="browserBusy"
+                ></textarea>
+                <BaseInput
+                    v-model="browserPassphrase"
+                    type="password"
+                    label="同步密码"
+                    :placeholder="`至少 ${MIN_PASSPHRASE_LENGTH} 位`"
+                    autocomplete="off"
+                    :disabled="browserBusy"
+                    @enter="handleRestoreWithRecovery"
+                />
+                <div class="cloud-sync-cross__actions">
+                    <BaseButton
+                        variant="primary"
+                        size="small"
+                        :loading="browserBusy"
+                        @click="handleRestoreWithRecovery"
+                    >
+                        恢复登录
+                    </BaseButton>
+                    <BaseButton
+                        variant="text"
+                        size="small"
+                        :disabled="browserBusy"
+                        @click="recoveryRestoreExpanded = false"
+                    >
+                        取消
+                    </BaseButton>
+                </div>
             </div>
 
             <!-- 同步区诊断：让「到底同步到了没」可见，而不是靠猜 -->
@@ -853,6 +1044,7 @@ const statusClass = computed(() => {
 
     &__actions {
         display: flex;
+        flex-wrap: wrap;
         gap: var(--space-1);
 
         > * {
@@ -896,6 +1088,31 @@ const statusClass = computed(() => {
             opacity: 0.5;
             cursor: not-allowed;
         }
+    }
+
+    &__recovery {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+        padding: var(--space-2);
+        border-radius: var(--radius-sm);
+        background: var(--fill-secondary);
+    }
+
+    &__code {
+        width: 100%;
+        min-height: 64px;
+        padding: var(--space-2);
+        border: 1px solid var(--separator);
+        border-radius: var(--radius-xs);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: var(--text-xs);
+        line-height: var(--leading-normal);
+        color: var(--label);
+        background: var(--fill-tertiary);
+        resize: vertical;
+        // 恢复码是一整行 base64，不折行会拖出横向滚动条，全选复制也更麻烦
+        word-break: break-all;
     }
 }
 

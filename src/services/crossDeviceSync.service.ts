@@ -32,6 +32,7 @@ import {
     isEncryptedPayload,
     MIN_PASSPHRASE_LENGTH
 } from '@/utils/crypto.util';
+import type { EncryptedPayload } from '@/utils/crypto.util';
 
 /** 本机：是否启用跨设备同步 */
 const LOCAL_ENABLED_KEY = STORAGE_KEYS.CROSS_DEVICE_ENABLED;
@@ -333,6 +334,91 @@ export async function pullCrossDeviceAuth(): Promise<CrossDeviceAuth | null> {
         token: parsed.token,
         provider: typeof parsed.provider === 'string' ? parsed.provider : 'github'
     };
+}
+
+/**
+ * 恢复码
+ *
+ * 浏览器给扩展的两块存储都活不过「卸载扩展」：storage.local 明确会被清掉，
+ * storage.sync 按扩展 ID 隔离，卸载同样会把这份密文带走。也就是说同步区那条路
+ * 只解决「设备还在、扩展没重装」，重装以后同步区必然是空的。
+ *
+ * 恢复码是交给用户自己保管的那一份密文：同一套 AES-GCM + 同步密码，
+ * 但存在扩展之外（密码管理器、备忘录），因此不受卸载影响。
+ * 它本身就是密文，且明文里的那个 Token 本机 storage.local 里原样存着，
+ * 多复制一份密文给用户不额外扩大暴露面。
+ */
+const RECOVERY_CODE_PREFIX = 'HANTAB1.';
+
+/** 生成恢复码（口令至少 MIN_PASSPHRASE_LENGTH 位） */
+export async function createRecoveryCode(
+    auth: CrossDeviceAuth,
+    passphrase: string
+): Promise<string> {
+    const payload = await encryptText(JSON.stringify(auth), passphrase);
+    return RECOVERY_CODE_PREFIX + toBase64Text(JSON.stringify(payload));
+}
+
+/**
+ * 用恢复码取出凭据
+ * @throws 格式不对、口令不对、码里没有凭据，各给一句能直接念给用户的话
+ */
+export async function readRecoveryCode(
+    code: string,
+    passphrase: string
+): Promise<CrossDeviceAuth> {
+    const trimmed = (code || '').trim();
+    if (!trimmed.startsWith(RECOVERY_CODE_PREFIX)) {
+        throw new Error('恢复码格式不正确，请整段复制');
+    }
+
+    let payload: unknown;
+    try {
+        payload = JSON.parse(fromBase64Text(trimmed.slice(RECOVERY_CODE_PREFIX.length)));
+    } catch {
+        throw new Error('恢复码格式不正确，请整段复制');
+    }
+
+    const plain = await decryptText(payload as EncryptedPayload, passphrase);
+    let parsed: CrossDeviceAuth | null = null;
+    try {
+        parsed = JSON.parse(plain) as CrossDeviceAuth | null;
+    } catch {
+        throw new Error('恢复码内容已损坏，无法读出登录凭据');
+    }
+
+    if (!parsed || typeof parsed.token !== 'string' || !parsed.token) {
+        throw new Error('恢复码里没有可用的登录凭据');
+    }
+
+    // 与同步区恢复同一条收尾：把「开关 + 口令」记回本机，之后换 Token、补推才有的可用。
+    // 只记口令，恢复码本身不落任何存储——它本来就是从这份口令推出来的。
+    await storageManager.setMany({
+        [LOCAL_ENABLED_KEY]: true,
+        [LOCAL_PASSPHRASE_KEY]: passphrase
+    });
+
+    return {
+        token: parsed.token,
+        provider: typeof parsed.provider === 'string' ? parsed.provider : 'github'
+    };
+}
+
+/** UTF-8 字符串 → base64（不用 btoa(str)：Token 里可能出现非 Latin1 字符） */
+function toBase64Text(text: string): string {
+    const bytes = new TextEncoder().encode(text);
+    let binary = '';
+    for (const byte of bytes) {
+        binary += String.fromCharCode(byte);
+    }
+    return btoa(binary);
+}
+
+/** base64 → UTF-8 字符串 */
+function fromBase64Text(value: string): string {
+    const binary = atob(value);
+    const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
 }
 
 /**

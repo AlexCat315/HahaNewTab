@@ -11,12 +11,14 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { getSyncAreaStatus } from '@/services/syncStorage.service';
 import {
+    createRecoveryCode,
     disableCrossDevice,
     enableCrossDevice,
     getCrossDeviceState,
     getCrossDeviceStatus,
     getStoredPassphrase,
     pushCrossDeviceAuth,
+    readRecoveryCode,
     restoreCrossDeviceAuth,
     watchRemoteCrossDeviceAuth
 } from '@/services/crossDeviceSync.service';
@@ -102,6 +104,45 @@ export const useCrossDeviceAuthStore = defineStore('crossDeviceAuth', () => {
         }
     }
 
+    /**
+     * 补推：只在「已开启 + 已登录 + 同步区里还没有凭据」时真的写一次
+     *
+     * 推送原先只发生在登录与开启那两个瞬间，那一次失败（同步区当时不可用、
+     * 网络抖动、Firefox 还没勾上「附加组件」同步）就再也没人补，界面却一路显示
+     * 「已加密写入」。启动与「重新检查」各补一次，把这个洞关上。
+     */
+    async function pushIfMissing(auth: CrossDeviceAuth | null): Promise<CrossDevicePushOutcome> {
+        // 状态镜像可能落后于别的页面刚改过的开关，补推前先看一眼真相
+        await refresh();
+        if (!enabled.value || !auth?.token) {
+            return { enabled: enabled.value, pushed: false };
+        }
+        if (remoteAvailable.value) {
+            return { enabled: true, pushed: true };
+        }
+        return push(auth);
+    }
+
+    /** 本机保存的同步密码（没有则 null）；导出恢复码时默认拿它 */
+    function readStoredPassphrase(): Promise<string | null> {
+        return getStoredPassphrase();
+    }
+
+    /** 生成一份交给用户自己保存的恢复码（不依赖浏览器同步区） */
+    async function createRecovery(passphrase: string, auth: CrossDeviceAuth): Promise<string> {
+        return createRecoveryCode(auth, passphrase);
+    }
+
+    /** 用恢复码 + 同步密码取出凭据；口令与格式问题按原样抛出，这是用户主动操作 */
+    async function restoreWithRecovery(
+        code: string,
+        passphrase: string
+    ): Promise<RecoveredAuth | null> {
+        const auth = await readRecoveryCode(code, passphrase);
+        await refresh();
+        return { token: auth.token, provider: auth.provider as CloudSyncProviderId };
+    }
+
     /** 记下口令并开启；带着凭据时顺带推送一次 */
     async function enable(passphrase: string, auth: CrossDeviceAuth | null): Promise<EnableCrossDeviceResult> {
         const result = await enableCrossDevice(passphrase, auth);
@@ -164,6 +205,10 @@ export const useCrossDeviceAuthStore = defineStore('crossDeviceAuth', () => {
         syncAreaNative,
         refresh,
         push,
+        pushIfMissing,
+        createRecovery,
+        restoreWithRecovery,
+        readStoredPassphrase,
         enable,
         disable,
         readAuth,

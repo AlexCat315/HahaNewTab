@@ -19,8 +19,10 @@ import { AutoSyncScheduler } from '@/services/cloudSync/autoSync';
 import { providerProfile } from '@/services/cloudSync/transport';
 import { useCrossDeviceAuthStore } from './crossDeviceAuth.store';
 import type { RecoveredAuth } from './crossDeviceAuth.store';
+import type { CrossDevicePushOutcome } from './crossDeviceAuth.store';
 import type { CrossDeviceAuth } from '@/services/crossDeviceSync.service';
 import type { EnableCrossDeviceResult } from '@/services/crossDeviceSync.service';
+import { MIN_PASSPHRASE_LENGTH } from '@/utils/crypto.util';
 import { createCloudSyncDataManager } from './cloudSyncDataManager';
 import type {
     ConnectResult,
@@ -281,6 +283,11 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
             if (!token.value) {
                 await tryRestoreCrossDevice();
                 await refreshCrossDevice();
+            } else if (crossDevice.enabled && !crossDevice.remoteAvailable) {
+                // 已登录、已开启，同步区里却没有凭据：上一次推送没成，这里补一次。
+                // 后台静默补推，成没成由面板那行状态如实显示，不额外弹提示。
+                await crossDevice.pushIfMissing(currentAuth());
+                await refreshCrossDevice();
             }
             // 启动那一轮是后台同步：失败了提示一次，不弹窗、不挡任何人
             if (startup) {
@@ -365,6 +372,32 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         if (!outcome.enabled || outcome.pushed || !token.value) {
             return;
         }
+        announcePushOutcome(outcome);
+    }
+
+    /**
+     * 手动「重试写入同步区」
+     *
+     * 面板上的状态说「没写进去」，用户点一下就要给出结果：成功报成功，
+     * 失败按原因说人话——三种原因对应三种自救动作。
+     */
+    async function retryCrossDevicePush(): Promise<boolean> {
+        const outcome = await crossDevice.pushIfMissing(currentAuth());
+        await refreshCrossDevice();
+        if (outcome.pushed) {
+            uiAdapter.value.showToast('登录状态已加密写入浏览器同步区', 'success');
+            return true;
+        }
+        if (!crossDevice.enabled) {
+            uiAdapter.value.showToast('浏览器同步未开启', 'info');
+            return false;
+        }
+        announcePushOutcome(outcome);
+        return false;
+    }
+
+    /** 「已开启却没写进去」的三种原因，各自一句话 */
+    function announcePushOutcome(outcome: CrossDevicePushOutcome): void {
         if (outcome.reason === 'error') {
             uiAdapter.value.showToast('浏览器同步失败：' + outcome.message, 'error');
             return;
@@ -375,6 +408,44 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
                 : '浏览器同步未写入：同步区不可用，请检查浏览器账号同步设置',
             'error'
         );
+    }
+
+    /**
+     * 导出恢复码
+     *
+     * 卸载扩展会连同步区一起清掉，恢复码是唯一活得过卸载的那份凭据。
+     * 口令默认用本机保存的；本机口令丢了（清过浏览器数据）就得由界面层收一个再传进来。
+     */
+    async function exportRecoveryCode(passphrase?: string): Promise<string> {
+        const auth = currentAuth();
+        if (!auth) {
+            throw new Error('请先连接 GitHub / Gitee，再导出恢复码');
+        }
+        const password = passphrase ?? await crossDevice.readStoredPassphrase();
+        if (!password) {
+            throw new Error(`请输入同步密码（至少 ${MIN_PASSPHRASE_LENGTH} 位）`);
+        }
+        return crossDevice.createRecovery(password, auth);
+    }
+
+    /**
+     * 用恢复码恢复登录（重装扩展 / 换浏览器后用）
+     *
+     * 与同步区恢复同一条收尾：登录成功后补一轮同步，把云端数据一并拉下来。
+     * 码或口令不对时原样抛出，用户输的东西要看到原因。
+     */
+    async function restoreFromRecoveryCode(code: string, passphrase: string): Promise<boolean> {
+        error.value = null;
+        try {
+            const auth = await crossDevice.restoreWithRecovery(code, passphrase);
+            if (!auth) {
+                return false;
+            }
+            return await applyRecoveredAuth(auth);
+        } catch (e) {
+            error.value = e instanceof Error ? e.message : String(e);
+            throw e;
+        }
     }
 
 
@@ -613,6 +684,9 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         enableCrossDeviceSync,
         disableCrossDeviceSync,
         restoreFromCrossDevice,
-        tryRestoreCrossDevice
+        tryRestoreCrossDevice,
+        retryCrossDevicePush,
+        exportRecoveryCode,
+        restoreFromRecoveryCode
     };
 });

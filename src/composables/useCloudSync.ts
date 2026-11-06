@@ -59,6 +59,12 @@ export interface UseCloudSyncReturn {
     disableCrossDeviceSync: () => Promise<void>;
     restoreFromCrossDevice: (passphrase: string) => Promise<boolean>;
     tryRestoreCrossDevice: (passphrase?: string) => Promise<boolean>;
+    /** 手动把当前凭据补写进同步区，返回是否写成 */
+    retryCrossDevicePush: () => Promise<boolean>;
+    /** 导出不依赖浏览器同步区的恢复码（口令缺省用本机保存的） */
+    exportRecoveryCode: (passphrase?: string) => Promise<string>;
+    /** 用恢复码 + 同步密码恢复登录，返回是否成功 */
+    restoreFromRecoveryCode: (code: string, passphrase: string) => Promise<boolean>;
 }
 
 /** 平台标识到显示名的映射 */
@@ -229,6 +235,18 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         return createAbortable(() => store.restoreFromCrossDevice(passphrase));
     }
 
+    async function retryCrossDevicePush(): Promise<boolean> {
+        return createAbortable(() => store.retryCrossDevicePush());
+    }
+
+    async function exportRecoveryCode(passphrase?: string): Promise<string> {
+        return createAbortable(() => store.exportRecoveryCode(passphrase));
+    }
+
+    async function restoreFromRecoveryCode(code: string, passphrase: string): Promise<boolean> {
+        return createAbortable(() => store.restoreFromRecoveryCode(code, passphrase));
+    }
+
     onMounted(() => {
         // 本地数据一落盘就防抖触发自动同步；变更源是存储内核，覆盖所有写入路径
         store.startAutoSyncWatch();
@@ -283,6 +301,9 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         enableCrossDeviceSync,
         disableCrossDeviceSync,
         restoreFromCrossDevice,
-        tryRestoreCrossDevice
+        tryRestoreCrossDevice,
+        retryCrossDevicePush,
+        exportRecoveryCode,
+        restoreFromRecoveryCode
     };
 }
