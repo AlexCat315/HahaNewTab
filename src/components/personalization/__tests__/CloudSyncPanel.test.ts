@@ -325,15 +325,6 @@ describe('CloudSyncPanel', () => {
             return api;
         }
 
-        /** 恢复码要等 PBKDF2 派生完成才有内容，只等区块渲染出来会读到空串 */
-        async function waitForRecoveryCode(wrapper: ReturnType<typeof mount>): Promise<string> {
-            await vi.waitFor(() => {
-                const box = wrapper.find('.cloud-sync-cross__code').element as HTMLTextAreaElement;
-                expect(box.value.startsWith('HANTAB1.')).toBe(true);
-            });
-            return (wrapper.find('.cloud-sync-cross__code').element as HTMLTextAreaElement).value;
-        }
-
         it('已开启、已登录但同步区为空时如实说明并给出「重试写入同步区」', async () => {
             // 先在没有原生同步区的环境里开启（凭据写进了本机模拟区）
             await prepareLoggedIn();
@@ -469,84 +460,6 @@ describe('CloudSyncPanel', () => {
                 expect(wrapper.text()).toContain('同步区：浏览器账号');
             });
             expect(wrapper.text()).not.toContain('不会上传');
-        });
-
-        it('「导出恢复码」生成一段可解回的密文', async () => {
-            await prepareLoggedIn();
-            await enableCrossDevice('my-sync-pass', { token: 'ghp_test', provider: 'github' });
-
-            const wrapper = mount(CloudSyncPanel);
-            await flushPromises();
-
-            await findButton(wrapper, '导出恢复码')!.trigger('click');
-
-            const code = await waitForRecoveryCode(wrapper);
-            // 恢复码里不能夹带明文 Token
-            expect(code).not.toContain('ghp_test');
-
-            vi.unstubAllGlobals();
-        });
-
-        it('卸载重装后：用恢复码 + 同步密码恢复登录', async () => {
-            await prepareLoggedIn();
-            await enableCrossDevice('my-sync-pass', { token: 'ghp_test', provider: 'github' });
-
-            const first = mount(CloudSyncPanel);
-            await flushPromises();
-            await findButton(first, '导出恢复码')!.trigger('click');
-            const code = await waitForRecoveryCode(first);
-            first.unmount();
-            vi.unstubAllGlobals();
-
-            // 卸载扩展：本机存储与同步区一起清空
-            localStorage.clear();
-
-            // 重装后的新面板：未登录，只留下用户自己保存的恢复码
-            const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-                const url = String(input);
-                const body = url.endsWith('/user')
-                    ? { login: 'tester', id: 1, avatar_url: 'https://avatar.png' }
-                    : url.includes('/gists?')
-                        ? []
-                        : { id: 'gist_1', files: {} };
-                return {
-                    status: 200,
-                    ok: true,
-                    json: async () => body,
-                    text: async () => JSON.stringify(body)
-                } as Response;
-            });
-            vi.stubGlobal('fetch', fetchMock);
-
-            const wrapper = mount(CloudSyncPanel);
-            await flushPromises();
-
-            await findButton(wrapper, '用恢复码恢复登录')!.trigger('click');
-            await flushPromises();
-            expect(wrapper.text()).toContain('粘贴当初保存的恢复码');
-
-            // 只粘码不给密码：拦在本地，不发请求
-            await wrapper
-                .find('.cloud-sync-cross__recovery textarea')
-                .setValue(code);
-            await findButton(wrapper, '恢复登录')!.trigger('click');
-            await flushPromises();
-            expect(wrapper.text()).toContain('未连接');
-            expect(fetchMock).not.toHaveBeenCalled();
-
-            await wrapper
-                .find('.cloud-sync-cross__recovery input[type="password"]')
-                .setValue('my-sync-pass');
-            await findButton(wrapper, '恢复登录')!.trigger('click');
-
-            await vi.waitFor(() => {
-                expect(wrapper.text()).toContain('已连接');
-            });
-            // 恢复走的是码里的 Token，用户不需要再填一遍
-            expect(fetchMock.mock.calls.some(([req]) => String(req).endsWith('/user'))).toBe(true);
-            expect(localStorage.getItem('appNavigator_crossDevice_passphrase')).toBe('my-sync-pass');
-
-            vi.unstubAllGlobals();
         });
     });
 });

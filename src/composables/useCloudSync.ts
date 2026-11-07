@@ -67,10 +67,6 @@ export interface UseCloudSyncReturn {
     probeCrossDeviceSyncArea: () => Promise<SyncAreaProbe>;
     /** 让浏览器现在就跑一轮同步（等待凭据时把远端那份拉下来） */
     nudgeCrossDeviceSyncArea: () => Promise<boolean>;
-    /** 导出不依赖浏览器同步区的恢复码（口令缺省用本机保存的） */
-    exportRecoveryCode: (passphrase?: string) => Promise<string>;
-    /** 用恢复码 + 同步密码恢复登录，返回是否成功 */
-    restoreFromRecoveryCode: (code: string, passphrase: string) => Promise<boolean>;
 }
 
 /**
@@ -262,14 +258,6 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         return createAbortable(() => store.probeCrossDeviceSyncArea());
     }
 
-    async function exportRecoveryCode(passphrase?: string): Promise<string> {
-        return createAbortable(() => store.exportRecoveryCode(passphrase));
-    }
-
-    async function restoreFromRecoveryCode(code: string, passphrase: string): Promise<boolean> {
-        return createAbortable(() => store.restoreFromRecoveryCode(code, passphrase));
-    }
-
     /** 防止定时检查与 focus / 同步区变更同时触发两次还原 */
     let checkingRemoteCredential = false;
     /** 上次催同步的时间与次数：催促只用来缩短等待，不能变成常态写入 */
@@ -313,19 +301,21 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
     }
 
     /**
-     * 未登录时看一眼同步区：有凭据且本机有口令就尝试还原
+     * 对账浏览器同步区：该补推的补推，该还原的还原
      *
-     * 只做免打扰的检查：失败不弹提示，状态与原因由面板上的「重新检查」负责说清楚。
+     * 两个方向都要管，缺一个就会出现「删一次就再也同步不上」：
+     *   - 本机已登录、已开启，同步区里那份却被别的设备删了（「断开连接」会清掉共用凭据，
+     *     删除顺着浏览器同步传到每一台）→ 静默补推回去。不补的话同步区永远空着，
+     *     另一台再怎么点浏览器「同步」也无东西可传，这正是用户遇到的死局；
+     *   - 本机未登录，同步区里有别的设备推来的凭据 → 用本机口令免 Token 还原。
      *
-     * 最后一层等待由浏览器决定：Firefox 的同步周期是 10 分钟，但引擎在本地写入后
-     * 会立刻安排一轮同步，所以等待中的设备每分钟往同步区写一个催促值，
-     * 等于「现在就去把远端那份拉下来」——凭据一到本机，下一次 tick 立刻还原。
+     * 只做免打扰的对账：失败不弹提示，状态与原因由面板上的「重新检查」负责说清楚。
+     * 等待中的设备每分钟催一次浏览器同步，凭据一到本机，下一次 tick 立刻还原。
      */
-    async function checkRemoteCredential(): Promise<void> {
+    async function reconcileCrossDevice(): Promise<void> {
         if (
             credentialWatchStopped
             || checkingRemoteCredential
-            || store.isLoggedIn
             || document.visibilityState === 'hidden'
         ) {
             return;
@@ -334,8 +324,11 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         try {
             await refreshCrossDevice();
             if (store.isLoggedIn) {
-                // 检查期间登录完成了：顺手催一次，把刚写入的凭据送出去
-                await nudgeRemoteSync();
+                // 已登录：同步区缺凭据就补回去（别的设备刚删过，或上次写入没成功）。
+                // 只在「缺」时补，已有就不动，避免每 5 秒重复一次解密与写入。
+                if (crossDevice.enabled && !crossDevice.remoteAvailable) {
+                    await store.repushCrossDeviceIfMissing();
+                }
                 return;
             }
             if (!crossDevice.enabled || !crossDevice.hasPassphrase) {
@@ -353,7 +346,7 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
             }
             await nudgeRemoteSync();
         } catch {
-            // 定期检查失败不打扰：恢复成功会有登录提示，其余交给手动「重新检查」
+            // 定期对账失败不打扰：恢复成功会有登录提示，其余交给手动「重新检查」
         } finally {
             checkingRemoteCredential = false;
         }
@@ -364,14 +357,14 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
             // 回到页面时补满催促预算：长时间挂着会把 15 次用完，
             // 而用户切回来正是最希望马上同步的时刻（写入仍受 60 秒节流约束）
             nudgeCount = 0;
-            void checkRemoteCredential();
+            void reconcileCrossDevice();
         }
     }
 
     function startRemoteCredentialWatch(): void {
         credentialWatchStopped = false;
         credentialPollTimer = setInterval(() => {
-            void checkRemoteCredential();
+            void reconcileCrossDevice();
         }, REMOTE_CREDENTIAL_POLL_MS);
         document.addEventListener('visibilitychange', handlePageVisible);
         window.addEventListener('focus', handlePageVisible);
@@ -390,26 +383,20 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
     onMounted(() => {
         // 本地数据一落盘就防抖触发自动同步；变更源是存储内核，覆盖所有写入路径
         store.startAutoSyncWatch();
-        // 其他设备推送浏览器同步凭据后，本机即时感知并尝试免 Token 登录
+        // 同步区一变就对账：别的设备推来凭据就免 Token 还原，别的设备删了凭据就补推回去
         unwatchRemoteAuth = crossDevice.watchRemote(() => {
-            refreshCrossDevice()
-                .then(() => tryRestoreCrossDevice())
-                .catch(() => {
-                    // 状态刷新 / 自动还原失败不影响主流程
-                });
+            void reconcileCrossDevice();
         });
         // Firefox 的同步快照可能晚到十来分钟，落地那一刻本页要能自己认出来
         startRemoteCredentialWatch();
         init().catch(() => {
             // 初始化失败由 store.error 暴露，不在此处抛出
         }).finally(() => {
-            // 已登录设备刚补推过凭据，催一次让浏览器立刻上传；等待中的设备走常规检查。
-            // checkRemoteCredential 在已登录时直接返回，这一步不能并进去。
+            // 已登录设备刚补推过凭据，催一次让浏览器立刻上传；其余交给对账（含补推 / 还原）
             if (store.isLoggedIn) {
                 void nudgeRemoteSync(true);
-            } else {
-                void checkRemoteCredential();
             }
+            void reconcileCrossDevice();
         });
     });
 
@@ -456,8 +443,6 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         tryRestoreCrossDevice,
         retryCrossDevicePush,
         probeCrossDeviceSyncArea,
-        nudgeCrossDeviceSyncArea,
-        exportRecoveryCode,
-        restoreFromRecoveryCode
+        nudgeCrossDeviceSyncArea
     };
 }

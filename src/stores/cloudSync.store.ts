@@ -22,7 +22,6 @@ import type { RecoveredAuth } from './crossDeviceAuth.store';
 import type { CrossDevicePushOutcome } from './crossDeviceAuth.store';
 import type { CrossDeviceAuth } from '@/services/crossDeviceSync.service';
 import type { EnableCrossDeviceResult, SyncAreaProbe } from '@/services/crossDeviceSync.service';
-import { MIN_PASSPHRASE_LENGTH } from '@/utils/crypto.util';
 import { createCloudSyncDataManager } from './cloudSyncDataManager';
 import type {
     ConnectResult,
@@ -441,41 +440,19 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     }
 
     /**
-     * 导出恢复码
+     * 共享凭据被别的设备删掉后，本机静默补推一次
      *
-     * 卸载扩展会连同步区一起清掉，恢复码是唯一活得过卸载的那份凭据。
-     * 口令默认用本机保存的；本机口令丢了（清过浏览器数据）就得由界面层收一个再传进来。
-     */
-    async function exportRecoveryCode(passphrase?: string): Promise<string> {
-        const auth = currentAuth();
-        if (!auth) {
-            throw new Error('请先连接 GitHub / Gitee，再导出恢复码');
-        }
-        const password = passphrase ?? await crossDevice.readStoredPassphrase();
-        if (!password) {
-            throw new Error(`请输入同步密码（至少 ${MIN_PASSPHRASE_LENGTH} 位）`);
-        }
-        return crossDevice.createRecovery(password, auth);
-    }
-
-    /**
-     * 用恢复码恢复登录（重装扩展 / 换浏览器后用）
+     * 删除会顺着浏览器同步传到每一台：一台「断开连接」清掉同步区，另一台仍登录的设备
+     * 若不补回去，共用凭据就永远空着，那台再怎么点浏览器「同步」也无东西可传——
+     * 这正是「删一次就再也同步不上」的成因。是否真写由 pushIfMissing 判断（已有且本机
+     * 解得开就不动），这里不弹提示，成没成由面板那行状态如实显示。
      *
-     * 与同步区恢复同一条收尾：登录成功后补一轮同步，把云端数据一并拉下来。
-     * 码或口令不对时原样抛出，用户输的东西要看到原因。
+     * @returns 是否真的写进了同步区
      */
-    async function restoreFromRecoveryCode(code: string, passphrase: string): Promise<boolean> {
-        error.value = null;
-        try {
-            const auth = await crossDevice.restoreWithRecovery(code, passphrase);
-            if (!auth) {
-                return false;
-            }
-            return await applyRecoveredAuth(auth);
-        } catch (e) {
-            error.value = e instanceof Error ? e.message : String(e);
-            throw e;
-        }
+    async function repushCrossDeviceIfMissing(): Promise<boolean> {
+        const outcome = await crossDevice.pushIfMissing(currentAuth());
+        await refreshCrossDevice();
+        return outcome.pushed;
     }
 
 
@@ -722,8 +699,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         restoreFromCrossDevice,
         tryRestoreCrossDevice,
         retryCrossDevicePush,
-        probeCrossDeviceSyncArea,
-        exportRecoveryCode,
-        restoreFromRecoveryCode
+        repushCrossDeviceIfMissing,
+        probeCrossDeviceSyncArea
     };
 });

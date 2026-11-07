@@ -22,8 +22,6 @@ const { service } = vi.hoisted(() => ({
         sendSyncAreaProbe: vi.fn(async () => null),
         readIncomingSyncAreaProbe: vi.fn(async () => null),
         restoreCrossDeviceAuth: vi.fn(),
-        createRecoveryCode: vi.fn(),
-        readRecoveryCode: vi.fn(),
         watchRemoteCrossDeviceAuth: vi.fn(() => () => {})
     }
 }));
@@ -293,30 +291,5 @@ describe('crossDeviceAuth store', () => {
         await store.refresh();
         expect(await store.pushIfMissing(AUTH)).toEqual({ enabled: false, pushed: false });
         expect(service.pushCrossDeviceAuth).not.toHaveBeenCalled();
-    });
-
-    it('恢复码：导出的就是服务层算出来的那一串', async () => {
-        const store = useCrossDeviceAuthStore();
-        service.createRecoveryCode.mockResolvedValue('HANTAB1.abc');
-
-        expect(await store.createRecovery('my-sync-pass', AUTH)).toBe('HANTAB1.abc');
-        expect(service.createRecoveryCode).toHaveBeenCalledWith(AUTH, 'my-sync-pass');
-    });
-
-    it('恢复码：读出来的凭据带平台标识，并顺带刷新同步区状态', async () => {
-        const store = useCrossDeviceAuthStore();
-        service.readRecoveryCode.mockResolvedValue({ token: 'ghp_from_code', provider: 'gitee' });
-
-        const auth = await store.restoreWithRecovery('HANTAB1.abc', 'my-sync-pass');
-
-        expect(auth).toEqual({ token: 'ghp_from_code', provider: 'gitee' });
-        expect(service.getCrossDeviceStatus).toHaveBeenCalled();
-    });
-
-    it('恢复码：口令不对时把原因原样交上去，让用户看到', async () => {
-        const store = useCrossDeviceAuthStore();
-        service.readRecoveryCode.mockRejectedValue(new Error('同步密码不正确，无法解密'));
-
-        await expect(store.restoreWithRecovery('HANTAB1.abc', 'wrong')).rejects.toThrow('同步密码不正确');
     });
 });

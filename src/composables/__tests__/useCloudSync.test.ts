@@ -5,6 +5,7 @@ import { setActivePinia, createPinia } from 'pinia';
 import { useCloudSync } from '../useCloudSync';
 import { storageManager } from '@/services/storage.service';
 import { browserApi } from '@/services/browserApi.service';
+import { clearRemoteCrossDeviceAuth, hasRemoteCrossDeviceAuth } from '@/services/crossDeviceSync.service';
 import { STORAGE_KEYS } from '@/types/storage';
 import type { GitHubUserInfo, ICloudSyncUIAdapter } from '@/types/cloudSync.types';
 
@@ -536,5 +537,39 @@ describe('useCloudSync composable', () => {
         await wrapper.vm.cloud.upload({ silent: true });
 
         expect(wrapper.vm.cloud.formattedLastSyncTime.value).not.toBe('从未同步');
+    });
+
+    /**
+     * 「删一次就再也同步不上」的回归
+     *
+     * 一台设备「断开连接」会清掉同步区里那份共用凭据，删除顺着浏览器同步传到每一台。
+     * 仍登录、仍开启的那台若不补回去，同步区就永远空着，另一台再怎么点浏览器「同步」
+     * 也无东西可传。对账（轮询 / 同步区变更 / 回到页面共用同一条）必须在
+     * 「已登录 + 已开启 + 同步区缺凭据」时静默补推。这里用回到页面触发那条对账。
+     */
+    it('别的设备删掉共享凭据后，已登录的本机对账时自动补推回去', async () => {
+        mockFetchSequence([
+            createResponse(TEST_USER_API),
+            createResponse([]),
+            createResponse({ id: TEST_GIST_ID, files: {} })
+        ]);
+
+        const wrapper = mount(createTestComponent());
+        await flushPromises();
+        await wrapper.vm.cloud.login(TEST_TOKEN);
+        await wrapper.vm.cloud.enableCrossDeviceSync('my-sync-pass');
+        await flushPromises();
+        expect(await hasRemoteCrossDeviceAuth()).toBe(true);
+
+        // 另一台设备清掉了共用凭据（等价于「断开连接」的删除同步到了本机）
+        await clearRemoteCrossDeviceAuth();
+        expect(await hasRemoteCrossDeviceAuth()).toBe(false);
+
+        // 回到页面触发一次对账：本机仍登录、仍开启，把凭据补回去
+        window.dispatchEvent(new Event('focus'));
+        await vi.waitFor(async () => {
+            expect(await hasRemoteCrossDeviceAuth()).toBe(true);
+        });
+        expect(wrapper.vm.cloud.isLoggedIn.value).toBe(true);
     });
 });

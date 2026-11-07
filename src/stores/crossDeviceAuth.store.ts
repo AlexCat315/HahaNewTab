@@ -12,7 +12,6 @@ import { ref } from 'vue';
 import { getSyncAreaStatus } from '@/services/syncStorage.service';
 import {
     canReadRemoteCrossDeviceAuth,
-    createRecoveryCode,
     clearRemoteCrossDeviceAuth,
     disableCrossDevice,
     enableCrossDevice,
@@ -22,7 +21,6 @@ import {
     nudgeSyncArea,
     pushCrossDeviceAuth,
     readIncomingSyncAreaProbe,
-    readRecoveryCode,
     restoreCrossDeviceAuth,
     sendSyncAreaProbe,
     watchRemoteCrossDeviceAuth
@@ -180,26 +178,6 @@ export const useCrossDeviceAuthStore = defineStore('crossDeviceAuth', () => {
         await refresh();
     }
 
-    /** 本机保存的同步密码（没有则 null）；导出恢复码时默认拿它 */
-    function readStoredPassphrase(): Promise<string | null> {
-        return getStoredPassphrase();
-    }
-
-    /** 生成一份交给用户自己保存的恢复码（不依赖浏览器同步区） */
-    async function createRecovery(passphrase: string, auth: CrossDeviceAuth): Promise<string> {
-        return createRecoveryCode(auth, passphrase);
-    }
-
-    /** 用恢复码 + 同步密码取出凭据；口令与格式问题按原样抛出，这是用户主动操作 */
-    async function restoreWithRecovery(
-        code: string,
-        passphrase: string
-    ): Promise<RecoveredAuth | null> {
-        const auth = await readRecoveryCode(code, passphrase);
-        await refresh();
-        return { token: auth.token, provider: auth.provider as CloudSyncProviderId };
-    }
-
     /** 记下口令并开启；带着凭据时顺带推送一次 */
     async function enable(passphrase: string, auth: CrossDeviceAuth | null): Promise<EnableCrossDeviceResult> {
         const result = await enableCrossDevice(passphrase, auth);
@@ -268,9 +246,6 @@ export const useCrossDeviceAuthStore = defineStore('crossDeviceAuth', () => {
         pushIfMissing,
         nudge,
         clearRemote,
-        createRecovery,
-        restoreWithRecovery,
-        readStoredPassphrase,
         enable,
         disable,
         readAuth,

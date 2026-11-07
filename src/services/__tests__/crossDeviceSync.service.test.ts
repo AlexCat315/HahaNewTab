@@ -60,8 +60,6 @@ import {
     getCrossDeviceStatus,
     hasRemoteCrossDeviceAuth,
     clearRemoteCrossDeviceAuth,
-    createRecoveryCode,
-    readRecoveryCode,
     sendSyncAreaProbe,
     readIncomingSyncAreaProbe,
     canReadRemoteCrossDeviceAuth,
@@ -349,47 +347,5 @@ describe('crossDeviceSync.service', () => {
 
         expect(syncStore.has(REMOTE_AUTH_KEY)).toBe(false);
         await expect(getCrossDeviceState()).resolves.toEqual({ enabled: true, hasPassphrase: true });
-    });
-
-    /**
-     * 恢复码
-     *
-     * 卸载扩展会把 storage.local 与按扩展 ID 隔离的 storage.sync 一起清掉，
-     * 同步区那条路只覆盖「设备还在、扩展没重装」；恢复码是交给用户自己保管的那一份，
-     * 因此它必须能独立解出凭据，且不落任何浏览器存储。
-     */
-    it('恢复码能原样解出凭据，并把口令记回本机（之后补推才有的可用）', async () => {
-        const code = await createRecoveryCode(AUTH, PASSPHRASE);
-
-        expect(code.startsWith('HANTAB1.')).toBe(true);
-        expect(await readRecoveryCode(code, PASSPHRASE)).toEqual(AUTH);
-        await expect(getCrossDeviceState()).resolves.toEqual({ enabled: true, hasPassphrase: true });
-        // 恢复码本身不落任何存储：它只是同一份密文的另一种交付方式
-        expect(syncStore.size).toBe(0);
-        for (const value of localStore.values()) {
-            expect(String(value)).not.toContain('HANTAB1.');
-        }
-    });
-
-    it('恢复码里没有明文 Token', async () => {
-        const code = await createRecoveryCode(AUTH, PASSPHRASE);
-        expect(code).not.toContain(AUTH.token);
-    });
-
-    it('恢复码口令不对时给出可直接念的原因', async () => {
-        const code = await createRecoveryCode(AUTH, PASSPHRASE);
-        await expect(readRecoveryCode(code, 'wrong-passphrase')).rejects.toThrow('同步密码不正确');
-    });
-
-    it('恢复码被截断或粘错时不报「口令不对」，报格式', async () => {
-        const code = await createRecoveryCode(AUTH, PASSPHRASE);
-        await expect(readRecoveryCode(code.slice(10), PASSPHRASE))
-            .rejects.toThrow('恢复码格式不正确，请整段复制');
-        await expect(readRecoveryCode('HANTAB1.@@@not-base64@@@', PASSPHRASE))
-            .rejects.toThrow('恢复码格式不正确，请整段复制');
-    });
-
-    it('恢复码口令过短在加密前就拒绝', async () => {
-        await expect(createRecoveryCode(AUTH, '123')).rejects.toThrow('同步密码至少 6 位');
     });
 });
