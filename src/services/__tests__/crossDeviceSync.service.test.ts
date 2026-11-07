@@ -141,11 +141,19 @@ describe('crossDeviceSync.service', () => {
         expect(syncStore.has(REMOTE_AUTH_KEY)).toBe(false);
     });
 
-    it('登出（推送 null）会清掉同步区密文', async () => {
+    it('推送空凭据不再清掉同步区密文：一次失败的登录不该带走共用凭据', async () => {
+        await enableCrossDevice(PASSPHRASE, AUTH);
+        const before = syncStore.get(REMOTE_AUTH_KEY);
+
+        await expect(pushCrossDeviceAuth(null)).resolves.toBe(false);
+        expect(syncStore.get(REMOTE_AUTH_KEY)).toBe(before);
+    });
+
+    it('clearRemoteCrossDeviceAuth 才是清掉同步区密文的那一步', async () => {
         await enableCrossDevice(PASSPHRASE, AUTH);
         expect(syncStore.has(REMOTE_AUTH_KEY)).toBe(true);
 
-        await pushCrossDeviceAuth(null);
+        await clearRemoteCrossDeviceAuth();
         expect(syncStore.has(REMOTE_AUTH_KEY)).toBe(false);
     });
 

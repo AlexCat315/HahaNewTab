@@ -16,6 +16,9 @@ const { service } = vi.hoisted(() => ({
         enableCrossDevice: vi.fn(),
         disableCrossDevice: vi.fn(),
         pushCrossDeviceAuth: vi.fn(),
+        clearRemoteCrossDeviceAuth: vi.fn(async () => {}),
+        sendSyncAreaProbe: vi.fn(async () => null),
+        readIncomingSyncAreaProbe: vi.fn(async () => null),
         restoreCrossDeviceAuth: vi.fn(),
         createRecoveryCode: vi.fn(),
         readRecoveryCode: vi.fn(),
@@ -119,6 +122,32 @@ describe('crossDeviceAuth store', () => {
 
         setStatus({ hasPassphrase: false });
         expect(await store.push(AUTH).then(r => r.reason)).toBe('missing-passphrase');
+    });
+
+    it('本机没有凭据时推送只报「没有可推的」，绝不碰同步区', async () => {
+        const store = useCrossDeviceAuthStore();
+
+        expect(await store.push(null)).toEqual({
+            enabled: true,
+            pushed: false,
+            reason: 'no-local-auth'
+        });
+        expect(service.pushCrossDeviceAuth).not.toHaveBeenCalled();
+        expect(service.clearRemoteCrossDeviceAuth).not.toHaveBeenCalled();
+    });
+
+    it('clearRemote 是唯一由 store 发起的清除，且清完重新对账', async () => {
+        const store = useCrossDeviceAuthStore();
+        setStatus({ remoteAvailable: true });
+        await store.refresh();
+        expect(store.remoteAvailable).toBe(true);
+
+        // 清完之后同步区已经空了：镜像必须跟着重新读一次，否则界面还挂着「凭据：有」
+        setStatus({ remoteAvailable: false });
+        await store.clearRemote();
+
+        expect(service.clearRemoteCrossDeviceAuth).toHaveBeenCalled();
+        expect(store.remoteAvailable).toBe(false);
     });
 
     it('推送抛错时把原始信息一起交出，措辞由调用方决定', async () => {

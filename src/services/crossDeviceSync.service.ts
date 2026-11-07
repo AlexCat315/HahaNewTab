@@ -296,8 +296,15 @@ function getDeviceLabel(): string {
 /**
  * 推送登录凭据到同步区
  *
- * @param auth 为 null 表示已登出，需要清掉同步区的密文
- * @returns 是否真的写入了同步区；未启用 / 缺口令 / 登出时为 false
+ * @param auth 当前登录凭据；为空时**什么都不做**
+ * @returns 是否真的写入了同步区；未启用 / 缺口令 / 本机没登录时为 false
+ *
+ * 「没有凭据」不等于「把凭据删掉」，这两件事必须分开：同步区里那份可能是别的设备推来的，
+ * 而本机拿不到凭据的原因多得是——Token 验证失败、断网、被平台限流、刚换了平台。
+ * 早先这里在 auth 为空时顺手 syncRemove，于是任何一次失败的登录（包括自动恢复时
+ * 网络抖一下）都会把共用凭据连同其他设备的登录状态一起清没，用户看到的就永远是
+ * 「同一个账号、同一个密码，Token 就是同步不过来」。删除只在显式调用时发生：
+ * 见 `clearRemoteCrossDeviceAuth`（断开云同步）与 `disableCrossDevice`（关掉开关）。
  */
 export async function pushCrossDeviceAuth(auth: CrossDeviceAuth | null): Promise<boolean> {
     const state = await getCrossDeviceState();
@@ -306,8 +313,6 @@ export async function pushCrossDeviceAuth(auth: CrossDeviceAuth | null): Promise
     }
 
     if (!auth?.token) {
-        await syncRemove(REMOTE_AUTH_KEY);
-        await syncRemove(REMOTE_META_KEY);
         return false;
     }
 

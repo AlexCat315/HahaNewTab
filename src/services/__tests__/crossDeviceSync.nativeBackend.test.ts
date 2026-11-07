@@ -336,6 +336,44 @@ describe.each([['chrome'], ['firefox']] as const)('原生同步区（%s 风格 A
         expect(storeC.token).toBe(ROTATED);
     });
 
+    /**
+     * 「同一个账号、同一个密码，Token 就是同步不过来」的一条真成因
+     *
+     * 早先每次登录收尾都要往同步区推一次，而推的是「本机当前凭据」——登录没成时那是空的，
+     * 空值在旧逻辑里等于「清空同步区」。于是任何一次失败的验证（Token 打错、被限流、断网，
+     * 甚至只是自动恢复时平台回慢了）都会把共用那份连同**其他设备**的登录状态一起删掉，
+     * 而且这条删除同样会同步过去。这里守住：拿不到凭据就什么都不做，删除只属于断开与关闭。
+     */
+    it('自动恢复时平台拒了这份 Token：同步区里那份密文原样留着，下次开机还能再试', async () => {
+        await enableCrossDevice(OLD_PASS, { token: TOKEN, provider: 'github' });
+        const before = JSON.stringify(remoteRecord());
+
+        await becomeFreshDevice();
+        // 设备 B 已记下口令与开关，只差把同步区里那份取回来；此刻平台一律 401
+        await storageManager.setMany({
+            [STORAGE_KEYS.CROSS_DEVICE_ENABLED]: true,
+            [STORAGE_KEYS.CROSS_DEVICE_PASSPHRASE]: OLD_PASS
+        });
+        stubGitHubByLiveTokens(() => []);
+
+        const storeB = silentUI();
+        await storeB.init();
+
+        expect(storeB.token).toBeNull();
+        expect(JSON.stringify(remoteRecord())).toBe(before);
+    });
+
+    it('手动连一个验证不过的 Token：不碰同步区里别的设备推来的凭据', async () => {
+        await enableCrossDevice(OLD_PASS, { token: TOKEN, provider: 'github' });
+        const before = JSON.stringify(remoteRecord());
+        stubGitHubByLiveTokens(() => []);
+
+        const store = silentUI();
+        await expect(store.login('ghp_typo_token', 'github')).resolves.toBe(false);
+
+        expect(JSON.stringify(remoteRecord())).toBe(before);
+    });
+
     it('口令错时给出可读原因，不静默失败', async () => {
         const storeA = silentUI();
         await storeA.login(TOKEN, 'github');

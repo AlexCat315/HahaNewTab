@@ -1,10 +1,11 @@
 {
     "manifest_version": 3,
     "name": "HahaNewTab - 新标签页导航",
-    "version": "1.0.1.18",
+    "version": "1.0.1.19",
     "description": "统一管理和快速访问各类开发者工具和外部链接的应用导航中心",
     "author": "HahaNewTab",
     "homepage_url": "https://github.com/AlexCat315/HahaNewTab",
+    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsg7m+Cs78m8V0Tq5j8+vyC6P7vgHFEuzs0mltnKnlDE85myYnLqIDwoAfDhkFHLno+HVygy4xf8lDotDO8qx82Zu5EDPKvKBiL3WStGyav9Q39cH3OXMXSQdMXSL7QLjL5EfIuhDbgbhWX64iu+knYojii02pThoSBgV55/40Vi5xBjwYCbnlE82zVEcdJCiQp5liqrxBPBmXdbn4/+zM16sd6sqKwK8PzKmZI4/pzWUfQZbUo+aX+HR/z3+Jc02m38qtCJS/ftm4KshEI2cKm1Pz4+uUpIjL9LxNommOEw7GRMpi4FtLTOeb/sAOPQciMDCZGc8Ut2V8DR9EuiohwIDAQAB",
     "icons": {
         "16": "image/logo/logo_girl-16.png",
         "32": "image/logo/logo_girl-32.png",

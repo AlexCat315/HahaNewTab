@@ -12,6 +12,7 @@ import { ref } from 'vue';
 import { getSyncAreaStatus } from '@/services/syncStorage.service';
 import {
     createRecoveryCode,
+    clearRemoteCrossDeviceAuth,
     disableCrossDevice,
     enableCrossDevice,
     getCrossDeviceState,
@@ -49,7 +50,7 @@ export interface CrossDevicePushOutcome {
     enabled: boolean;
     /** 是否真的写进了同步区 */
     pushed: boolean;
-    reason?: 'missing-passphrase' | 'sync-area-unavailable' | 'error';
+    reason?: 'no-local-auth' | 'missing-passphrase' | 'sync-area-unavailable' | 'error';
     /** reason=error 时随带的原始信息 */
     message?: string;
 }
@@ -110,12 +111,18 @@ export const useCrossDeviceAuthStore = defineStore('crossDeviceAuth', () => {
      *
      * 已开启却没写成功必须让调用方知道，否则用户会以为「浏览器同步已经生效」，
      * 换设备时才发现根本没有凭据。
+     *
+     * `auth` 为空只表示「这台没有可推的凭据」，不表示「该把同步区清空」：
+     * 那里那份可能是别的设备推来的，一次失败的登录不该把它一起带走。
      */
     async function push(auth: CrossDeviceAuth | null): Promise<CrossDevicePushOutcome> {
         try {
             const state = await getCrossDeviceState();
             if (!state.enabled) {
                 return { enabled: false, pushed: false };
+            }
+            if (!auth?.token) {
+                return { enabled: true, pushed: false, reason: 'no-local-auth' };
             }
             if (await pushCrossDeviceAuth(auth)) {
                 return { enabled: true, pushed: true };
@@ -149,6 +156,17 @@ export const useCrossDeviceAuthStore = defineStore('crossDeviceAuth', () => {
             return { enabled: true, pushed: true };
         }
         return push(auth);
+    }
+
+    /**
+     * 清掉同步区里那份共用凭据（本机开关与口令保留）
+     *
+     * 删除凭据只有两个正当理由：用户主动断开云同步，或用户关掉浏览器同步开关。
+     * 所以这一步单独成一个动作，不夹在「推送」的失败分支里。
+     */
+    async function clearRemote(): Promise<void> {
+        await clearRemoteCrossDeviceAuth();
+        await refresh();
     }
 
     /** 本机保存的同步密码（没有则 null）；导出恢复码时默认拿它 */
@@ -237,6 +255,7 @@ export const useCrossDeviceAuthStore = defineStore('crossDeviceAuth', () => {
         probeSyncArea,
         push,
         pushIfMissing,
+        clearRemote,
         createRecovery,
         restoreWithRecovery,
         readStoredPassphrase,

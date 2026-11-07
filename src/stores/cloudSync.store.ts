@@ -327,8 +327,12 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         try {
             uiAdapter.value.showToast('正在验证 Token...', 'info');
             const result = await cloudSyncService.saveToken(inputToken, providerId);
-            await pushAuthToCrossDevice();
-            await refreshCrossDevice();
+            // 只有真存下了凭据才动同步区：验证失败（Token 打错、被限流、断网）时
+            // currentAuth() 是空的，那时候推一次等于把别的设备推来的那份一起带走
+            if (result.success) {
+                await pushAuthToCrossDevice();
+                await refreshCrossDevice();
+            }
             reportConnectResult(result);
             return result.success;
         } catch (e) {
@@ -356,8 +360,9 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         error.value = null;
         try {
             await cloudSyncService.logout();
-            await pushAuthToCrossDevice();
-            await refreshCrossDevice();
+            // 断开是用户明确要清除共用凭据的唯一时机（另一半是关掉浏览器同步开关）。
+            // 走显式的 clearRemote，而不是「推一份空的」——后者曾经会把失败也当成清空。
+            await crossDevice.clearRemote();
             uiAdapter.value.showToast('已断开云同步', 'success');
         } catch (e) {
             error.value = e instanceof Error ? e.message : String(e);
@@ -372,11 +377,17 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
      *
      * 没开浏览器同步时什么都不说；已开启却没写成功（本机口令丢了、同步区不可用）必须提示，
      * 否则用户会以为「浏览器同步已经生效」，换设备时才发现根本没有凭据。
-     * 断开同步时同样要推一次空的，把同步区里那份旧凭据带走。
+     *
+     * 本机没有凭据时什么都不做：同步区里那份可能是别的设备推来的，
+     * 清空它只在断开云同步（`logout`）和关掉开关（`disableCrossDeviceSync`）时发生。
      */
     async function pushAuthToCrossDevice(): Promise<void> {
-        const outcome = await crossDevice.push(currentAuth());
-        if (!outcome.enabled || outcome.pushed || !token.value) {
+        const auth = currentAuth();
+        if (!auth) {
+            return;
+        }
+        const outcome = await crossDevice.push(auth);
+        if (!outcome.enabled || outcome.pushed) {
             return;
         }
         announcePushOutcome(outcome);
