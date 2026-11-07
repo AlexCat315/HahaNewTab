@@ -8,7 +8,6 @@ import { computed, onMounted, onUnmounted } from 'vue';
 import type { ComputedRef } from 'vue';
 import { useCloudSyncStore } from '@/stores/cloudSync.store';
 import type {
-    CloudSyncProviderId,
     DownloadResult,
     GitHubUserInfo,
     ICloudSyncUIAdapter,
@@ -25,7 +24,6 @@ export interface UseCloudSyncOptions {
 export interface UseCloudSyncReturn {
     token: ComputedRef<string | null>;
     gistId: ComputedRef<string | null>;
-    provider: ComputedRef<CloudSyncProviderId>;
     autoSync: ComputedRef<boolean>;
     userInfo: ComputedRef<GitHubUserInfo | null>;
     lastSyncTime: ComputedRef<number>;
@@ -35,22 +33,16 @@ export interface UseCloudSyncReturn {
     statusText: ComputedRef<string>;
     formattedLastSyncTime: ComputedRef<string>;
     init: () => Promise<void>;
-    login: (inputToken: string, providerId?: CloudSyncProviderId) => Promise<boolean>;
+    /** 保存 OAuth 授权换到的 access_token */
+    login: (accessToken: string) => Promise<boolean>;
     logout: () => Promise<void>;
     setAutoSync: (enabled: boolean) => Promise<void>;
     upload: (options?: { silent?: boolean }) => Promise<UploadResult>;
     sync: (options?: { silent?: boolean }) => Promise<SyncResult>;
     download: () => Promise<DownloadResult>;
     pullAndApply: (options?: { force?: boolean; silent?: boolean }) => Promise<PullResult>;
-    showLoginDialog: () => Promise<void>;
     cancelPending: () => void;
 }
-
-/** 平台标识到显示名的映射 */
-const PROVIDER_NAMES: Record<CloudSyncProviderId, string> = {
-    github: 'GitHub',
-    gitee: 'Gitee'
-};
 
 function formatDateTime(timestamp: number): string {
     if (!timestamp) {
@@ -108,7 +100,7 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
             return '同步中...';
         }
         if (store.isLoggedIn && store.userInfo) {
-            return `已连接：${PROVIDER_NAMES[store.provider] ?? store.provider} / ${store.userInfo.login}`;
+            return `已连接：GitHub / ${store.userInfo.login}`;
         }
         return '未连接';
     });
@@ -160,8 +152,8 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         return createAbortable(() => store.init());
     }
 
-    async function login(inputToken: string, providerId?: CloudSyncProviderId): Promise<boolean> {
-        return createAbortable(() => store.login(inputToken, providerId));
+    async function login(accessToken: string): Promise<boolean> {
+        return createAbortable(() => store.login(accessToken));
     }
 
     async function logout(): Promise<void> {
@@ -188,10 +180,6 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         return createAbortable(() => store.pullAndApply(opts));
     }
 
-    async function showLoginDialog(): Promise<void> {
-        return createAbortable(() => store.showLoginDialog());
-    }
-
     onMounted(() => {
         // 本地数据一落盘就防抖触发自动同步；变更源是存储内核，覆盖所有写入路径
         store.startAutoSyncWatch();
@@ -208,7 +196,6 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
     return {
         token: computed(() => store.token),
         gistId: computed(() => store.gistId),
-        provider: computed(() => store.provider),
         autoSync: computed(() => store.autoSync),
         userInfo: computed(() => store.userInfo),
         lastSyncTime: computed(() => store.lastSyncTime),
@@ -225,7 +212,6 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         sync,
         download,
         pullAndApply,
-        showLoginDialog,
         cancelPending
     };
 }

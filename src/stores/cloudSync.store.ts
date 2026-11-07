@@ -2,7 +2,7 @@
  * 云同步 Store：把服务层的结果写回界面
  *
  * 服务层（cloudSync.service.ts 及其下四个模块）只返回结构化结果，本层负责剩下三件事：
- *   - 界面状态镜像：账号六项跟着服务层的设置订阅抄一份，操作态（isLoading/error）自己管；
+ *   - 界面状态镜像：账号设置跟着服务层的设置订阅抄一份，操作态（isLoading/error）自己管；
  *   - 提示口径：弹什么、弹几次（同一轮自动同步的故障只说一次）由 reportSyncResult / reportConnectResult 定；
  *   - 需要用户点头的操作：断开同步、用云端覆盖本地，先确认再交给服务层。
  * 「什么时候再同步一次」本身在 cloudSync/autoSync.ts，怎么合并怎么传输在服务层。
@@ -15,12 +15,10 @@ import { trace } from '@/services/diag.service';
 import { CloudSyncService, createCloudSyncService } from '@/services/cloudSync.service';
 import type { CloudSettingsChange } from '@/services/cloudSync.service';
 import { AutoSyncScheduler } from '@/services/cloudSync/autoSync';
-import { providerProfile } from '@/services/cloudSync/transport';
 import { createCloudSyncDataManager } from './cloudSyncDataManager';
 import type {
     ConnectResult,
     ICloudSyncUIAdapter,
-    CloudSyncProviderId,
     CloudSyncSettings,
     GitHubUserInfo,
     UploadResult,
@@ -45,7 +43,7 @@ const DEFAULT_UI_ADAPTER: ICloudSyncUIAdapter = {
 export const useCloudSyncStore = defineStore('cloudSync', () => {
     const uiAdapter = ref<ICloudSyncUIAdapter>(DEFAULT_UI_ADAPTER);
 
-    /** GitHub Token */
+    /** GitHub OAuth access_token */
     const token = ref<string | null>(null);
     /** 同步用 Gist ID */
     const gistId = ref<string | null>(null);
@@ -55,8 +53,6 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     const userInfo = ref<GitHubUserInfo | null>(null);
     /** 上次同步时间戳 */
     const lastSyncTime = ref(0);
-    /** 当前连接的同步平台 */
-    const provider = ref<CloudSyncProviderId>('github');
     /** 是否正在执行云同步操作 */
     const isLoading = ref(false);
     /** 最近一次错误信息 */
@@ -112,7 +108,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     }
 
     /**
-     * 界面状态镜像：这六项的真相在服务层的设置模块与账本里，这里只跟着抄一份
+     * 界面状态镜像：这几项的真相在服务层的设置模块与账本里，这里只跟着抄一份
      * 唯一的一条同步路径是服务层的订阅，动作函数里不再各自对账。
      */
     function applySettings(settings: CloudSyncSettings): void {
@@ -121,15 +117,13 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         autoSync.value = settings.autoSync;
         userInfo.value = settings.userInfo;
         lastSyncTime.value = settings.lastSyncTime;
-        provider.value = settings.provider;
     }
 
     /**
      * 设置变化 → 刷新界面；来自其他页面时还要顺带清掉旧的错误提示
      *
      * 面板常驻挂载（模态框用 v-show），设置只在启动时读一次；少了这条订阅，
-     * A 标签页输入 Token 后，同时开着的 B 标签页仍显示未登录、也不参与自动同步，
-     * 看起来就像「Token 没同步过来」。
+     * A 标签页完成授权后，同时开着的 B 标签页仍显示未连接、也不参与自动同步。
      */
     function handleSettingsChange(change: CloudSettingsChange): void {
         applySettings(change.settings);
@@ -139,7 +133,6 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         trace('cloud-sync', {
             outcome: 'adopted-page-settings',
             loggedIn: !!token.value,
-            provider: provider.value,
             authChanged: change.authChanged
         });
         if (change.authChanged) {
@@ -182,24 +175,20 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     }
 
     /**
-     * 使用 Token 登录
-     * 验证通过后持久化。
-     *
-     * 注意：即使同步空间没建出来，Token 也已经保存成功；
-     * 设置模块在写成的那一刻就通知了界面，所以这里不会停在「未连接」，
-     * 用户反复点「连接」不像没反应。
+     * 保存 OAuth 授权换到的 access_token
+     * 验证通过后持久化；即使同步空间没建出来，凭据也已经保存成功。
      */
-    async function login(inputToken: string, providerId?: CloudSyncProviderId): Promise<boolean> {
-        if (!inputToken.trim()) {
-            uiAdapter.value.showToast('请输入 Token', 'error');
+    async function login(accessToken: string): Promise<boolean> {
+        if (!accessToken.trim()) {
+            uiAdapter.value.showToast('授权未返回有效凭据，请重试', 'error');
             return false;
         }
 
         isLoading.value = true;
         error.value = null;
         try {
-            uiAdapter.value.showToast('正在验证 Token...', 'info');
-            const result = await cloudSyncService.saveToken(inputToken, providerId);
+            uiAdapter.value.showToast('正在验证 GitHub 授权...', 'info');
+            const result = await cloudSyncService.saveToken(accessToken);
             reportConnectResult(result);
             return result.success;
         } catch (e) {
@@ -253,11 +242,11 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
             const result = await cloudSyncService.upload();
             if (result.success) {
                 if (!silent) {
-                    uiAdapter.value.showToast(`数据已同步到 ${providerProfile(provider.value).name}`, 'success');
+                    uiAdapter.value.showToast('数据已同步到 GitHub', 'success');
                 }
             } else if (result.skipped) {
                 if (result.skipped === 'not-authenticated' && !silent) {
-                    uiAdapter.value.showToast('请先配置 Token', 'error');
+                    uiAdapter.value.showToast('请先完成 GitHub 授权', 'error');
                 }
             } else {
                 // 手动点「上传」就是明确要一个结果，失败必定说
@@ -315,7 +304,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         if (result.skipped) {
             // 重试是本层自己排的，用户没登录时手动点同步才需要知道为什么没动
             if (result.skipped === 'not-authenticated' && !silent) {
-                uiAdapter.value.showToast('请先配置 Token', 'error');
+                uiAdapter.value.showToast('请先完成 GitHub 授权', 'error');
             }
             return;
         }
@@ -329,17 +318,19 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     function reportConnectResult(result: ConnectResult): void {
         if (!result.success) {
             uiAdapter.value.showToast(
-                result.reason === 'empty' ? '请输入 Token' : 'Token 验证失败：' + (result.message ?? '未知错误'),
+                result.reason === 'empty'
+                    ? '授权未返回有效凭据，请重试'
+                    : 'GitHub 授权验证失败：' + (result.message ?? '未知错误'),
                 'error'
             );
             return;
         }
         if (result.reason === 'gist-unavailable') {
-            // Token 已经存下，用户至少「连上」了；同步空间稍后重试即可
+            // 凭据已经存下，用户至少「连上」了；同步空间稍后重试即可
             uiAdapter.value.showToast(`账号已连接，但同步空间初始化失败：${result.message}`, 'error');
             return;
         }
-        uiAdapter.value.showToast(`${providerProfile(provider.value).name} 账号已连接`, 'success');
+        uiAdapter.value.showToast('GitHub 账号已连接', 'success');
     }
 
     /**
@@ -366,7 +357,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
      */
     async function pullAndApply({ force = false, silent = false }: { force?: boolean; silent?: boolean } = {}): Promise<PullResult> {
         if (!token.value) {
-            if (!silent) uiAdapter.value.showToast('请先配置 Token', 'error');
+            if (!silent) uiAdapter.value.showToast('请先完成 GitHub 授权', 'error');
             return { success: false };
         }
 
@@ -414,26 +405,6 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         return lastSyncTime.value ? new Date(lastSyncTime.value).toLocaleString() : '从未上传';
     }
 
-    /**
-     * 显示 Token 输入对话框并尝试登录。
-     */
-    async function showLoginDialog(): Promise<void> {
-        const profile = providerProfile(provider.value);
-        const inputToken = await uiAdapter.value.showPrompt(
-            `请输入 ${profile.name} Token（${profile.tokenHint}）`,
-            {
-                title: `连接 ${profile.name}`,
-                confirmText: '连接',
-                cancelText: '取消',
-                inputPlaceholder: profile.tokenPlaceholder,
-                inputType: 'password'
-            }
-        );
-        if (inputToken) {
-            await login(inputToken);
-        }
-    }
-
     /** 是否已登录 */
     const isLoggedIn = computed(() => !!token.value);
 
@@ -447,7 +418,6 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         autoSync,
         userInfo,
         lastSyncTime,
-        provider,
         isLoading,
         error,
         // Getters
@@ -462,7 +432,6 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         sync,
         download,
         pullAndApply,
-        showLoginDialog,
         scheduleAutoSync,
         startAutoSyncWatch,
         stopAutoSyncWatch,

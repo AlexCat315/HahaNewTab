@@ -16,10 +16,7 @@ export type CloudSettingsStorage = Pick<IStorageManager, 'getMany' | 'setMany' |
 /** 同步账本（base 快照 + 已见版本 + 上次同步时间）需要的存储能力 */
 export type CloudLedgerStorage = Pick<IStorageManager, 'get' | 'setMany' | 'subscribe'>;
 
-/**
- * GitHub 用户信息
- * GitHub / Gitee 的 GET /user 返回结构一致，两平台通用
- */
+/** GET /user 返回的用户信息 */
 export interface GitHubUserInfo {
     login: string;
     id: number;
@@ -27,28 +24,16 @@ export interface GitHubUserInfo {
 }
 
 /**
- * 云同步平台标识
- */
-export type CloudSyncProviderId = 'github' | 'gitee';
-
-/**
- * 同步平台适配器
- * 封装 GitHub / Gitee 的 Gist（代码片段）CRUD 与 Token 验证差异，
- * 供 CloudSyncService 统一调用；网络超时与错误分类由实现内部处理。
+ * GitHub Gist 客户端
+ * 封装 Gist CRUD 与凭据验证；网络超时与错误分类由实现内部处理。
  */
 export interface ISyncProvider {
-    /** 平台标识 */
-    readonly id: CloudSyncProviderId;
-    /** 平台显示名 */
-    readonly name: string;
-    /** Token 获取地址提示（登录面板展示） */
-    readonly tokenHint: string;
     /**
      * 单个文件的写入上限（字节）
      * 上传前按它自检，资源分片也按它切块，避免撞上限后只拿到一个含糊的 422。
      */
     readonly maxFileBytes: number;
-    /** 验证 Token 并返回用户信息，失败时抛出错误 */
+    /** 验证凭据并返回用户信息，失败时抛出错误 */
     validateToken(token: string): Promise<GitHubUserInfo>;
     /** 列出用户 Gist（含 files 元数据） */
     listGists(token: string): Promise<Gist[]>;
@@ -140,12 +125,12 @@ export interface SyncData {
 /**
  * 一轮传输用的凭据
  *
- * 整轮都用同一份：Token 或平台在几次网络往返之间被别的页面改掉时，
+ * 整轮都用同一份：Token 在几次网络往返之间被别的页面改掉时，
  * 不能出现「前半截用旧 Token 读、后半截用新 Token 写」的半新半旧的包。
  */
 export interface CloudTarget {
+    /** GitHub OAuth access_token（gist scope） */
     token: string;
-    providerId: CloudSyncProviderId;
 }
 
 /**
@@ -209,9 +194,9 @@ export interface PullResult {
 }
 
 /**
- * 连接账号（保存并验证 Token）的结果
+ * 连接账号（保存并验证 OAuth token）的结果
  *
- * `success` 只说「Token 是不是能用」；同步空间没建出来算「连上了但有话要说」，
+ * `success` 只说「凭据是不是能用」；同步空间没建出来算「连上了但有话要说」，
  * 该说哪句由界面层按 reason 决定，服务不猜有没有人在看。
  */
 export interface ConnectResult {
@@ -243,8 +228,8 @@ export interface SyncResult {
     /** 没走到云端的原因；缺省表示这一轮请求发出去过并失败了 */
     skipped?: SyncSkipReason;
     /**
-     * 平台明确拒绝了本机这份 Token（401），凭据已被清掉
-     * 与「只是连不上」区别对待：前者该去浏览器同步区拿另一台设备推来的新凭据，
+     * 平台明确拒绝了本机这份凭据（401），凭据已被清掉
+     * 与「只是连不上」区别对待：前者要让用户重新授权，
      * 后者不能——否则断网启动就把用户的登录状态抹了。
      */
     authRejected?: boolean;
@@ -264,13 +249,11 @@ export interface CloudSyncSettings {
     autoSync: boolean;
     lastSyncTime: number;
     userInfo: GitHubUserInfo | null;
-    /** 当前连接的同步平台 */
-    provider: CloudSyncProviderId;
 }
 
 /**
  * 账号侧设置
- * 这五项由用户直接左右；`lastSyncTime` 不是——它是一轮同步走通后的记账结果，
+ * 这四项由用户直接左右；`lastSyncTime` 不是——它是一轮同步走通后的记账结果，
  * 归同步账本（cloudSync/ledger.ts）所有，所以这里单独切出一份。
  */
 export type CloudAccountSettings = Omit<CloudSyncSettings, 'lastSyncTime'>;

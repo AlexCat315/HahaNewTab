@@ -1,32 +1,28 @@
 /**
- * 云同步账号设置：token / gistId / 自动同步开关 / 平台 / 用户信息的唯一主人
+ * 云同步账号设置：token / gistId / 自动同步开关 / 用户信息的唯一主人
  *
- * 重构前它有两个主人——`CloudSyncService` 的私有字段和 store 的六个 ref，
+ * 重构前它有两个主人——`CloudSyncService` 的私有字段和 store 的若干 ref，
  * 靠手写的 `syncStateFromService()` 在对账；跨标签页传播又要再补一条
- * `applyExternalSettings()`。三份代码描述同一份状态，漏掉任何一条接线
- * 就是界面上「Token 明明填了却像没填」这类问题。
+ * `applyExternalSettings()`。几份代码描述同一份状态，漏掉任何一条接线
+ * 就是界面上「明明连上了却像没连」这类问题。
  *
  * 现在的形状：
- *   - 只有这个模块读写这五项存储键，别人要么 `get()` 要么 `watch()`；
- *   - 写入走 `save(patch)`，只写真的变了的那几项（旧实现每次都全量写六项，
- *     于是更新一下同步时间也会把 Token 重新广播一遍）；
+ *   - 只有这个模块读写这四项存储键，别人要么 `get()` 要么 `watch()`；
+ *   - 写入走 `save(patch)`，只写真的变了的那几项；
  *   - 别的页面写进来时走 `applyExternal(changes)`，同样只更新内存、不回写，
  *     否则两个页面会互相触发；
  *   - 订阅者（store 的镜像、服务层的判断）拿到的是同一份快照，不会再各自漂移。
  *
  * 「上次同步时间」不在这里：它跟着 base 快照同一批写入，属于同步账本的内容。
+ * OAuth App 的 Client ID 也不在这里：那是应用配置，断开连接不该把它清掉。
  */
 
 import { STORAGE_KEYS } from '@/types/storage';
 import type { StorageChanges, StorageValue } from '@/types/storage';
 import type {
     CloudAccountSettings,
-    CloudSettingsStorage,
-    CloudSyncProviderId
+    CloudSettingsStorage
 } from '@/types/cloudSync.types';
-
-/** 默认平台：老用户有 Token 但没记录过平台时按 GitHub 处理 */
-export const DEFAULT_CLOUD_PROVIDER: CloudSyncProviderId = 'github';
 
 /** 空设置：尚未连接任何账号 */
 export function emptySettings(): CloudAccountSettings {
@@ -34,8 +30,7 @@ export function emptySettings(): CloudAccountSettings {
         token: null,
         gistId: null,
         autoSync: false,
-        userInfo: null,
-        provider: DEFAULT_CLOUD_PROVIDER
+        userInfo: null
     };
 }
 
@@ -44,19 +39,18 @@ const SETTING_FIELDS: readonly { key: string; field: keyof CloudAccountSettings 
     { key: STORAGE_KEYS.CLOUD_TOKEN, field: 'token' },
     { key: STORAGE_KEYS.CLOUD_GIST_ID, field: 'gistId' },
     { key: STORAGE_KEYS.CLOUD_AUTO_SYNC, field: 'autoSync' },
-    { key: STORAGE_KEYS.CLOUD_USER_INFO, field: 'userInfo' },
-    { key: STORAGE_KEYS.CLOUD_PROVIDER, field: 'provider' }
+    { key: STORAGE_KEYS.CLOUD_USER_INFO, field: 'userInfo' }
 ];
 
 /** 云同步设置涉及的全部存储键（诊断与订阅过滤用） */
 export const CLOUD_SETTING_KEYS: readonly string[] = SETTING_FIELDS.map(({ key }) => key);
 
 const FIELD_BY_KEY = new Map(SETTING_FIELDS.map(({ key, field }) => [key, field]));
-const KEY_BY_FIELD = new Map(SETTING_FIELDS.map(({ key, field }) => [field, key]));
+const KEY_BY_FIELD = new Map(SETTING_FIELDS.map(({ field, key }) => [field, key]));
 
 /** 设置里哪些项真的换了；凭据换了的含义与「只是缓存动了」完全不同 */
 export interface SettingsDelta {
-    /** 凭据或平台变了：Gist、用户信息必须跟着新账号走 */
+    /** 凭据变了：Gist、用户信息必须跟着新账号走 */
     authChanged: boolean;
     /** 任何一项变了 */
     changed: boolean;
@@ -85,16 +79,13 @@ function normalize(key: string, value: unknown): unknown {
         // 只有真的 true 才算开启：这个开关会决定要不要往云端写数据，不能靠猜
         return value === true;
     }
-    if (key === STORAGE_KEYS.CLOUD_PROVIDER) {
-        return value === undefined || value === null ? DEFAULT_CLOUD_PROVIDER : value;
-    }
     return value === undefined ? null : value;
 }
 
 function describe(next: CloudAccountSettings, previous: CloudAccountSettings): SettingsDelta {
     const changed = (Object.keys(next) as (keyof CloudAccountSettings)[])
         .some(field => !sameValue(next[field], previous[field]));
-    const authChanged = next.token !== previous.token || next.provider !== previous.provider;
+    const authChanged = next.token !== previous.token;
     return { changed, authChanged, fromOtherPage: false };
 }
 
@@ -136,11 +127,10 @@ export class CloudSettings {
     }
 
     /**
-     * 观察存储：别的标签页登录、换 Token、断开同步时本页立刻跟上
+     * 观察存储：别的标签页登录、换账号、断开同步时本页立刻跟上
      *
      * 云同步面板是常驻挂载的（模态框用 v-show），设置只在启动时读一次；
-     * 缺了这条订阅，A 标签页登录后同时开着的 B 标签页会一直停在「未登录」，
-     * 既不参与自动同步，界面上也像 Token 丢了。
+     * 缺了这条订阅，A 标签页登录后同时开着的 B 标签页会一直停在「未登录」。
      */
     observe(): () => void {
         if (!this.unsubscribeFromStorage) {

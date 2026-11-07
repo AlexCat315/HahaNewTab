@@ -699,12 +699,12 @@ describe('cloudSync store', () => {
         const { store, messages } = trackToasts();
         const syncSpy = vi.spyOn(CloudSyncService.prototype, 'sync');
         try {
-            syncSpy.mockResolvedValue({ success: false, skipped: 'not-authenticated', message: '请先配置 Token' });
+            syncSpy.mockResolvedValue({ success: false, skipped: 'not-authenticated', message: '请先完成 GitHub 授权' });
             await store.sync({ silent: true });
             expect(messages).toEqual([]);
 
             await store.sync();
-            expect(messages).toEqual(['请先配置 Token']);
+            expect(messages).toEqual(['请先完成 GitHub 授权']);
         } finally {
             syncSpy.mockRestore();
         }

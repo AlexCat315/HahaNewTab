@@ -5,13 +5,12 @@ import type { SyncSnapshot } from '@/utils/syncMerge.util';
 import { SyncProviderError } from '@/services/gistProvider.service';
 import * as transport from '@/services/cloudSync/transport';
 import { assertRemoteUsable, planSync } from '@/services/cloudSync/engine';
-import { CloudSettings, DEFAULT_CLOUD_PROVIDER } from '@/services/cloudSync/settings';
+import { CloudSettings } from '@/services/cloudSync/settings';
 import type { SettingsDelta } from '@/services/cloudSync/settings';
 import { SyncLedger } from '@/services/cloudSync/ledger';
 import type {
     CloudBundle,
     CloudSyncDependencies,
-    CloudSyncProviderId,
     CloudSyncSettings,
     CloudSyncStorage,
     CloudTarget,
@@ -26,7 +25,7 @@ import type {
 /** 一次设置变化的完整描述：新的快照 + 这一轮该做什么 */
 export interface CloudSettingsChange {
     settings: CloudSyncSettings;
-    /** 凭据或平台换了：界面要清空错误提示、重新读取浏览器同步区 */
+    /** 凭据换了：界面要清空错误提示 */
     authChanged: boolean;
     /** 变化来自同一浏览器的其他页面 */
     fromOtherPage: boolean;
@@ -35,7 +34,7 @@ export interface CloudSettingsChange {
 /** 启动那一轮的结果：凭据判定的结论 + 是否真跑了一次同步 */
 export interface CloudSyncStartupResult {
     /**
-     * 平台明确拒绝本机保存的 Token（已撤销或过期）时的原因，此时凭据已被清掉；
+     * 平台明确拒绝本机保存的凭据（已撤销或过期）时的原因，此时凭据已被清掉；
      * 其余情况（凭据有效、没登录、只是连不上）为 null
      */
     rejectedReason: string | null;
@@ -47,9 +46,9 @@ export interface CloudSyncStartupResult {
  * 云同步编排层
  *
  * 四类知识各自只在一个地方，本类只负责按顺序把它们串起来：
- *   - `cloudSync/settings.ts` —— 账号与开关（Token、Gist、平台、自动同步、用户信息）；
+ *   - `cloudSync/settings.ts` —— 账号与开关（Token、Gist、自动同步、用户信息）；
  *   - `cloudSync/ledger.ts` —— 本机与云端对齐到哪一版（base 快照、已见版本、上次同步时间）；
- *   - `cloudSync/transport.ts` —— 云端长什么样（文件、分片、平台与超时差异）；
+ *   - `cloudSync/transport.ts` —— 云端长什么样（文件、分片、超时差异）；
  *   - `cloudSync/engine.ts` —— 三份数据怎么合成一份（校验、旧版本顶替、首次同步定方向、冲突取向）。
  *
  * 同步哪些键、怎么校验、怎么合并全部由存储键注册表决定。
@@ -96,10 +95,6 @@ export class CloudSyncService {
         return this.account.get().autoSync;
     }
 
-    private get providerId(): CloudSyncProviderId {
-        return this.account.get().provider;
-    }
-
     /**
      * 本轮云端请求用的凭据快照
      * 服务层不再逐个方法碰适配器：平台差异、文件名、分片大小全在传输层，这里只交出一份凭据。
@@ -110,7 +105,7 @@ export class CloudSyncService {
         if (!token) {
             throw new Error('未配置 Token');
         }
-        return { token, providerId: this.providerId };
+        return { token };
     }
 
     /**
@@ -128,14 +123,14 @@ export class CloudSyncService {
 
         const rejected = await this.checkToken(this.token);
         if (rejected) {
-            // 到这一步，云端账号六项里唯一还能骗过界面的就是这份 Token：留着它，
+            // 到这一步，云端账号里唯一还能骗过界面的就是这份 Token：留着它，
             // 界面按缓存的用户信息一路显示「已连接」，而每一次同步都注定失败。
             // 与 sync()/upload() 撞到 401 时同一个处理，差别只在于这里要说明原因。
             await this.account.save({ token: null, userInfo: null });
             return { rejectedReason: rejected, sync: null };
         }
 
-        // 连不上、超时都不等于 Token 失效（见 checkToken）：照常走启动那一轮，
+        // 连不上、超时都不等于凭据失效（见 checkToken）：照常走启动那一轮，
         // 失败原因由 sync() 如实交出去，而不是在这里替它决定「那就不用试了」
         return {
             rejectedReason: null,
@@ -162,7 +157,7 @@ export class CloudSyncService {
      */
     private async checkToken(token: string): Promise<string | null> {
         try {
-            const user = await transport.validateToken(token, this.providerId);
+            const user = await transport.validateToken(token);
             await this.account.save({ token, userInfo: user });
             return null;
         } catch (e) {
@@ -212,12 +207,12 @@ export class CloudSyncService {
             return { success: false, retry: true, skipped: 'in-progress', message: '同步进行中' };
         }
         if (!this.token) {
-            return { success: false, skipped: 'not-authenticated', message: '请先配置 Token' };
+            return { success: false, skipped: 'not-authenticated', message: '请先完成 GitHub 授权' };
         }
 
         this.syncInProgress = true;
         try {
-            // 一轮之内凭据、基线、云端内容各自只取一次：中途换了 Token 或别的页面写完 base，
+            // 一轮之内凭据、基线、云端内容各自只取一次：中途换了账号或别的页面写完 base，
             // 都不能让这一轮拿着半新半旧的三份数据去做合并
             const target = this.target();
             const round = await this.ledger.beginRound();
@@ -296,7 +291,7 @@ export class CloudSyncService {
      */
     async upload(): Promise<UploadResult> {
         if (this.syncInProgress) return { success: false, skipped: 'in-progress', message: '同步进行中' };
-        if (!this.token) return { success: false, skipped: 'not-authenticated', message: '请先配置 Token' };
+        if (!this.token) return { success: false, skipped: 'not-authenticated', message: '请先完成 GitHub 授权' };
 
         this.syncInProgress = true;
         const target = this.target();
@@ -324,7 +319,7 @@ export class CloudSyncService {
      */
     async download(): Promise<DownloadResult> {
         if (this.syncInProgress) return { success: false, skipped: 'in-progress', message: '同步进行中' };
-        if (!this.token) return { success: false, skipped: 'not-authenticated', message: '请先配置 Token' };
+        if (!this.token) return { success: false, skipped: 'not-authenticated', message: '请先完成 GitHub 授权' };
 
         this.syncInProgress = true;
         const target = this.target();
@@ -353,11 +348,12 @@ export class CloudSyncService {
     }
 
     /**
-     * 保存并验证 Token
-     * @param providerId 目标平台；切换平台会重置 gistId/base 快照/上次同步时间，
-     *                   避免旧平台的 base 让新平台的空远端被误判为「远端删除全部」
+     * 保存并验证 OAuth 授权换到的 access_token
+     *
+     * 换账号时上一家的基线与 Gist 一并作废，留着旧 base 会让新账号的空远端
+     * 被误判为「远端删除全部」。
      */
-    async saveToken(token: string, providerId: CloudSyncProviderId = this.providerId): Promise<ConnectResult> {
+    async saveToken(token: string): Promise<ConnectResult> {
         token = token.trim();
         if (!token) {
             return { success: false, reason: 'empty' };
@@ -365,30 +361,27 @@ export class CloudSyncService {
 
         let userInfo: GitHubUserInfo;
         try {
-            userInfo = await transport.validateToken(token, providerId);
+            userInfo = await transport.validateToken(token);
         } catch (e) {
             const message = e instanceof Error ? e.message : String(e);
-            console.error('[CloudSync] Token 验证失败:', e);
+            console.error('[CloudSync] 凭据验证失败:', e);
             return { success: false, reason: 'invalid-token', message };
         }
 
-        // 换平台或换账号：上一家的基线与 Gist 一并作废，
-        // 留着旧平台的 base 会让新平台的空远端被误判为「远端删除全部」
-        const switchingAccount = providerId !== this.providerId || token !== this.token;
+        const switchingAccount = token !== this.token;
         if (switchingAccount) {
             await this.ledger.discard();
         }
         await this.account.save({
             token,
-            provider: providerId,
             userInfo,
             ...(switchingAccount ? { gistId: null } : {})
         });
 
         // Gist 初始化失败（无 gist 权限 / 网络受限）不应让整次登录失败：
-        // Token 已验证且已保存，用户至少已经「连上」，可以稍后重试同步。
+        // 凭据已验证且已保存，用户至少已经「连上」，可以稍后重试同步。
         try {
-            await this.resolveGistId({ token, providerId });
+            await this.resolveGistId({ token });
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             console.warn('[CloudSync] 初始化 Gist 失败:', error);
@@ -399,16 +392,16 @@ export class CloudSyncService {
     }
 
     /**
-     * 断开云同步：清空云同步配置（含 base 快照与平台选择），本地数据一律不动
+     * 断开云同步：清空云同步配置（含 base 快照），本地数据一律不动
      *
      * 「真的要断开吗」是界面要问的话，见 store.logout。
+     * OAuth App 的 Client ID 不属于账号凭据，保留下来供下一次授权直接用。
      */
     async logout(): Promise<void> {
         await this.account.save({
             token: null,
             gistId: null,
-            userInfo: null,
-            provider: DEFAULT_CLOUD_PROVIDER
+            userInfo: null
         });
         await this.ledger.discard();
     }
@@ -432,7 +425,7 @@ export class CloudSyncService {
 
     /**
      * 当前设置快照
-     * 账号侧来自 CloudSettings，上次同步时间来自账本，两份合起来才是界面看到的六项。
+     * 账号侧来自 CloudSettings，上次同步时间来自账本，两份合起来才是界面看到的五项。
      */
     get settings(): CloudSyncSettings {
         return { ...this.account.get(), lastSyncTime: this.ledger.lastSyncTime() };
@@ -478,7 +471,7 @@ export class CloudSyncService {
     }
 
     /**
-     * Token 失效（401）：清空本地 Token 与用户信息，保留 gistId 以便重新连接后复用
+     * 授权失效（401）：清空本地凭据与用户信息，保留 gistId 以便重新授权后复用
      */
     private async handleIfUnauthorized(e: unknown): Promise<boolean> {
         if (e instanceof SyncProviderError && e.status === 401) {

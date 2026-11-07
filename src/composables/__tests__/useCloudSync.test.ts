@@ -508,10 +508,10 @@ describe('useCloudSync composable', () => {
         const wrapper = mount(createTestComponent({ uiAdapter }));
         await flushPromises();
 
-        await wrapper.vm.cloud.showLoginDialog();
+        await wrapper.vm.cloud.login(TEST_TOKEN);
         await flushPromises();
 
-        expect(showPrompt).toHaveBeenCalled();
+        expect(showToast).toHaveBeenCalled();
         expect(wrapper.vm.cloud.isLoggedIn.value).toBe(true);
     });
 

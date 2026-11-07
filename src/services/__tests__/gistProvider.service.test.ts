@@ -1,13 +1,12 @@
 /**
  * gistProvider.service 测试
- * 覆盖 GitHub / Gitee 双平台适配器：请求 URL、认证方式（Header Bearer vs Query access_token）、
- * 请求方法、详情接口截断（>1MB 的 truncated 半截正文必须改走 raw_url）、多文件写入与删除语义、
- * 错误分类（网络/超时/401/频率限制）、Gitee emoji 无损转义与两平台各自的单文件体积上限。
+ * 覆盖 GitHub Gist 客户端：请求 URL、Bearer 认证头、请求方法、
+ * 详情接口截断（>1MB 的 truncated 半截正文必须改走 raw_url）、多文件写入与删除语义、
+ * 错误分类（网络/超时/401/频率限制）与单文件体积上限。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-    createGistProvider,
-    escapeForGitee,
+    githubGistProvider as provider,
     SyncProviderError
 } from '@/services/gistProvider.service';
 
@@ -29,25 +28,7 @@ function lastFetchCall(fetchMock: ReturnType<typeof vi.fn>): [string, RequestIni
     return calls[calls.length - 1] as [string, RequestInit];
 }
 
-describe('createGistProvider 工厂', () => {
-    it("createGistProvider('github') 返回 GitHub 适配器", () => {
-        const provider = createGistProvider('github');
-        expect(provider.id).toBe('github');
-        expect(provider.name).toBe('GitHub');
-        expect(provider.tokenHint).toContain('github.com');
-    });
-
-    it("createGistProvider('gitee') 返回 Gitee 适配器", () => {
-        const provider = createGistProvider('gitee');
-        expect(provider.id).toBe('gitee');
-        expect(provider.name).toBe('Gitee');
-        expect(provider.tokenHint).toContain('gitee.com');
-    });
-});
-
-describe('GitHub provider', () => {
-    const provider = createGistProvider('github');
-
+describe('GitHub Gist 客户端', () => {
     beforeEach(() => {
         vi.stubGlobal('fetch', vi.fn());
     });
@@ -113,8 +94,6 @@ describe('GitHub provider', () => {
     });
 
     it('getGistFileContent 在详情接口截断（truncated + 半截正文）时改用 raw_url 取全文', async () => {
-        // 真实行为：>1MB 的文件详情接口给 truncated:true 并且 content 只是「截断后的前半段」，
-        // 把它当完整快照用，同步会在约 1MB 处静默失败
         const fetchMock = vi.fn()
             .mockResolvedValueOnce(createResponse({
                 id: 'g1',
@@ -239,239 +218,47 @@ describe('GitHub provider', () => {
     });
 });
 
-describe('Gitee provider', () => {
-    const provider = createGistProvider('gitee');
-
-    beforeEach(() => {
-        vi.stubGlobal('fetch', vi.fn());
-    });
-
-    afterEach(() => {
-        vi.unstubAllGlobals();
-    });
-
-    it('validateToken 通过 query access_token 访问 gitee.com/api/v5/user，不带 Authorization 头', async () => {
-        const fetchMock = vi.fn().mockResolvedValue(
-            createResponse({ login: 'gitee_user', id: 2, avatar_url: 'https://avatar2.png' })
-        );
-        vi.stubGlobal('fetch', fetchMock);
-
-        const user = await provider.validateToken(TEST_TOKEN);
-
-        expect(user.login).toBe('gitee_user');
-        const [url, init] = lastFetchCall(fetchMock);
-        expect(url).toBe(`https://gitee.com/api/v5/user?access_token=${TEST_TOKEN}`);
-        expect((init.headers as Record<string, string> | undefined)?.Authorization).toBeUndefined();
-    });
-
-    it('listGists URL 带 access_token', async () => {
-        const fetchMock = vi.fn().mockResolvedValue(createResponse([]));
-        vi.stubGlobal('fetch', fetchMock);
-
-        await provider.listGists(TEST_TOKEN);
-
-        expect(lastFetchCall(fetchMock)[0]).toBe(`https://gitee.com/api/v5/gists?per_page=100&access_token=${TEST_TOKEN}`);
-    });
-
-    it('getGistFileContent URL 带 access_token，404 返回 null', async () => {
-        const fetchMock = vi.fn()
-            .mockResolvedValueOnce(createResponse({ id: 'g1', files: { 'sync.json': { content: '{}' } } }));
-        vi.stubGlobal('fetch', fetchMock);
-
-        const content = await provider.getGistFileContent(TEST_TOKEN, 'g1', 'sync.json');
-        expect(content).toBe('{}');
-        expect(lastFetchCall(fetchMock)[0]).toBe(`https://gitee.com/api/v5/gists/g1?access_token=${TEST_TOKEN}`);
-
-        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createResponse({ message: 'Not Found' }, 404)));
-        const missing = await provider.getGistFileContent(TEST_TOKEN, 'missing', 'sync.json');
-        expect(missing).toBeNull();
-    });
-
-    it('createGist 以 POST 提交 JSON body，files 结构正确', async () => {
-        const fetchMock = vi.fn().mockResolvedValue(createResponse({ id: 'gitee_gist' }));
-        vi.stubGlobal('fetch', fetchMock);
-
-        const id = await provider.createGist(TEST_TOKEN, 'sync.json', '{"a":1}', '测试描述');
-
-        expect(id).toBe('gitee_gist');
-        const [url, init] = lastFetchCall(fetchMock);
-        expect(url).toBe(`https://gitee.com/api/v5/gists?access_token=${TEST_TOKEN}`);
-        expect(init.method).toBe('POST');
-        const body = JSON.parse(init.body as string);
-        expect(body.description).toBe('测试描述');
-        expect(body.files['sync.json'].content).toBe('{"a":1}');
-    });
-
-    it('updateGist 以 PATCH 提交，files 项带 content 与 filename', async () => {
-        const fetchMock = vi.fn().mockResolvedValue(createResponse({ id: 'g1' }));
-        vi.stubGlobal('fetch', fetchMock);
-
-        await provider.updateGist(TEST_TOKEN, 'g1', 'sync.json', '{"b":2}');
-
-        const [url, init] = lastFetchCall(fetchMock);
-        expect(url).toBe(`https://gitee.com/api/v5/gists/g1?access_token=${TEST_TOKEN}`);
-        expect(init.method).toBe('PATCH');
-        const body = JSON.parse(init.body as string);
-        expect(body.files['sync.json'].content).toBe('{"b":2}');
-        expect(body.files['sync.json'].filename).toBe('sync.json');
-    });
-
-    it('updateGistFiles 一次 PATCH 写主文件与分片，并忽略删除请求', async () => {
-        const fetchMock = vi.fn().mockResolvedValue(createResponse({ id: 'g1' }));
-        vi.stubGlobal('fetch', fetchMock);
-
-        await provider.updateGistFiles(TEST_TOKEN, 'g1', {
-            'haha-newtab-sync.json': '{"a":1}',
-            'haha-asset-abc-0.txt': 'AAAA'
-        }, ['haha-asset-old-0.txt']);
-
-        const [, init] = lastFetchCall(fetchMock);
-        expect(init.method).toBe('PATCH');
-        const body = JSON.parse(init.body as string);
-        expect(body.files['haha-asset-abc-0.txt'].content).toBe('AAAA');
-        // Gitee 没有删除单个文件的语义：既不能把它写成 null，也不能凭空造一个删除项
-        expect(body.files['haha-asset-old-0.txt']).toBeUndefined();
-    });
-
-    it('updateGistFiles 对分片同样做 emoji 转义', async () => {
-        const fetchMock = vi.fn().mockResolvedValue(createResponse({ id: 'g1' }));
-        vi.stubGlobal('fetch', fetchMock);
-
-        await provider.updateGistFiles(TEST_TOKEN, 'g1', { 'sync.json': '{"name":"工具 🚀"}' }, []);
-
-        const content = JSON.parse(lastFetchCall(fetchMock)[1].body as string).files['sync.json'].content as string;
-        expect(content).not.toContain('🚀');
-        expect(content).toContain('\\ud83d\\ude80');
-        expect(JSON.parse(content).name).toBe('工具 🚀');
-    });
-
-    it('updateGistFiles 分片超过 Gitee 单文件 1MB 时抛错且不发请求', async () => {
-        const fetchMock = vi.fn();
-        vi.stubGlobal('fetch', fetchMock);
-
-        await expect(
-            provider.updateGistFiles(TEST_TOKEN, 'g1', { 'haha-asset-a-0.txt': 'x'.repeat(1024 * 1024 + 1) }, [])
-        ).rejects.toThrow('1MB');
-        expect(fetchMock).not.toHaveBeenCalled();
-    });
-
-    it('readFileFromMap 走 raw_url 时不带 access_token（Gitee 直链免鉴权）', async () => {
-        const fetchMock = vi.fn().mockResolvedValue(createResponse('{"full":true}'));
-        vi.stubGlobal('fetch', fetchMock);
-
-        const content = await provider.readFileFromMap(TEST_TOKEN, {
-            content: '{"trunca',
-            truncated: true,
-            raw_url: 'https://gitee.com/gist/raw/abc'
-        });
-
-        expect(content).toBe('{"full":true}');
-        expect(lastFetchCall(fetchMock)[0]).toBe('https://gitee.com/gist/raw/abc');
-    });
-
-    it('maxFileBytes 为 Gitee 的 1MB 单文件上限', () => {
-        expect(provider.maxFileBytes).toBe(1024 * 1024);
-    });
-});
-
-describe('escapeForGitee', () => {
-    it('纯 ASCII 内容不变', () => {
-        const content = '{"name":"test","url":"https://example.com"}';
-        expect(escapeForGitee(content)).toBe(content);
-    });
-
-    it('含 emoji 的 JSON 转义后不含 4 字节字符，且 JSON.parse 无损还原', () => {
-        const original = {
-            categories: [{ id: 'c1', name: '工具 🚀' }],
-            apps: [{ id: 'a1', name: '站点', icon: '😀🔗' }]
-        };
-        const content = JSON.stringify(original);
-
-        const escaped = escapeForGitee(content);
-
-        // 转义后不再有 4 字节 UTF-8 字符（已转换为 JSON 代理对转义序列）
-        expect(/[\u{10000}-\u{10FFFF}]/u.test(escaped)).toBe(false);
-        // 仍是合法 JSON 且解析后与原对象完全一致
-        expect(JSON.parse(escaped)).toEqual(original);
-    });
-});
-
-describe('Gitee 单文件 1MB 限制', () => {
-    const provider = createGistProvider('gitee');
-
-    beforeEach(() => {
-        vi.stubGlobal('fetch', vi.fn());
-    });
-
-    afterEach(() => {
-        vi.unstubAllGlobals();
-    });
-
-    it('createGist 内容超过 1MB 时抛出含「1MB」的错误且不发请求', async () => {
-        const fetchMock = vi.fn();
-        vi.stubGlobal('fetch', fetchMock);
-        const bigContent = 'a'.repeat(1024 * 1024 + 1);
-
-        await expect(provider.createGist(TEST_TOKEN, 'sync.json', bigContent, 'desc'))
-            .rejects.toThrow('1MB');
-        expect(fetchMock).not.toHaveBeenCalled();
-    });
-
-    it('updateGist 内容超过 1MB 时抛出含「1MB」的错误且不发请求', async () => {
-        const fetchMock = vi.fn();
-        vi.stubGlobal('fetch', fetchMock);
-        const bigContent = 'a'.repeat(1024 * 1024 + 1);
-
-        await expect(provider.updateGist(TEST_TOKEN, 'g1', 'sync.json', bigContent))
-            .rejects.toThrow('1MB');
-        expect(fetchMock).not.toHaveBeenCalled();
-    });
-});
-
 describe('错误分类', () => {
     afterEach(() => {
         vi.unstubAllGlobals();
     });
 
-    it('fetch 抛 TypeError 时转换为「无法连接 <平台>」', async () => {
+    it('fetch 抛 TypeError 时转换为「无法连接 GitHub」', async () => {
         vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
 
-        await expect(createGistProvider('github').validateToken(TEST_TOKEN))
+        await expect(provider.validateToken(TEST_TOKEN))
             .rejects.toThrow('无法连接 GitHub，请检查网络或代理（国内可能需代理访问）');
-
-        await expect(createGistProvider('gitee').validateToken(TEST_TOKEN))
-            .rejects.toThrow('无法连接 Gitee，请检查网络连接');
     });
 
     it('fetch 抛 AbortError 时提示「请求超时」', async () => {
         vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('The operation was aborted.', 'AbortError')));
 
-        await expect(createGistProvider('github').validateToken(TEST_TOKEN))
+        await expect(provider.validateToken(TEST_TOKEN))
             .rejects.toThrow('无法连接 GitHub（请求超时）');
     });
 
     it('HTTP 401 抛出 SyncProviderError 且 status 为 401', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createResponse({ message: 'Bad credentials' }, 401)));
 
-        const error = await createGistProvider('github').validateToken(TEST_TOKEN).catch((e: unknown) => e);
+        const error = await provider.validateToken(TEST_TOKEN).catch((e: unknown) => e);
         expect(error).toBeInstanceOf(SyncProviderError);
         expect((error as SyncProviderError).status).toBe(401);
-        expect((error as SyncProviderError).message).toBe('Token 已失效，请重新连接 GitHub');
+        expect((error as SyncProviderError).message).toBe('授权已失效，请重新登录 GitHub');
     });
 
     it('HTTP 403 且消息含 rate limit 时提示「频率限制」', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createResponse({ message: 'API rate limit exceeded' }, 403)));
 
-        const error = await createGistProvider('gitee').listGists(TEST_TOKEN).catch((e: unknown) => e);
+        const error = await provider.listGists(TEST_TOKEN).catch((e: unknown) => e);
         expect(error).toBeInstanceOf(SyncProviderError);
         expect((error as SyncProviderError).status).toBe(403);
-        expect((error as SyncProviderError).message).toBe('Gitee API 频率限制，请稍后再试');
+        expect((error as SyncProviderError).message).toBe('GitHub API 频率限制，请稍后再试');
     });
 
     it('其他 HTTP 错误抛出带状态码的 SyncProviderError', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createResponse({ message: 'Server Error' }, 500)));
 
-        const error = await createGistProvider('github').listGists(TEST_TOKEN).catch((e: unknown) => e);
+        const error = await provider.listGists(TEST_TOKEN).catch((e: unknown) => e);
         expect(error).toBeInstanceOf(SyncProviderError);
         expect((error as SyncProviderError).status).toBe(500);
         expect((error as SyncProviderError).message).toBe('Server Error (500)');

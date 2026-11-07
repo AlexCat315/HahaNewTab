@@ -1,13 +1,12 @@
 /**
- * 同步平台适配器（GitHub / Gitee Gist）
- * 封装两个平台的 Gist CRUD 与 Token 验证差异：
- * - GitHub：Header Bearer 认证，单文件 10MB；
- * - Gitee：Query access_token 认证，单文件 1MB，数据库不支持 4 字节 UTF-8 字符（需无损转义）。
+ * GitHub Gist 客户端
+ *
+ * 封装 Gist CRUD 与凭据验证：Header Bearer 认证，单文件 10MB。
+ * 凭据来自 OAuth Device Flow 换到的 access_token（gist scope），不再由用户手工申请。
  * 所有请求带 10s 超时，错误按网络/401/频率限制分类为中文提示。
  */
 
 import type {
-    CloudSyncProviderId,
     Gist,
     GistFile,
     GitHubUserInfo,
@@ -23,7 +22,7 @@ const REQUEST_TIMEOUT_MS = 10000;
 export const INLINE_CONTENT_BYTES = 1024 * 1024;
 
 /**
- * 平台错误，status 用于 CloudSyncService 识别 401（Token 失效）
+ * 平台错误，status 用于 CloudSyncService 识别 401（授权失效）
  */
 export class SyncProviderError extends Error {
     readonly status?: number;
@@ -63,7 +62,7 @@ async function throwForStatus(providerName: string, response: Response, fallback
     const body = (await response.json().catch(() => ({}))) as { message?: string };
     const message = body.message || fallback;
     if (response.status === 401) {
-        throw new SyncProviderError(`Token 已失效，请重新连接 ${providerName}`, 401);
+        throw new SyncProviderError(`授权已失效，请重新登录 ${providerName}`, 401);
     }
     if (response.status === 403 && /rate limit/i.test(message)) {
         throw new SyncProviderError(`${providerName} API 频率限制，请稍后再试`, 403);
@@ -112,8 +111,6 @@ function assertFileBytes(providerName: string, maxFileBytes: number, content: st
     }
 }
 
-// ==================== GitHub ====================
-
 const GITHUB_API_BASE = 'https://api.github.com';
 const GITHUB_API_VERSION = '2022-11-28';
 const GITHUB_NETWORK_HINT = '请检查网络或代理（国内可能需代理访问）';
@@ -132,12 +129,11 @@ function githubHeaders(token: string): Record<string, string> {
 /** 批量写文件的请求体：值为 null 表示删除该文件 */
 function buildFilesPayload(
     upsert: Record<string, string>,
-    deleteFileNames: string[],
-    escape?: (content: string) => string
+    deleteFileNames: string[]
 ): Record<string, { content: string } | null> {
     const payload: Record<string, { content: string } | null> = {};
     for (const [name, content] of Object.entries(upsert)) {
-        payload[name] = { content: escape ? escape(content) : content };
+        payload[name] = { content };
     }
     for (const name of deleteFileNames) {
         payload[name] = null;
@@ -145,10 +141,8 @@ function buildFilesPayload(
     return payload;
 }
 
-const githubProvider: ISyncProvider = {
-    id: 'github',
-    name: 'GitHub',
-    tokenHint: 'github.com/settings/tokens（需要 gist 权限）',
+/** 唯一的同步平台适配器 */
+export const githubGistProvider: ISyncProvider = {
     maxFileBytes: GITHUB_MAX_FILE_BYTES,
 
     async validateToken(token: string): Promise<GitHubUserInfo> {
@@ -156,7 +150,7 @@ const githubProvider: ISyncProvider = {
             headers: githubHeaders(token)
         });
         if (!response.ok) {
-            await throwForStatus('GitHub', response, 'Token 验证失败');
+            await throwForStatus('GitHub', response, '授权验证失败');
         }
         const user = (await response.json()) as { login: string; id: number; avatar_url: string };
         return { login: user.login, id: user.id, avatar: user.avatar_url };
@@ -173,7 +167,7 @@ const githubProvider: ISyncProvider = {
     },
 
     async getGistFileContent(token: string, gistId: string, fileName: string): Promise<string | null> {
-        const files = await githubProvider.getGistFileMap(token, gistId);
+        const files = await githubGistProvider.getGistFileMap(token, gistId);
         return files ? readGistFile('GitHub', GITHUB_NETWORK_HINT, files[fileName], githubHeaders(token)) : null;
     },
 
@@ -221,7 +215,7 @@ const githubProvider: ISyncProvider = {
     },
 
     async updateGist(token: string, gistId: string, fileName: string, content: string): Promise<void> {
-        await githubProvider.updateGistFiles(token, gistId, { [fileName]: content }, []);
+        await githubGistProvider.updateGistFiles(token, gistId, { [fileName]: content }, []);
     },
 
     async updateGistFiles(
@@ -243,151 +237,3 @@ const githubProvider: ISyncProvider = {
         }
     }
 };
-
-// ==================== Gitee ====================
-
-const GITEE_API_BASE = 'https://gitee.com/api/v5';
-const GITEE_NETWORK_HINT = '请检查网络连接';
-/** Gitee 限制单个 Gist 文件最大 1MB */
-const GITEE_MAX_FILE_BYTES = 1024 * 1024;
-
-function giteeUrl(path: string, token: string): string {
-    const sep = path.includes('?') ? '&' : '?';
-    return `${GITEE_API_BASE}${path}${sep}access_token=${encodeURIComponent(token)}`;
-}
-
-/**
- * Gitee 数据库（utf8mb3）不支持 4 字节 UTF-8 字符（多数 emoji）。
- * 将此类字符转义为 JSON 代理对（\uXXXX\uXXXX）：它们只会出现在 JSON 字符串值内，
- * 转义后仍是合法 JSON，JSON.parse 可无损还原，不丢站点/分类的 Emoji 图标。
- */
-export function escapeForGitee(content: string): string {
-    return content.replace(/[\u{10000}-\u{10FFFF}]/gu, (ch) => {
-        const code = ch.codePointAt(0) as number;
-        const hi = 0xd800 + ((code - 0x10000) >> 10);
-        const lo = 0xdc00 + ((code - 0x10000) & 0x3ff);
-        return `\\u${hi.toString(16)}\\u${lo.toString(16)}`;
-    });
-}
-
-/** 上传前检查 Gitee 单文件大小限制 */
-function assertGiteeSize(content: string): void {
-    const bytes = new TextEncoder().encode(content).length;
-    if (bytes > GITEE_MAX_FILE_BYTES) {
-        throw new SyncProviderError(
-            `数据大小约 ${(bytes / 1024 / 1024).toFixed(2)}MB，超过 Gitee 单文件 1MB 限制，请改用 GitHub 或精简数据`
-        );
-    }
-}
-
-const GITEE_JSON_HEADERS = { 'Content-Type': 'application/json' };
-
-const giteeProvider: ISyncProvider = {
-    id: 'gitee',
-    name: 'Gitee',
-    tokenHint: 'gitee.com/profile/personal_access_tokens（私人令牌，勾选 gists 权限）',
-    maxFileBytes: GITEE_MAX_FILE_BYTES,
-
-    async validateToken(token: string): Promise<GitHubUserInfo> {
-        const response = await request('Gitee', GITEE_NETWORK_HINT, giteeUrl('/user', token), {});
-        if (!response.ok) {
-            await throwForStatus('Gitee', response, 'Token 验证失败');
-        }
-        const user = (await response.json()) as { login: string; id: number; avatar_url: string };
-        return { login: user.login, id: user.id, avatar: user.avatar_url };
-    },
-
-    async listGists(token: string): Promise<Gist[]> {
-        const response = await request('Gitee', GITEE_NETWORK_HINT, giteeUrl('/gists?per_page=100', token), {});
-        if (!response.ok) {
-            await throwForStatus('Gitee', response, '获取代码片段列表失败');
-        }
-        return (await response.json()) as Gist[];
-    },
-
-    async getGistFileContent(token: string, gistId: string, fileName: string): Promise<string | null> {
-        const files = await giteeProvider.getGistFileMap(token, gistId);
-        return files ? readGistFile('Gitee', GITEE_NETWORK_HINT, files[fileName]) : null;
-    },
-
-    async getGistFileMap(token: string, gistId: string): Promise<Record<string, GistFile> | null> {
-        const response = await request('Gitee', GITEE_NETWORK_HINT, giteeUrl(`/gists/${gistId}`, token), {});
-        if (response.status === 404) return null;
-        if (!response.ok) {
-            await throwForStatus('Gitee', response, '获取代码片段失败');
-        }
-        const gist = (await response.json()) as Gist;
-        return gist.files ?? {};
-    },
-
-    // Gitee 的 raw_url 是免鉴权的公开直链，令牌在这里用不上
-    async readRawFile(_token: string, rawUrl: string): Promise<string | null> {
-        const response = await request('Gitee', GITEE_NETWORK_HINT, rawUrl, {});
-        if (response.status === 404) return null;
-        if (!response.ok) {
-            await throwForStatus('Gitee', response, '获取文件内容失败');
-        }
-        return await response.text();
-    },
-
-    // Gitee 的 raw_url 是免鉴权的公开直链，不需要令牌
-    async readFileFromMap(_token: string, file: GistFile | null | undefined): Promise<string | null> {
-        return readGistFile('Gitee', GITEE_NETWORK_HINT, file);
-    },
-
-    async createGist(token: string, fileName: string, content: string, description: string): Promise<string> {
-        const safeContent = escapeForGitee(content);
-        assertGiteeSize(safeContent);
-        const response = await request('Gitee', GITEE_NETWORK_HINT, giteeUrl('/gists', token), {
-            method: 'POST',
-            headers: GITEE_JSON_HEADERS,
-            body: JSON.stringify({
-                description,
-                public: false,
-                files: { [fileName]: { content: safeContent } }
-            })
-        });
-        if (!response.ok) {
-            await throwForStatus('Gitee', response, '创建代码片段失败');
-        }
-        const gist = (await response.json()) as Gist;
-        return gist.id;
-    },
-
-    async updateGist(token: string, gistId: string, fileName: string, content: string): Promise<void> {
-        await giteeProvider.updateGistFiles(token, gistId, { [fileName]: content }, []);
-    },
-
-    async updateGistFiles(
-        token: string,
-        gistId: string,
-        upsert: Record<string, string>,
-        deleteFileNames: string[]
-    ): Promise<void> {
-        const files: Record<string, { content: string; filename: string } | null> = {};
-        for (const [name, content] of Object.entries(upsert)) {
-            const safeContent = escapeForGitee(content);
-            assertGiteeSize(safeContent);
-            files[name] = { content: safeContent, filename: name };
-        }
-        // Gitee 的更新接口没有公开的「删除单个文件」语义，删除请求只能忽略：
-        // 本端不再引用的历史资源会留在云端，靠 GitHub 端才做真正的清理。
-        void deleteFileNames;
-
-        const response = await request('Gitee', GITEE_NETWORK_HINT, giteeUrl(`/gists/${gistId}`, token), {
-            method: 'PATCH',
-            headers: GITEE_JSON_HEADERS,
-            body: JSON.stringify({ files })
-        });
-        if (!response.ok) {
-            await throwForStatus('Gitee', response, '上传失败');
-        }
-    }
-};
-
-/**
- * 工厂函数：按平台标识创建同步平台适配器
- */
-export function createGistProvider(id: CloudSyncProviderId): ISyncProvider {
-    return id === 'gitee' ? giteeProvider : githubProvider;
-}

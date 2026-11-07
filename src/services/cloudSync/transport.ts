@@ -1,7 +1,7 @@
 /**
  * 云端传输层：本机与那个 Gist 之间的一来一回
  *
- * 这一层只懂「云端长什么样」：文件叫什么、分片怎么拼、上限多少、平台怎么切换，
+ * 这一层只懂「云端长什么样」：文件叫什么、分片怎么拼、上限多少，
  * 不懂合并、不懂本地 store、也不弹提示。给它一份凭据（CloudTarget），
  * 它就把那一版的云端内容原样交出来，或者把本机这份推上去。
  *
@@ -16,15 +16,13 @@ import {
     isAssetFileName,
     manifestFileNames
 } from '@/utils/syncAssets.util';
-import { createGistProvider } from '@/services/gistProvider.service';
+import { githubGistProvider } from '@/services/gistProvider.service';
 import { CLOUD_SYNC_DATA_KEYS } from '@/services/storageSchema.service';
 import type { SyncSnapshot } from '@/utils/syncMerge.util';
 import type {
     CloudBundle,
-    CloudSyncProviderId,
     CloudTarget,
     GitHubUserInfo,
-    ISyncProvider,
     SyncData
 } from '@/types/cloudSync.types';
 
@@ -45,34 +43,12 @@ const SYNC_DATA_VERSION = '1.1';
  */
 const ASSET_CHUNK_RATIO = 0.8;
 
-/** 目标平台的适配器 */
-function providerFor(providerId: CloudSyncProviderId): ISyncProvider {
-    return createGistProvider(providerId);
-}
-
 /**
  * 验证凭据属于哪个账号
- * 登录时先验再存，验不过就不能把它当成「已登录」写进设置。
+ * 授权后先验再存，验不过就不能把它当成「已登录」写进设置。
  */
-export async function validateToken(token: string, providerId: CloudSyncProviderId): Promise<GitHubUserInfo> {
-    return providerFor(providerId).validateToken(token);
-}
-
-/**
- * 平台在界面上的样子：名称、Token 从哪来、长什么样
- * 服务层要提示「连接到哪个平台」时问这里，而不是自己碰适配器。
- */
-export function providerProfile(providerId: CloudSyncProviderId): {
-    name: string;
-    tokenHint: string;
-    tokenPlaceholder: string;
-} {
-    const provider = providerFor(providerId);
-    return {
-        name: provider.name,
-        tokenHint: provider.tokenHint,
-        tokenPlaceholder: providerId === 'gitee' ? 'xxxxxxxxxxxxxxxx' : 'ghp_xxxxxxxxxxxxxxxxxxxx'
-    };
+export async function validateToken(token: string): Promise<GitHubUserInfo> {
+    return githubGistProvider.validateToken(token);
 }
 
 /**
@@ -80,7 +56,7 @@ export function providerProfile(providerId: CloudSyncProviderId): {
  * 优先复用本机记下的 gistId；它已经不在了再按文件名认领现有的，最后才新建。
  */
 export async function findOrCreateGist(target: CloudTarget, gistId: string | null): Promise<string> {
-    const provider = providerFor(target.providerId);
+    const provider = githubGistProvider;
     if (gistId) {
         try {
             const content = await provider.getGistFileContent(target.token, gistId, SYNC_FILE_NAME);
@@ -115,7 +91,7 @@ export async function findOrCreateGist(target: CloudTarget, gistId: string | nul
  * 收进来再过滤等于把「本机根本没这套数据」的键当成有效内容参与比较。
  */
 export async function readBundle(target: CloudTarget, gistId: string): Promise<CloudBundle> {
-    const provider = providerFor(target.providerId);
+    const provider = githubGistProvider;
     const files = await provider.getGistFileMap(target.token, gistId);
     const content = files
         ? await provider.readFileFromMap(target.token, files[SYNC_FILE_NAME])
@@ -165,8 +141,8 @@ export async function writeBundle(
     gistId: string,
     data: SyncSnapshot
 ): Promise<number> {
-    const provider = providerFor(target.providerId);
-    const externalized = await externalizeAssets(data, chunkChars(provider));
+    const provider = githubGistProvider;
+    const externalized = await externalizeAssets(data, chunkChars());
     const lastModified = Date.now();
     const payload: SyncData = {
         version: SYNC_DATA_VERSION,
@@ -201,9 +177,9 @@ function emptySyncData(): SyncData {
     };
 }
 
-/** 单个资源分片的字符数上限，由平台单文件上限换算 */
-function chunkChars(provider: ISyncProvider): number {
-    return Math.floor(provider.maxFileBytes * ASSET_CHUNK_RATIO);
+/** 单个资源分片的字符数上限，由 GitHub 单文件上限换算 */
+function chunkChars(): number {
+    return Math.floor(githubGistProvider.maxFileBytes * ASSET_CHUNK_RATIO);
 }
 
 /** 包上留的设备名：排查「这份改动是哪台机器写的」时唯一的线索 */

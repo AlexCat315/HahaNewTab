@@ -74,21 +74,21 @@ beforeEach(() => {
 describe('CloudSettings.load', () => {
     it('读回已落盘的设置', async () => {
         Object.assign(storage.items, {
-            [STORAGE_KEYS.CLOUD_TOKEN]: 'ghp_abc',
+            [STORAGE_KEYS.CLOUD_TOKEN]: 'gho_abc',
             [STORAGE_KEYS.CLOUD_GIST_ID]: 'gist_1',
             [STORAGE_KEYS.CLOUD_AUTO_SYNC]: true,
             [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: 1234,
-            [STORAGE_KEYS.CLOUD_PROVIDER]: 'gitee'
+            [STORAGE_KEYS.CLOUD_OAUTH_CLIENT_ID]: 'Iv1.appclient'
         });
 
         const loaded = await settings.load();
 
+        // Client ID 属于应用配置，不混进账号快照
         expect(loaded).toEqual({
-            token: 'ghp_abc',
+            token: 'gho_abc',
             gistId: 'gist_1',
             autoSync: true,
-            userInfo: null,
-            provider: 'gitee'
+            userInfo: null
         });
         expect(settings.isLoggedIn()).toBe(true);
     });

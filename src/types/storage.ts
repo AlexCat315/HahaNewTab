@@ -27,7 +27,8 @@ export const STORAGE_KEYS = {
      * 于是本机刚上传的设置会被这份过期内容倒灌回来。见过的版本号不再当新内容。
      */
     CLOUD_SYNC_SEEN_REVISIONS: 'appNavigator_cloudSync_seenRevisions',
-    CLOUD_PROVIDER: 'appNavigator_cloudSync_provider',
+    /** OAuth App 的 Client ID（公开标识，不是密钥）；只需配置一次 */
+    CLOUD_OAUTH_CLIENT_ID: 'appNavigator_cloudSync_oauthClientId',
     SELECTED_THEME: 'selectedTheme',
     /** 主题偏好设置（跟随系统开关 + 主题族），见 ThemeSettings */
     THEME_SETTINGS: 'appNavigator_themeSettings',
@@ -57,7 +58,9 @@ export const LEGACY_STORAGE_KEYS: string[] = [
     STORAGE_KEYS.SHOW_HIDDEN_APPS,
     /** 浏览器账号同步登录状态的功能已移除，清掉本机残留的开关与密码 */
     'appNavigator_crossDevice_enabled',
-    'appNavigator_crossDevice_passphrase'
+    'appNavigator_crossDevice_passphrase',
+    /** 只支持 GitHub 后不再需要记录平台；旧值（可能是 gitee）留着只会误导排查 */
+    'appNavigator_cloudSync_provider'
 ];
 
 /**

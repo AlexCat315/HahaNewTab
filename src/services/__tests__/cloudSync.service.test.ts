@@ -219,7 +219,7 @@ describe('CloudSyncService', () => {
 
         const result = await service.init();
 
-        expect(result.rejectedReason).toContain('Token 已失效');
+        expect(result.rejectedReason).toContain('授权已失效');
         expect(result.sync).toBeNull();
         expect(service.settings.token).toBeNull();
         expect(service.settings.userInfo).toBeNull();
@@ -250,7 +250,7 @@ describe('CloudSyncService', () => {
         const { service } = createService();
         const result = await service.upload();
         expect(result.success).toBe(false);
-        expect(result.message).toBe('请先配置 Token');
+        expect(result.message).toBe('请先完成 GitHub 授权');
         expect(result.skipped).toBe('not-authenticated');
     });
 
@@ -258,7 +258,7 @@ describe('CloudSyncService', () => {
         const { service } = createService();
         const result = await service.download();
         expect(result.success).toBe(false);
-        expect(result.message).toBe('请先配置 Token');
+        expect(result.message).toBe('请先完成 GitHub 授权');
     });
 
     it('download 只留注册表登记的同步键，applyDownloadedData 据此覆盖本地并更新 base', async () => {
@@ -341,7 +341,7 @@ describe('CloudSyncService', () => {
         const { service } = createService();
         const result = await service.sync({ silent: true });
         expect(result.success).toBe(false);
-        expect(result.message).toBe('请先配置 Token');
+        expect(result.message).toBe('请先完成 GitHub 授权');
         expect(result.skipped).toBe('not-authenticated');
     });
 
@@ -599,7 +599,7 @@ describe('CloudSyncService', () => {
         const result = await service.sync();
 
         expect(result.success).toBe(false);
-        expect(result.message).toBe('Token 已失效，请重新连接 GitHub');
+        expect(result.message).toBe('授权已失效，请重新登录 GitHub');
         // 本地 Token 被清空；这一批里只有真的变了的那一项（用户信息本来就没有）
         expect(service.settings.token).toBeNull();
         expect(storage.setMany).toHaveBeenCalledWith({ [STORAGE_KEYS.CLOUD_TOKEN]: null });
@@ -607,7 +607,7 @@ describe('CloudSyncService', () => {
 
     it('sync 收到 401（已缓存 gistId）时同样清空 Token', async () => {
         // 已缓存 gistId 时 getGistFileContent 的 401 被 findOrCreateGist 捕获后继续走 listGists，
-        // listGists 再次 401，provider 抛出「Token 已失效」，sync 捕获后统一清空本地 Token
+        // listGists 再次 401，适配器抛出「授权已失效」，sync 捕获后统一清空本地 Token
         const { service, storage } = createService();
         await seedSignedIn(service, storage);
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createResponse({ message: 'Bad credentials' }, 401)));
@@ -615,7 +615,7 @@ describe('CloudSyncService', () => {
         const result = await service.sync();
 
         expect(result.success).toBe(false);
-        expect(result.message).toBe('Token 已失效，请重新连接 GitHub');
+        expect(result.message).toBe('授权已失效，请重新登录 GitHub');
         expect(service.settings.token).toBeNull();
         expect(storage.setMany).toHaveBeenCalledWith(expect.objectContaining({
             [STORAGE_KEYS.CLOUD_TOKEN]: null
@@ -723,44 +723,37 @@ describe('CloudSyncService', () => {
         expect(result.message).toBe('无法连接 GitHub，请检查网络或代理（国内可能需代理访问）');
     });
 
-    // ==================== 多平台（GitHub / Gitee）行为 ====================
+    // ==================== OAuth 凭据与账号切换 ====================
 
-    /** mock Gitee 平台请求：/user 验证、listGists 返回空、POST 创建 Gist */
-    function stubGiteeFetch() {
+    /** /user 验证通过、listGists 返回空、POST 创建 Gist */
+    function stubConnectFetch() {
         return vi.fn((url: string, init?: RequestInit) => {
             if (url.includes('/user')) {
-                return Promise.resolve(createResponse({ login: 'gitee_user', id: 2, avatar_url: 'https://avatar2.png' }));
+                return Promise.resolve(createResponse({ login: 'tester', id: 1, avatar_url: 'https://avatar.png' }));
             }
             if (init?.method === 'POST') {
-                return Promise.resolve(createResponse({ id: 'gitee_gist_1' }));
+                return Promise.resolve(createResponse({ id: 'new_gist_1' }));
             }
             return Promise.resolve(createResponse([]));
         });
     }
 
-    it('saveToken 指定 gitee 平台时走 Gitee API 并持久化 provider 键', async () => {
-        const { service, storage } = createService();
-        const fetchMock = stubGiteeFetch();
+    it('saveToken 验证 OAuth token 后保存凭据与用户信息', async () => {
+        const { service } = createService();
+        const fetchMock = stubConnectFetch();
         vi.stubGlobal('fetch', fetchMock);
 
-        const result = await service.saveToken('gitee_token', 'gitee');
+        const result = await service.saveToken('oauth_token');
 
         expect(result.success).toBe(true);
-        // Token 验证请求发往 Gitee，且通过 query 传 access_token
-        const [firstUrl] = fetchMock.mock.calls[0] as [string];
-        expect(firstUrl).toContain('https://gitee.com/api/v5/user');
-        expect(firstUrl).toContain('access_token=gitee_token');
-        // provider 持久化并反映到设置快照
-        expect(storage.setMany).toHaveBeenCalledWith(expect.objectContaining({
-            [STORAGE_KEYS.CLOUD_PROVIDER]: 'gitee'
-        }));
-        expect(service.settings.provider).toBe('gitee');
-        expect(service.settings.userInfo?.login).toBe('gitee_user');
+        expect(fetchMock.mock.calls[0][0]).toBe('https://api.github.com/user');
+        expect(service.settings.token).toBe('oauth_token');
+        expect(service.settings.userInfo?.login).toBe('tester');
+        expect(service.settings.gistId).toBe('new_gist_1');
     });
 
-    it('切换平台时重置 gistId / lastSyncTime 并将 base 快照置 null', async () => {
+    it('换账号时重置 gistId / lastSyncTime 并将 base 快照置 null', async () => {
         const { service, storage } = createService();
-        // 已以 GitHub 登录并有过同步记录
         await seedSignedIn(service, storage, {
             [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: 123456,
             [STORAGE_KEYS.CLOUD_SYNC_BASE]: {
@@ -768,55 +761,51 @@ describe('CloudSyncService', () => {
                 [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB
             }
         });
-        vi.stubGlobal('fetch', stubGiteeFetch());
+        vi.stubGlobal('fetch', stubConnectFetch());
 
-        const result = await service.saveToken('gitee_token', 'gitee');
+        const result = await service.saveToken('new_oauth_token');
 
         expect(result.success).toBe(true);
-        // 旧平台的账本整批作废：base 快照与上次同步时间，避免新平台空远端被误判为「远端删除全部」
+        // 旧账号的账本整批作废，避免新账号的空远端被误判为「远端删除全部」
         expect(storage.setMany).toHaveBeenCalledWith({
             [STORAGE_KEYS.CLOUD_SYNC_BASE]: null,
             [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: 0
         });
-        // 设置侧记下新平台，并把上一个账号的 Gist 清空
         expect(storage.setMany).toHaveBeenCalledWith(expect.objectContaining({
-            [STORAGE_KEYS.CLOUD_PROVIDER]: 'gitee',
             [STORAGE_KEYS.CLOUD_GIST_ID]: null
         }));
-        // 新平台完成 findOrCreateGist 后使用新 Gist
-        expect(service.settings.gistId).toBe('gitee_gist_1');
+        expect(service.settings.gistId).toBe('new_gist_1');
     });
 
-    it('loadSettings 无 provider 记录但有 token 时默认 github（兼容老用户）', async () => {
+    it('旧版本残留的平台键不影响设置加载', async () => {
         const { service, storage } = createService();
+        await storage.set('appNavigator_cloudSync_provider', 'gitee');
         await storage.set(STORAGE_KEYS.CLOUD_TOKEN, TEST_TOKEN);
         await service.loadSettings();
 
-        expect(service.settings.provider).toBe('github');
+        expect(service.settings.token).toBe(TEST_TOKEN);
     });
 
-    it('logout 清空 provider 与 base 快照', async () => {
+    it('logout 清空凭据与 base 快照', async () => {
         const { service, storage } = createService();
         await seedSignedIn(service, storage, {
-            [STORAGE_KEYS.CLOUD_PROVIDER]: 'gitee',
             [STORAGE_KEYS.CLOUD_SYNC_BASE]: {
                 [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [] },
                 [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB
             }
         });
-        expect(service.settings.provider).toBe('gitee');
 
         await service.logout();
 
         expect(service.settings.token).toBeNull();
-        expect(service.settings.provider).toBe('github');
+        expect(service.settings.gistId).toBeNull();
         expect(storage.setMany).toHaveBeenCalledWith({
             [STORAGE_KEYS.CLOUD_SYNC_BASE]: null,
             [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: 0
         });
         expect(storage.setMany).toHaveBeenCalledWith(expect.objectContaining({
             [STORAGE_KEYS.CLOUD_TOKEN]: null,
-            [STORAGE_KEYS.CLOUD_PROVIDER]: 'github'
+            [STORAGE_KEYS.CLOUD_GIST_ID]: null
         }));
     });
 });

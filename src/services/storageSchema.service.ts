@@ -30,7 +30,7 @@ import {
 } from '@/utils/syncMerge.util';
 import type { CloudSyncKeyStrategy } from '@/utils/syncMerge.util';
 
-/** 存储后端：local = 扩展本地存储；sync = 浏览器账号同步区 */
+/** 存储后端：扩展本地存储 */
 export type StorageBackendName = 'local';
 
 /** 键的归属 store：只有 owner 能写这个键，用于消灭「两个 store 写同一个键」 */
@@ -278,8 +278,8 @@ export const STORAGE_SCHEMA = {
         backend: 'local',
         owner: 'cloudSync'
     }),
-    cloudProvider: defineKey({
-        id: STORAGE_KEYS.CLOUD_PROVIDER,
+    cloudOAuthClientId: defineKey({
+        id: STORAGE_KEYS.CLOUD_OAUTH_CLIENT_ID,
         backend: 'local',
         owner: 'cloudSync'
     }),
