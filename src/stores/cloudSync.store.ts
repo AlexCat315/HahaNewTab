@@ -17,6 +17,7 @@ import type { CloudSettingsChange } from '@/services/cloudSync.service';
 import { AutoSyncScheduler } from '@/services/cloudSync/autoSync';
 import { createCloudSyncDataManager } from './cloudSyncDataManager';
 import type {
+    ClearRemoteResult,
     ConnectResult,
     ICloudSyncUIAdapter,
     CloudSyncSettings,
@@ -217,6 +218,41 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         try {
             await cloudSyncService.logout();
             uiAdapter.value.showToast('已断开云同步', 'success');
+        } catch (e) {
+            error.value = e instanceof Error ? e.message : String(e);
+            throw e;
+        } finally {
+            isLoading.value = false;
+        }
+    }
+
+    /**
+     * 清理云端数据：危险且不可撤销，先让用户点头
+     *
+     * 文案要说清两个后果：云端 Gist 被删、自动同步会被关掉（否则数据立刻又被推回去）。
+     */
+    async function clearRemoteData(): Promise<ClearRemoteResult> {
+        const confirmed = await uiAdapter.value.showConfirm(
+            '将删除云端 Gist 中的全部同步数据（含图标、壁纸等资源），本地数据不受影响。' +
+            '删除后会自动关闭自动同步，避免数据被立刻重新上传。此操作不可撤销，是否继续？',
+            { title: '清理云端数据', okText: '删除云端数据', isDanger: true }
+        );
+        if (!confirmed) {
+            return { success: true, cancelled: true };
+        }
+
+        isLoading.value = true;
+        error.value = null;
+        try {
+            const result = await cloudSyncService.clearRemoteData();
+            if (!result.success) {
+                uiAdapter.value.showToast('清理云端数据失败：' + (result.message ?? '未知错误'), 'error');
+            } else if (result.deleted) {
+                uiAdapter.value.showToast('云端数据已删除，本地数据保留；自动同步已关闭', 'success');
+            } else {
+                uiAdapter.value.showToast('云端没有同步数据，已重置本机同步状态', 'success');
+            }
+            return result;
         } catch (e) {
             error.value = e instanceof Error ? e.message : String(e);
             throw e;
@@ -427,6 +463,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         init,
         login,
         logout,
+        clearRemoteData,
         setAutoSync,
         upload,
         sync,

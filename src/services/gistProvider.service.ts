@@ -214,6 +214,18 @@ export const githubGistProvider: ISyncProvider = {
         return gist.id;
     },
 
+    async deleteGist(token: string, gistId: string): Promise<void> {
+        const response = await request('GitHub', GITHUB_NETWORK_HINT, `${GITHUB_API_BASE}/gists/${gistId}`, {
+            method: 'DELETE',
+            headers: githubHeaders(token)
+        });
+        // 别的设备或页面已经删过了：清理本来就是幂等的
+        if (response.status === 404) return;
+        if (!response.ok) {
+            await throwForStatus('GitHub', response, '删除 Gist 失败');
+        }
+    },
+
     async updateGist(token: string, gistId: string, fileName: string, content: string): Promise<void> {
         await githubGistProvider.updateGistFiles(token, gistId, { [fileName]: content }, []);
     },

@@ -8,6 +8,7 @@ import { computed, onMounted, onUnmounted } from 'vue';
 import type { ComputedRef } from 'vue';
 import { useCloudSyncStore } from '@/stores/cloudSync.store';
 import type {
+    ClearRemoteResult,
     DownloadResult,
     GitHubUserInfo,
     ICloudSyncUIAdapter,
@@ -36,6 +37,8 @@ export interface UseCloudSyncReturn {
     /** 保存 OAuth 授权换到的 access_token */
     login: (accessToken: string) => Promise<boolean>;
     logout: () => Promise<void>;
+    /** 删除云端 Gist 并重置本机同步状态 */
+    clearRemoteData: () => Promise<ClearRemoteResult>;
     setAutoSync: (enabled: boolean) => Promise<void>;
     upload: (options?: { silent?: boolean }) => Promise<UploadResult>;
     sync: (options?: { silent?: boolean }) => Promise<SyncResult>;
@@ -160,6 +163,10 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         return createAbortable(() => store.logout());
     }
 
+    async function clearRemoteData(): Promise<ClearRemoteResult> {
+        return createAbortable(() => store.clearRemoteData());
+    }
+
     async function setAutoSync(enabled: boolean): Promise<void> {
         return createAbortable(() => store.setAutoSync(enabled));
     }
@@ -207,6 +214,7 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         init,
         login,
         logout,
+        clearRemoteData,
         setAutoSync,
         upload,
         sync,

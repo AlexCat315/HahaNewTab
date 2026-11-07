@@ -17,6 +17,7 @@ import {
     pollForAccessToken,
     requestDeviceCode
 } from '@/services/githubOAuth.service';
+import type { ClearRemoteResult } from '@/types/cloudSync.types';
 import IconSvg from '@/components/icon/IconSvg.vue';
 import BaseButton from '@/components/common/BaseButton.vue';
 
@@ -36,6 +37,7 @@ const emit = defineEmits<{
     (e: 'logout'): void;
     (e: 'upload', result: { success: boolean; message?: string }): void;
     (e: 'pull', result: { success: boolean; applied?: boolean; message?: string }): void;
+    (e: 'clear', result: ClearRemoteResult): void;
     (e: 'error', message: string): void;
 }>();
 
@@ -52,6 +54,7 @@ const {
     error,
     login,
     logout,
+    clearRemoteData,
     sync,
     pullAndApply,
     setAutoSync
@@ -178,6 +181,16 @@ async function handleLogout(): Promise<void> {
     try {
         await logout();
         emit('logout');
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        emit('error', message);
+    }
+}
+
+async function handleClearRemote(): Promise<void> {
+    try {
+        const result = await clearRemoteData();
+        emit('clear', result);
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         emit('error', message);
@@ -351,7 +364,17 @@ onUnmounted(() => {
             <BaseButton
                 variant="text"
                 size="small"
-                class="cloud-sync-logout"
+                class="cloud-sync-panel__danger"
+                :loading="isLoading"
+                @click="handleClearRemote"
+            >
+                清理云端数据
+            </BaseButton>
+
+            <BaseButton
+                variant="text"
+                size="small"
+                class="cloud-sync-panel__danger"
                 :loading="isLoading"
                 @click="handleLogout"
             >
@@ -421,6 +444,11 @@ onUnmounted(() => {
         flex-direction: column;
         gap: var(--space-3);
     }
+
+    &__danger {
+        align-self: flex-start;
+        color: var(--color-error);
+    }
 }
 
 .cloud-sync-user {
@@ -475,11 +503,6 @@ onUnmounted(() => {
     > * {
         flex: 1;
     }
-}
-
-.cloud-sync-logout {
-    align-self: flex-start;
-    color: var(--color-error);
 }
 
 .cloud-sync-oauth-setup,

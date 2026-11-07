@@ -14,6 +14,7 @@ import type {
     CloudSyncSettings,
     CloudSyncStorage,
     CloudTarget,
+    ClearRemoteResult,
     ConnectResult,
     DownloadResult,
     GitHubUserInfo,
@@ -404,6 +405,46 @@ export class CloudSyncService {
             userInfo: null
         });
         await this.ledger.discard();
+    }
+
+    /**
+     * 清理云端数据：删除整个同步 Gist（含所有资源分片），本机数据一律不动
+     *
+     * 三件事必须一起做完，否则「清理」会白做或被误判：
+     *   - 关闭自动同步：本地数据在下一次编辑时就会被推回云端，等于没删；
+     *   - 清掉 gistId：下一次「立即同步」会重新建一个空的同步空间；
+     *   - 账本整批重置：旧 base 和已见版本号对新 Gist 毫无意义，留着会误判合并方向。
+     *
+     * 保留登录态（token / userInfo），用户随时可以点「立即同步」重新建立云端备份。
+     * 云端没有同步 Gist 时也算成功，本机状态照样重置。
+     */
+    async clearRemoteData(): Promise<ClearRemoteResult> {
+        if (this.syncInProgress) {
+            return { success: false, skipped: 'in-progress', message: '同步进行中' };
+        }
+        if (!this.token) {
+            return { success: false, skipped: 'not-authenticated', message: '请先完成 GitHub 授权' };
+        }
+
+        this.syncInProgress = true;
+        try {
+            const target = this.target();
+            // 绝不能用 findOrCreateGist：云端没有数据时它会顺手造出一个 Gist
+            const gistId = this.gistId ?? await transport.findSyncGist(target);
+            if (gistId) {
+                await transport.deleteSyncGist(target, gistId);
+            }
+            await this.account.save({ gistId: null, autoSync: false });
+            await this.ledger.reset();
+            return { success: true, deleted: !!gistId };
+        } catch (e) {
+            await this.handleIfUnauthorized(e);
+            console.error('[CloudSync] clear remote data error:', e);
+            const message = e instanceof Error ? e.message : String(e);
+            return { success: false, message };
+        } finally {
+            this.syncInProgress = false;
+        }
     }
 
     /**

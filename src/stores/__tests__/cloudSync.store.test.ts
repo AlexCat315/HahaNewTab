@@ -185,6 +185,59 @@ describe('cloudSync store', () => {
         expect(savedToken).toBeNull();
     });
 
+    describe('清理云端数据', () => {
+        async function seedConnectedStore() {
+            await storageManager.setMany({
+                [STORAGE_KEYS.CLOUD_TOKEN]: TEST_TOKEN,
+                [STORAGE_KEYS.CLOUD_GIST_ID]: TEST_GIST_ID,
+                [STORAGE_KEYS.CLOUD_AUTO_SYNC]: false
+            });
+            // init 会校验凭据；autoSync 为 false，不会额外跑同步
+            mockFetchSequence([createResponse(TEST_USER_API)]);
+            const store = useCloudSyncStore();
+            await store.init();
+            return store;
+        }
+
+        it('取消确认时一个请求都不发，本机状态原样保留', async () => {
+            const store = await seedConnectedStore();
+            const showConfirm = vi.fn().mockResolvedValue(false);
+            const showToast = vi.fn();
+            store.setUIAdapter({ showToast, showConfirm, showPrompt: async () => null });
+            const fetchMock = vi.fn();
+            globalThis.fetch = fetchMock;
+
+            const result = await store.clearRemoteData();
+
+            expect(result).toEqual({ success: true, cancelled: true });
+            expect(showConfirm).toHaveBeenCalled();
+            expect(fetchMock).not.toHaveBeenCalled();
+            expect(showToast).not.toHaveBeenCalled();
+            expect(store.gistId).toBe(TEST_GIST_ID);
+        });
+
+        it('确认后删除云端 Gist、关闭自动同步并给出提示', async () => {
+            const store = await seedConnectedStore();
+            const messages: string[] = [];
+            store.setUIAdapter({
+                showToast: (message) => { messages.push(message); },
+                showConfirm: async () => true,
+                showPrompt: async () => null
+            });
+            const fetchMock = vi.fn().mockResolvedValue(createResponse({}, 204));
+            globalThis.fetch = fetchMock;
+
+            const result = await store.clearRemoteData();
+
+            expect(result).toEqual({ success: true, deleted: true });
+            expect(fetchMock.mock.calls[0][0]).toBe(`https://api.github.com/gists/${TEST_GIST_ID}`);
+            expect(messages).toContain('云端数据已删除，本地数据保留；自动同步已关闭');
+            expect(store.gistId).toBeNull();
+            expect(store.autoSync).toBe(false);
+            expect(store.token).toBe(TEST_TOKEN);
+        });
+    });
+
     it('upload 上传数据并更新 lastSyncTime', async () => {
         mockFetchSequence([
             createResponse(TEST_USER_API),

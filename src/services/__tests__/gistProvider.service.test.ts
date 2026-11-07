@@ -216,6 +216,31 @@ describe('GitHub Gist 客户端', () => {
         const body = JSON.parse(init.body as string);
         expect(body.files['sync.json'].content).toBe('{"b":2}');
     });
+
+    it('deleteGist 以 DELETE 删除整个 Gist', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(createResponse({}, 204));
+        vi.stubGlobal('fetch', fetchMock);
+
+        await provider.deleteGist(TEST_TOKEN, 'g1');
+
+        const [url, init] = lastFetchCall(fetchMock);
+        expect(url).toBe('https://api.github.com/gists/g1');
+        expect(init.method).toBe('DELETE');
+    });
+
+    it('deleteGist 在 Gist 已不存在（404）时视为成功', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createResponse({ message: 'Not Found' }, 404)));
+
+        await expect(provider.deleteGist(TEST_TOKEN, 'missing')).resolves.toBeUndefined();
+    });
+
+    it('deleteGist 遇到 401 抛出 SyncProviderError', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createResponse({ message: 'Bad credentials' }, 401)));
+
+        const error = await provider.deleteGist(TEST_TOKEN, 'g1').catch((e: unknown) => e);
+        expect(error).toBeInstanceOf(SyncProviderError);
+        expect((error as SyncProviderError).status).toBe(401);
+    });
 });
 
 describe('错误分类', () => {

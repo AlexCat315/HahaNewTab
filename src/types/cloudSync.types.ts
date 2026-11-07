@@ -53,6 +53,8 @@ export interface ISyncProvider {
     readFileFromMap(token: string, file: GistFile | null | undefined): Promise<string | null>;
     /** 创建 Gist，返回其 id */
     createGist(token: string, fileName: string, content: string, description: string): Promise<string>;
+    /** 删除整个 Gist（含全部资源分片）；Gist 已不存在时视为成功 */
+    deleteGist(token: string, gistId: string): Promise<void>;
     /** 更新 Gist 中指定文件的内容 */
     updateGist(token: string, gistId: string, fileName: string, content: string): Promise<void>;
     /**
@@ -191,6 +193,20 @@ export interface PullResult {
     success: boolean;
     applied?: boolean;
     message?: string;
+}
+
+/**
+ * 清理云端数据的结果
+ *
+ * `deleted=false` 表示云端本来就没有同步 Gist，本机状态仍会被重置；
+ * `cancelled` 由 store 在用户取消确认时填，服务层不会产生它。
+ */
+export interface ClearRemoteResult {
+    success: boolean;
+    deleted?: boolean;
+    cancelled?: boolean;
+    message?: string;
+    skipped?: SyncSkipReason;
 }
 
 /**

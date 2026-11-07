@@ -113,6 +113,7 @@ describe('CloudSyncPanel', () => {
         expect(text).toContain('已连接');
         expect(text).toContain('立即同步');
         expect(text).toContain('强制恢复云端');
+        expect(text).toContain('清理云端数据');
         expect(text).toContain('断开连接');
     });
 });

@@ -55,6 +55,20 @@ export async function validateToken(token: string): Promise<GitHubUserInfo> {
  * 找到（或建出）放同步包的 Gist
  * 优先复用本机记下的 gistId；它已经不在了再按文件名认领现有的，最后才新建。
  */
+/**
+ * 只找同步用的 Gist，绝不新建。
+ * 清理云端数据时必须走这里：用 findOrCreateGist 会在云端没有数据时反而造出一个 Gist。
+ */
+export async function findSyncGist(target: CloudTarget): Promise<string | null> {
+    const gists = await githubGistProvider.listGists(target.token);
+    return gists.find(gist => gist.files?.[SYNC_FILE_NAME])?.id ?? null;
+}
+
+/** 删除同步 Gist（含全部分片）；Gist 已不存在时视为成功 */
+export async function deleteSyncGist(target: CloudTarget, gistId: string): Promise<void> {
+    await githubGistProvider.deleteGist(target.token, gistId);
+}
+
 export async function findOrCreateGist(target: CloudTarget, gistId: string | null): Promise<string> {
     const provider = githubGistProvider;
     if (gistId) {
@@ -68,10 +82,9 @@ export async function findOrCreateGist(target: CloudTarget, gistId: string | nul
         }
     }
 
-    const gists = await provider.listGists(target.token);
-    const existing = gists.find(gist => gist.files?.[SYNC_FILE_NAME]);
+    const existing = await findSyncGist(target);
     if (existing) {
-        return existing.id;
+        return existing;
     }
 
     return provider.createGist(

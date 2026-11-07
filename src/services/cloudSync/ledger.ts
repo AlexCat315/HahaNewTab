@@ -147,6 +147,18 @@ export class SyncLedger {
     }
 
     /**
+     * 云端数据被整体删除：基线、同步时间、已见版本一并作废。
+     * 新建的 Gist 与被删掉的那个没有任何继承关系，旧版本号留着只会误判下一轮的合并方向。
+     */
+    async reset(): Promise<void> {
+        await this.write({
+            [STORAGE_KEYS.CLOUD_SYNC_BASE]: null,
+            [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: 0,
+            [STORAGE_KEYS.CLOUD_SYNC_SEEN_REVISIONS]: []
+        }, 0);
+    }
+
+    /**
      * 跟着别的页面的账本走
      * 上次同步时间是界面要显示的数，别的设备同步完，本页的「上次同步」也得跟着更新。
      */

@@ -974,3 +974,105 @@ describe('CloudSyncService 资源通道', () => {
         expect(String(snapshot[STORAGE_KEYS.MAIN_DATA].apps[0].icon).startsWith('haha-asset://')).toBe(true);
     });
 });
+
+/**
+ * 清理云端数据：删掉 Gist、关掉自动同步、清空 gistId 与整本账本，且保留登录态。
+ */
+describe('CloudSyncService 清理云端数据', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('删除云端 Gist 并重置本机同步状态', async () => {
+        const { service, storage } = createService();
+        await seedSignedIn(service, storage, {
+            [STORAGE_KEYS.CLOUD_AUTO_SYNC]: true,
+            [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: 123456,
+            [STORAGE_KEYS.CLOUD_SYNC_BASE]: {
+                [STORAGE_KEYS.MAIN_DATA]: { categories: [], apps: [] },
+                [STORAGE_KEYS.USER_UI_LIB]: EMPTY_UI_LIB
+            },
+            [STORAGE_KEYS.CLOUD_SYNC_SEEN_REVISIONS]: ['rev_old']
+        });
+        const fetchMock = vi.fn().mockResolvedValue(createResponse({}, 204));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const result = await service.clearRemoteData();
+
+        expect(result).toEqual({ success: true, deleted: true });
+        const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+        expect(url).toBe(`https://api.github.com/gists/${TEST_GIST_ID}`);
+        expect(init.method).toBe('DELETE');
+        // 登录态与本地数据保留，但同步空间与账本全部作废
+        expect(service.settings.token).toBe(TEST_TOKEN);
+        expect(service.settings.gistId).toBeNull();
+        expect(service.settings.autoSync).toBe(false);
+        expect(service.settings.lastSyncTime).toBe(0);
+        expect(storage.setMany).toHaveBeenCalledWith({
+            [STORAGE_KEYS.CLOUD_SYNC_BASE]: null,
+            [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: 0,
+            [STORAGE_KEYS.CLOUD_SYNC_SEEN_REVISIONS]: []
+        });
+    });
+
+    it('本机没记下 gistId 时按同步文件名找到并删除，绝不新建 Gist', async () => {
+        const { service, storage } = createService();
+        await storage.set(STORAGE_KEYS.CLOUD_TOKEN, TEST_TOKEN);
+        await service.loadSettings();
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce(createResponse([
+                { id: 'gist_remote', files: { [SYNC_FILE_NAME]: { content: '{}' } } }
+            ]))
+            .mockResolvedValueOnce(createResponse({}, 204));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const result = await service.clearRemoteData();
+
+        expect(result).toEqual({ success: true, deleted: true });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(fetchMock.mock.calls[1][0]).toBe('https://api.github.com/gists/gist_remote');
+        expect(fetchMock.mock.calls.some(([, init]) => (init as RequestInit)?.method === 'POST')).toBe(false);
+    });
+
+    it('云端没有同步 Gist 时仍重置本机状态，deleted=false', async () => {
+        const { service, storage } = createService();
+        await storage.set(STORAGE_KEYS.CLOUD_TOKEN, TEST_TOKEN);
+        await service.loadSettings();
+        const fetchMock = vi.fn().mockResolvedValue(createResponse([]));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const result = await service.clearRemoteData();
+
+        expect(result).toEqual({ success: true, deleted: false });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(service.settings.gistId).toBeNull();
+        expect(service.settings.autoSync).toBe(false);
+    });
+
+    it('未登录时不发任何请求', async () => {
+        const { service } = createService();
+        const fetchMock = vi.fn();
+        vi.stubGlobal('fetch', fetchMock);
+
+        const result = await service.clearRemoteData();
+
+        expect(result.success).toBe(false);
+        expect(result.skipped).toBe('not-authenticated');
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('DELETE 返回 401 时清掉凭据，且本机同步状态保持原样', async () => {
+        const { service, storage } = createService();
+        await seedSignedIn(service, storage, {
+            [STORAGE_KEYS.CLOUD_AUTO_SYNC]: true
+        });
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createResponse({ message: 'Bad credentials' }, 401)));
+
+        const result = await service.clearRemoteData();
+
+        expect(result.success).toBe(false);
+        expect(service.settings.token).toBeNull();
+        expect(service.settings.gistId).toBe(TEST_GIST_ID);
+        expect(service.settings.autoSync).toBe(true);
+    });
+});
