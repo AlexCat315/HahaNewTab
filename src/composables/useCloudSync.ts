@@ -9,7 +9,7 @@ import type { ComputedRef } from 'vue';
 import { useCloudSyncStore } from '@/stores/cloudSync.store';
 import { useCrossDeviceAuthStore } from '@/stores/crossDeviceAuth.store';
 import type { EnableCrossDeviceOutcome } from '@/stores/cloudSync.store';
-import type { CrossDeviceRemoteMeta } from '@/services/crossDeviceSync.service';
+import type { CrossDeviceRemoteMeta, SyncAreaProbe } from '@/services/crossDeviceSync.service';
 import type {
     CloudSyncProviderId,
     DownloadResult,
@@ -61,6 +61,10 @@ export interface UseCloudSyncReturn {
     tryRestoreCrossDevice: (passphrase?: string) => Promise<boolean>;
     /** 手动把当前凭据补写进同步区，返回是否写成 */
     retryCrossDevicePush: () => Promise<boolean>;
+    /** 同步区里最近一次「别的设备」发来的连通性探测 */
+    crossDeviceRemoteProbe: ComputedRef<SyncAreaProbe | null>;
+    /** 往同步区发一次探测，让另一台设备能确认这条路通不通 */
+    probeCrossDeviceSyncArea: () => Promise<SyncAreaProbe>;
     /** 导出不依赖浏览器同步区的恢复码（口令缺省用本机保存的） */
     exportRecoveryCode: (passphrase?: string) => Promise<string>;
     /** 用恢复码 + 同步密码恢复登录，返回是否成功 */
@@ -239,6 +243,10 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         return createAbortable(() => store.retryCrossDevicePush());
     }
 
+    async function probeCrossDeviceSyncArea(): Promise<SyncAreaProbe> {
+        return createAbortable(() => store.probeCrossDeviceSyncArea());
+    }
+
     async function exportRecoveryCode(passphrase?: string): Promise<string> {
         return createAbortable(() => store.exportRecoveryCode(passphrase));
     }
@@ -285,6 +293,7 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         crossDeviceRemoteAvailable: computed(() => crossDevice.remoteAvailable),
         crossDeviceRemoteMeta: computed(() => crossDevice.remoteMeta),
         syncAreaNative: computed(() => crossDevice.syncAreaNative),
+        crossDeviceRemoteProbe: computed(() => crossDevice.remoteProbe),
         statusText,
         formattedLastSyncTime,
         init,
@@ -303,6 +312,7 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         restoreFromCrossDevice,
         tryRestoreCrossDevice,
         retryCrossDevicePush,
+        probeCrossDeviceSyncArea,
         exportRecoveryCode,
         restoreFromRecoveryCode
     };

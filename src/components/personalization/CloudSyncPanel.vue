@@ -17,6 +17,7 @@ import { useToast } from '@/composables/useToast';
 import { useConfirm } from '@/composables/useConfirm';
 import type { PromptOptions } from '@/composables/useConfirm';
 import { MIN_PASSPHRASE_LENGTH } from '@/utils/crypto.util';
+import { getExtensionId } from '@/services/crossDeviceSync.service';
 import IconSvg from '@/components/icon/IconSvg.vue';
 import BaseInput from '@/components/common/BaseInput.vue';
 import BaseButton from '@/components/common/BaseButton.vue';
@@ -67,6 +68,8 @@ const {
     refreshCrossDevice,
     tryRestoreCrossDevice,
     retryCrossDevicePush,
+    crossDeviceRemoteProbe,
+    probeCrossDeviceSyncArea,
     exportRecoveryCode,
     restoreFromRecoveryCode
 } = useCloudSync({
@@ -155,21 +158,8 @@ const isFirefox = computed(
     () => typeof navigator !== 'undefined' && /Firefox\//.test(navigator.userAgent)
 );
 
-/**
- * 当前扩展 ID
- *
- * Firefox 的 storage.sync 按扩展 ID 隔离：两台设备如果装的是不同 ID 的包
- * （例如一个是旧的签名版、一个是新构建），同步区永远对不上。
- * 这里只放在 title 里，排查时鼠标悬停即可看到。
- */
-const extensionId = computed(() => {
-    if (typeof window === 'undefined') return '';
-    const win = window as unknown as {
-        browser?: { runtime?: { id?: string } };
-        chrome?: { runtime?: { id?: string } };
-    };
-    return win.browser?.runtime?.id ?? win.chrome?.runtime?.id ?? '';
-});
+/** 当前扩展 ID，直接印在诊断行里供两台设备比对（隔离原因见 getExtensionId） */
+const extensionId = computed(() => getExtensionId());
 
 /** 同步区凭据的来源描述 */
 const remoteMetaText = computed(() => {
@@ -334,6 +324,8 @@ async function handleEnableBrowserSync(): Promise<void> {
 
     browserBusy.value = true;
     try {
+        // enableCrossDeviceSync 内部会先重读一次同步区再决定走不走恢复，
+        // 这里不能拿面板打开时那份「暂无」的旧镜像下结论。
         const { pushed, restored } = await enableCrossDeviceSync(passphrase);
         browserPassphrase.value = '';
         browserExpanded.value = false;
@@ -347,7 +339,14 @@ async function handleEnableBrowserSync(): Promise<void> {
         } else if (crossDeviceRemoteAvailable.value) {
             toast.show('已开启，但同步区里的密码对不上，请用原设备的同步密码恢复', { type: 'error' });
         } else {
-            toast.show('已开启浏览器同步，登录后会自动加密同步登录状态', { type: 'success' });
+            // 以前这里报的是绿色「已开启」：密码是记下了，可同步区里没有任何凭据，
+            // 想拿另一台的 Token 的人等到重装那天也不会等到。成功提示不能给一个没发生的结果。
+            toast.show(
+                isFirefox.value
+                    ? '同步密码已记下，但浏览器同步区里没有任何凭据：等另一台设备送 Token 过来的话，请在那台点「同步区自检」，再回这里点「重新检查」；Firefox 还要在「设置 → 同步」勾选「附加组件」。若这台就是主力机，登录后会自动把凭据加密写进去。'
+                    : '同步密码已记下，但浏览器同步区里没有任何凭据：等另一台设备送 Token 过来的话，请在那台点「同步区自检」，再回这里点「重新检查」；若这台就是主力机，登录后会自动把凭据加密写进去。',
+                { type: 'warning' }
+            );
         }
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -356,6 +355,17 @@ async function handleEnableBrowserSync(): Promise<void> {
     } finally {
         browserBusy.value = false;
     }
+}
+
+/** 同步区空着的时候，用自检结果说清是「没推上来」还是「传不过来」 */
+function emptySyncAreaMessage(): string {
+    const probe = crossDeviceRemoteProbe.value;
+    if (probe) {
+        return `同步区是通的（收到 ${probe.device} 于 ${formatCompactTime(probe.updatedAt)} 发出的自检），但里面没有凭据：那台设备没把 Token 推上来，请到那台点「重试写入同步区」`;
+    }
+    return isFirefox.value
+        ? '同步区既没有凭据，也没收到另一台的自检：这条路还没通。Firefox 需在「设置 → 同步」勾选「附加组件」，并每 10 分钟或点「立即同步」；两台装的还必须是同一个扩展 ID'
+        : '同步区既没有凭据，也没收到另一台的自检：请确认两台登录的是同一个浏览器账号、已开启同步，且扩展 ID 一致';
 }
 
 /** 重新读取同步区状态，并尝试用本机密码免 Token 还原 */
@@ -367,16 +377,35 @@ async function handleRefreshSyncArea(): Promise<void> {
         if (restored) {
             toast.show('已从同步区恢复登录状态', { type: 'success' });
         } else if (!crossDeviceRemoteAvailable.value) {
-            toast.show(
-                isFirefox.value
-                    ? '同步区暂无凭据：Firefox 需在「设置 → 同步」勾选「附加组件」，并每 10 分钟或点「立即同步」才会同步'
-                    : '同步区暂无凭据：请确认两台设备登录的是同一个浏览器账号，并已开启同步',
-                { type: 'info' }
-            );
+            toast.show(emptySyncAreaMessage(), { type: 'info' });
         }
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         emit('error', message);
+    } finally {
+        browserBusy.value = false;
+    }
+}
+
+/**
+ * 往同步区发一次自检
+ *
+ * 自检写的是与口令无关的明文随机值，另一台不需要密码、不需要登录就能读到。
+ * 于是「凭据：暂无」终于有了第二种读法：读得到自检 = 路通、凭据没推上来；
+ * 读不到 = 路本来就不通，跟 Token 无关。
+ */
+async function handleProbeSyncArea(): Promise<void> {
+    browserBusy.value = true;
+    try {
+        const probe = await probeCrossDeviceSyncArea();
+        toast.show(
+            `已向浏览器同步区发出自检（编号 ${probe.nonce.slice(0, 8)}），请到另一台设备点「重新检查」`,
+            { type: 'success' }
+        );
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        emit('error', message);
+        toast.show(message, { type: 'error' });
     } finally {
         browserBusy.value = false;
     }
@@ -840,10 +869,20 @@ const statusClass = computed(() => {
 
             <!-- 同步区诊断：让「到底同步到了没」可见，而不是靠猜 -->
             <div class="cloud-sync-cross__diag">
-                <span :title="extensionId ? `扩展 ID：${extensionId}` : ''">
-                    同步区：{{ syncAreaNative ? '浏览器账号' : '本机模拟' }}
-                </span>
+                <span>同步区：{{ syncAreaNative ? '浏览器账号' : '本机模拟' }}</span>
                 <span>凭据：{{ crossDeviceRemoteAvailable ? remoteMetaText : '暂无' }}</span>
+                <!-- 扩展 ID 直接印出来：同步区按它隔离，两台不一致就永远看不到对方，
+                     这一点原来藏在鼠标悬停里，谁也不会去悬停。 -->
+                <span
+                    v-if="extensionId"
+                    class="cloud-sync-cross__id"
+                    :title="extensionId"
+                >
+                    扩展 ID：{{ extensionId }}
+                </span>
+                <span v-if="crossDeviceRemoteProbe">
+                    自检：收到（{{ crossDeviceRemoteProbe.device }}，{{ formatCompactTime(crossDeviceRemoteProbe.updatedAt) }}）
+                </span>
                 <button
                     type="button"
                     class="cloud-sync-cross__refresh"
@@ -851,6 +890,15 @@ const statusClass = computed(() => {
                     @click="handleRefreshSyncArea"
                 >
                     重新检查
+                </button>
+                <button
+                    v-if="syncAreaNative"
+                    type="button"
+                    class="cloud-sync-cross__refresh"
+                    :disabled="browserBusy"
+                    @click="handleProbeSyncArea"
+                >
+                    同步区自检
                 </button>
             </div>
 
@@ -1066,6 +1114,13 @@ const statusClass = computed(() => {
         font-size: var(--text-xs);
         color: var(--label-secondary);
         opacity: 0.9;
+    }
+
+    // 扩展 ID 是这台机器上「同步区归谁」的唯一标识，比对两台时必须一眼看得清
+    &__id {
+        font-family: var(--font-mono, ui-monospace, monospace);
+        word-break: break-all;
+        opacity: 0.75;
     }
 
     &__refresh {

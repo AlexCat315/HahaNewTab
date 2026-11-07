@@ -54,7 +54,11 @@ export const STORAGE_KEYS = {
     /** 同步区：加密后的云同步登录凭据 */
     CROSS_DEVICE_REMOTE_AUTH: 'haha_cross_device_auth',
     /** 同步区：凭据元信息（明文，只含设备名与时间） */
-    CROSS_DEVICE_REMOTE_META: 'haha_cross_device_auth_meta'
+    CROSS_DEVICE_REMOTE_META: 'haha_cross_device_auth_meta',
+    /** 同步区：连通性探测（明文随机值，用来区分「没推上去」和「传不过来」） */
+    CROSS_DEVICE_REMOTE_PROBE: 'haha_cross_device_probe',
+    /** 本机：最后一次自己发出的探测标识（不上传，用于认出同步区里那条是不是别处写的） */
+    CROSS_DEVICE_LOCAL_PROBE: 'appNavigator_crossDevice_probe'
 } as const;
 
 /**

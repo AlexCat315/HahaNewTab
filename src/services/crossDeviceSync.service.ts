@@ -42,6 +42,10 @@ const LOCAL_PASSPHRASE_KEY = STORAGE_KEYS.CROSS_DEVICE_PASSPHRASE;
 export const REMOTE_AUTH_KEY = STORAGE_KEYS.CROSS_DEVICE_REMOTE_AUTH;
 /** 同步区：凭据元信息（明文，只含设备名与时间，不含 Token） */
 export const REMOTE_META_KEY = STORAGE_KEYS.CROSS_DEVICE_REMOTE_META;
+/** 同步区：连通性探测 */
+export const REMOTE_PROBE_KEY = STORAGE_KEYS.CROSS_DEVICE_REMOTE_PROBE;
+/** 本机：最后一次自己发出的探测标识 */
+const LOCAL_PROBE_KEY = STORAGE_KEYS.CROSS_DEVICE_LOCAL_PROBE;
 
 /** 需要跨设备同步的登录凭据 */
 export interface CrossDeviceAuth {
@@ -49,6 +53,27 @@ export interface CrossDeviceAuth {
     token: string;
     /** 平台标识：github / gitee */
     provider: string;
+}
+
+/**
+ * 同步区连通性探测
+ *
+ * 「凭据：暂无」这句话有两种完全不同的成因，光看它分不出来：
+ *   A. 另一台设备压根没写进同步区；
+ *   B. 写进去了，但浏览器没把它送到这台（没勾「附加组件」同步、还没到 10 分钟、
+ *      或者两台装的是不同扩展 ID 的包——同步区按 ID 隔离，永远看不到对方）。
+ * 凭据本身带着口令，B 情况下这台机器读不到就是读不到，说不了更多。
+ * 探测是一条与口令无关的明文随机值：任一台写、另一台读，读到就证明这条路是通的。
+ */
+export interface SyncAreaProbe {
+    /** 发起设备 */
+    device: string;
+    /** 发起设备的扩展 ID：两台不一致就直接解释了「永远收不到」 */
+    extensionId: string;
+    /** 发起时间 */
+    updatedAt: number;
+    /** 随机标识，本机靠它认出同步区里那条是不是自己写的 */
+    nonce: string;
 }
 
 /** 同步区里凭据的元信息，用于界面显示「凭据来自哪台设备、什么时候更新的」 */
@@ -436,4 +461,82 @@ export function watchRemoteCrossDeviceAuth(
         }
         listener(isEncryptedPayload(changes[REMOTE_AUTH_KEY]?.newValue));
     });
+}
+
+/**
+ * 本机扩展 ID
+ *
+ * 浏览器把 storage.sync 按扩展 ID 隔离：商店版、自签版、about:debugging 临时加载的
+ * 开发版可能各是一个 ID，它们的同步区永远对不上——「凭据：暂无」就是这么来的。
+ */
+export function getExtensionId(): string {
+    if (typeof window === 'undefined') return '';
+    const win = window as unknown as {
+        browser?: { runtime?: { id?: string } };
+        chrome?: { runtime?: { id?: string } };
+    };
+    return win.browser?.runtime?.id ?? win.chrome?.runtime?.id ?? '';
+}
+
+/**
+ * 往同步区发一次探测
+ *
+ * 写的是与口令无关的明文随机值，另一台设备不需要密码、也不需要登录就能读到，
+ * 因此它能回答「这个同步区到底通不通」——凭据那条路问不出这个问题。
+ */
+export async function sendSyncAreaProbe(): Promise<SyncAreaProbe> {
+    if (!getSyncAreaStatus().native) {
+        throw new Error('当前为网页预览环境，无法探测浏览器同步区');
+    }
+
+    const probe: SyncAreaProbe = {
+        device: getDeviceLabel(),
+        extensionId: getExtensionId(),
+        updatedAt: Date.now(),
+        nonce: createNonce()
+    };
+
+    await syncSet(REMOTE_PROBE_KEY, probe);
+    // 记下自己这份，读的时候才不会把它当成另一台设备发来的
+    await storageManager.set(LOCAL_PROBE_KEY, probe.nonce);
+    return probe;
+}
+
+/**
+ * 读同步区里「别的设备」最近发来的探测
+ *
+ * @returns 只有本机自己那一份、或同步区里什么都没有时返回 null
+ */
+export async function readIncomingSyncAreaProbe(): Promise<SyncAreaProbe | null> {
+    const probe = toSyncAreaProbe(await syncGet(REMOTE_PROBE_KEY));
+    if (!probe) {
+        return null;
+    }
+    const mine = await storageManager.get(LOCAL_PROBE_KEY);
+    return probe.nonce === mine ? null : probe;
+}
+
+/** 同步区里的原始值 → 探测记录，形状不对就当没有 */
+function toSyncAreaProbe(value: unknown): SyncAreaProbe | null {
+    if (!value || typeof value !== 'object') {
+        return null;
+    }
+    const probe = value as Partial<SyncAreaProbe>;
+    if (typeof probe.nonce !== 'string' || typeof probe.updatedAt !== 'number') {
+        return null;
+    }
+    return {
+        nonce: probe.nonce,
+        updatedAt: probe.updatedAt,
+        device: typeof probe.device === 'string' ? probe.device : '未知设备',
+        extensionId: typeof probe.extensionId === 'string' ? probe.extensionId : ''
+    };
+}
+
+function createNonce(): string {
+    const randomId = globalThis.crypto?.randomUUID?.();
+    if (randomId) {
+        return randomId;
+    }
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }

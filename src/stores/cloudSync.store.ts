@@ -21,7 +21,7 @@ import { useCrossDeviceAuthStore } from './crossDeviceAuth.store';
 import type { RecoveredAuth } from './crossDeviceAuth.store';
 import type { CrossDevicePushOutcome } from './crossDeviceAuth.store';
 import type { CrossDeviceAuth } from '@/services/crossDeviceSync.service';
-import type { EnableCrossDeviceResult } from '@/services/crossDeviceSync.service';
+import type { EnableCrossDeviceResult, SyncAreaProbe } from '@/services/crossDeviceSync.service';
 import { MIN_PASSPHRASE_LENGTH } from '@/utils/crypto.util';
 import { createCloudSyncDataManager } from './cloudSyncDataManager';
 import type {
@@ -345,7 +345,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
      * 「本地数据不会删除」这句要说清楚：断开只是不再跟云端往来，本机的一份原样留着。
      */
     async function logout(): Promise<void> {
-        const confirmed = await uiAdapter.value.showConfirm('确定要断开云同步吗？本地数据不会删除。', {
+        const confirmed = await uiAdapter.value.showConfirm('确定要断开云同步吗？本地数据不会删除，但浏览器同步区里那份共用的登录凭据会一并清除，其他设备需要重新输入 Token。', {
             title: '断开同步',
             okText: '断开',
             isDanger: true
@@ -401,6 +401,17 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         }
         announcePushOutcome(outcome);
         return false;
+    }
+
+    /**
+     * 往浏览器同步区发一次连通性探测
+     *
+     * 「凭据：暂无」有两种成因：另一台没推上来，或者推了但浏览器没把同步区送到这里
+     * （没勾附加组件同步、还没到点、两台装的是不同扩展 ID 的包）。凭据本身分不出来，
+     * 一条与口令无关的探测能分出来：另一台点「重新检查」时读到它，路就是通的。
+     */
+    function probeCrossDeviceSyncArea(): Promise<SyncAreaProbe> {
+        return crossDevice.probeSyncArea();
     }
 
     /** 「已开启却没写进去」的三种原因，各自一句话 */
@@ -699,6 +710,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         restoreFromCrossDevice,
         tryRestoreCrossDevice,
         retryCrossDevicePush,
+        probeCrossDeviceSyncArea,
         exportRecoveryCode,
         restoreFromRecoveryCode
     };

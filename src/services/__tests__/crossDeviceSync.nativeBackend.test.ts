@@ -198,6 +198,22 @@ describe.each([['chrome'], ['firefox']] as const)('原生同步区（%s 风格 A
         bus.items.clear();
     });
 
+    it('同步区自检：另一台读得到，自己写的那条不算收到', async () => {
+        const storeA = silentUI();
+        const sent = await storeA.probeCrossDeviceSyncArea();
+
+        const crossA = useCrossDeviceAuthStore();
+        await crossA.refresh();
+        // 两台都把自己那条当成对方的自检，「路是通的」就永远是绿的，这句话也就没用了
+        expect(crossA.remoteProbe).toBeNull();
+
+        // 设备 B：本机从没写过探测，能读到的只可能是账号同步区里别人那份
+        await becomeFreshDevice();
+        const storeB = silentUI();
+        await storeB.refreshCrossDevice();
+        expect(useCrossDeviceAuthStore().remoteProbe?.nonce).toBe(sent.nonce);
+    });
+
     it('设备 B 开机不会凭空登录（口令不在本机），输入口令后立刻还原', async () => {
         const storeA = silentUI();
         await storeA.login(TOKEN, 'github');

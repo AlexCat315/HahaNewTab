@@ -18,14 +18,17 @@ import {
     getCrossDeviceStatus,
     getStoredPassphrase,
     pushCrossDeviceAuth,
+    readIncomingSyncAreaProbe,
     readRecoveryCode,
     restoreCrossDeviceAuth,
+    sendSyncAreaProbe,
     watchRemoteCrossDeviceAuth
 } from '@/services/crossDeviceSync.service';
 import type {
     CrossDeviceAuth,
     CrossDeviceRemoteMeta,
-    EnableCrossDeviceResult
+    EnableCrossDeviceResult,
+    SyncAreaProbe
 } from '@/services/crossDeviceSync.service';
 import type { CloudSyncProviderId } from '@/types/cloudSync.types';
 
@@ -62,6 +65,8 @@ export const useCrossDeviceAuthStore = defineStore('crossDeviceAuth', () => {
     const remoteMeta = ref<CrossDeviceRemoteMeta | null>(null);
     /** 当前环境是否使用浏览器账号同步区（false = 网页预览的 localStorage 降级） */
     const syncAreaNative = ref(getSyncAreaStatus().native);
+    /** 同步区里最近一次「别的设备」发来的连通性探测（null = 没收到过） */
+    const remoteProbe = ref<SyncAreaProbe | null>(null);
 
     /** 重新读取同步区与本机的状态 */
     async function refresh(): Promise<void> {
@@ -75,6 +80,29 @@ export const useCrossDeviceAuthStore = defineStore('crossDeviceAuth', () => {
         } catch (e) {
             console.warn('[CrossDevice] 读取浏览器同步状态失败:', e);
         }
+        await refreshProbe();
+    }
+
+    /**
+     * 读一次「别的设备发来的探测」
+     *
+     * 探测读不到不算故障：同步区为空时它就该是 null，所以这里不抛。
+     */
+    async function refreshProbe(): Promise<SyncAreaProbe | null> {
+        try {
+            remoteProbe.value = await readIncomingSyncAreaProbe();
+        } catch (e) {
+            console.warn('[CrossDevice] 读取同步区探测失败:', e);
+            remoteProbe.value = null;
+        }
+        return remoteProbe.value;
+    }
+
+    /** 往同步区写一次探测，供另一台设备确认「这条路到底通不通」 */
+    async function probeSyncArea(): Promise<SyncAreaProbe> {
+        const probe = await sendSyncAreaProbe();
+        await refreshProbe();
+        return probe;
     }
 
     /**
@@ -203,7 +231,10 @@ export const useCrossDeviceAuthStore = defineStore('crossDeviceAuth', () => {
         remoteAvailable,
         remoteMeta,
         syncAreaNative,
+        remoteProbe,
         refresh,
+        refreshProbe,
+        probeSyncArea,
         push,
         pushIfMissing,
         createRecovery,

@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import CloudSyncPanel from '@/components/personalization/CloudSyncPanel.vue';
+import { useToast } from '@/composables/useToast';
 import { enableCrossDevice } from '@/services/crossDeviceSync.service';
 import { storageManager } from '@/services/storage.service';
 import { browserApi } from '@/services/browserApi.service';
@@ -253,6 +254,36 @@ describe('CloudSyncPanel', () => {
         vi.unstubAllGlobals();
     });
 
+    it('同步区是空的：输入同一密码不再报「已开启」的成功，而是说清 Token 没过来', async () => {
+        // 面板提示走全局 Toast 单例，先清空，免得上一条用例留下的提示被当成这一条的结果
+        const api = useToast();
+        api.dismissAll();
+
+        const wrapper = mount(CloudSyncPanel);
+        await flushPromises();
+        api.dismissAll();
+
+        await wrapper.find('.cloud-sync-toggle input').setValue(true);
+        await flushPromises();
+        await wrapper.find('.cloud-sync-cross input[type="password"]').setValue('my-sync-pass');
+        const enableBtn = wrapper
+            .findAll('.cloud-sync-cross .mnt-base-button')
+            .find((btn) => btn.text().includes('开启并加密同步'));
+        await enableBtn!.trigger('click');
+
+        await vi.waitFor(() => {
+            const messages = api.toasts.value.map((item) => item.message);
+            expect(messages.some((text) => text.includes('没有任何凭据'))).toBe(true);
+        });
+        // 密码是记下了，但同步区里一个字节都没有——这句绿色的「会自动加密同步」不能再出现
+        const messages = api.toasts.value.map((item) => item.message);
+        expect(messages.some((text) => text.includes('登录后会自动加密同步登录状态'))).toBe(false);
+        // 并且要给出下一步动作
+        expect(messages.some((text) => text.includes('同步区自检'))).toBe(true);
+
+        api.dismissAll();
+    });
+
     describe('同步区补推与恢复码', () => {
         afterEach(() => {
             delete (window as unknown as { chrome?: unknown }).chrome;
@@ -355,6 +386,69 @@ describe('CloudSyncPanel', () => {
             expect(findButton(wrapper, '重试写入同步区')).toBeUndefined();
 
             vi.unstubAllGlobals();
+        });
+
+        it('点「同步区自检」把探测写进浏览器同步区', async () => {
+            const syncArea = installNativeSyncArea();
+
+            const wrapper = mount(CloudSyncPanel);
+            await vi.waitFor(() => {
+                expect(wrapper.text()).toContain('同步区：浏览器账号');
+            });
+
+            const probeBtn = wrapper
+                .findAll('.cloud-sync-cross__refresh')
+                .find((btn) => btn.text().includes('同步区自检'));
+            expect(probeBtn).toBeTruthy();
+            await probeBtn!.trigger('click');
+
+            await vi.waitFor(() => {
+                expect(syncArea.store['haha_cross_device_probe']).toBeTruthy();
+            });
+            // 自己写的那条不算「另一台发来的」，否则两台都以为自己收到了对方的自检
+            expect(wrapper.text()).not.toContain('自检：收到');
+        });
+
+        it('另一台发过自检、同步区里却没凭据：说「路是通的，是凭据没推上来」', async () => {
+            const syncArea = installNativeSyncArea();
+            syncArea.store['haha_cross_device_probe'] = {
+                device: 'Firefox · macOS',
+                extensionId: 'other-extension-id',
+                updatedAt: Date.now(),
+                nonce: 'from-the-other-device'
+            };
+
+            const wrapper = mount(CloudSyncPanel);
+            await vi.waitFor(() => {
+                expect(wrapper.text()).toContain('自检：收到');
+            });
+
+            const api = useToast();
+            api.dismissAll();
+            await wrapper.find('.cloud-sync-cross__refresh').trigger('click');
+            await vi.waitFor(() => {
+                const messages = api.toasts.value.map((item) => item.message);
+                expect(messages.some((text) => text.includes('同步区是通的'))).toBe(true);
+            });
+            const messages = api.toasts.value.map((item) => item.message);
+            expect(messages.some((text) => text.includes('没把 Token 推上来'))).toBe(true);
+            api.dismissAll();
+        });
+
+        it('同步区既没凭据也没自检：说清这条路本来就不通', async () => {
+            installNativeSyncArea();
+
+            const wrapper = mount(CloudSyncPanel);
+            await flushPromises();
+
+            const api = useToast();
+            api.dismissAll();
+            await wrapper.find('.cloud-sync-cross__refresh').trigger('click');
+            await vi.waitFor(() => {
+                const messages = api.toasts.value.map((item) => item.message);
+                expect(messages.some((text) => text.includes('也没收到另一台的自检'))).toBe(true);
+            });
+            api.dismissAll();
         });
 
         it('「导出恢复码」生成一段可解回的密文', async () => {
