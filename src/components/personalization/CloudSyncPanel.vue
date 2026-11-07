@@ -17,7 +17,7 @@ import { useToast } from '@/composables/useToast';
 import { useConfirm } from '@/composables/useConfirm';
 import type { PromptOptions } from '@/composables/useConfirm';
 import { MIN_PASSPHRASE_LENGTH } from '@/utils/crypto.util';
-import { getExtensionId } from '@/services/crossDeviceSync.service';
+import { getExtensionId, getExtensionVersion } from '@/services/crossDeviceSync.service';
 import IconSvg from '@/components/icon/IconSvg.vue';
 import BaseInput from '@/components/common/BaseInput.vue';
 import BaseButton from '@/components/common/BaseButton.vue';
@@ -57,7 +57,6 @@ const {
     crossDeviceRemoteAvailable,
     crossDeviceRemoteMeta,
     syncAreaNative,
-    syncAreaCrossDevice,
     login,
     logout,
     sync,
@@ -71,6 +70,7 @@ const {
     retryCrossDevicePush,
     crossDeviceRemoteProbe,
     probeCrossDeviceSyncArea,
+    nudgeCrossDeviceSyncArea,
     exportRecoveryCode,
     restoreFromRecoveryCode
 } = useCloudSync({
@@ -162,6 +162,21 @@ const isFirefox = computed(
 /** 当前扩展 ID，直接印在诊断行里供两台设备比对（隔离原因见 getExtensionId） */
 const extensionId = computed(() => getExtensionId());
 
+/** 本机版本，与自检里另一台的版本对照，换包没换全时一眼可见 */
+const extensionVersion = computed(() => getExtensionVersion());
+
+/**
+ * 自检来自「同一扩展 ID、不同版本」
+ *
+ * 同步区按 ID 隔离，ID 一致才有得谈；可旧版根本不读写这些键，
+ * 版本差着的时候，「收到了自检但凭据一直不出现」就不是网络问题。
+ */
+const probeVersionMismatch = computed(() => {
+    const probe = crossDeviceRemoteProbe.value;
+    if (!probe?.version || !extensionVersion.value) return false;
+    return probe.version !== extensionVersion.value;
+});
+
 /** 同步区凭据的来源描述 */
 const remoteMetaText = computed(() => {
     const meta = crossDeviceRemoteMeta.value;
@@ -216,7 +231,6 @@ const browserPushMissing = computed(() =>
     browserMode.value === 'enabled'
     && isLoggedIn.value
     && syncAreaNative.value
-    && syncAreaCrossDevice.value
     && !crossDeviceRemoteAvailable.value
 );
 
@@ -230,12 +244,6 @@ const browserStatusText = computed(() => {
             return crossDeviceRemoteAvailable.value
                 ? '已开启 · 凭据在本机模拟同步区（预览环境不会同步到其他设备）'
                 : '已开启 · 当前环境无法写入浏览器同步区';
-        }
-        if (!syncAreaCrossDevice.value) {
-            // 原生同步区在，但开发版安装的扩展不参与 Chrome 的扩展存储同步
-            return crossDeviceRemoteAvailable.value
-                ? '已开启 · 凭据只留在本机的浏览器同步区（当前安装方式不会同步到其他设备）'
-                : '已开启 · 但本机同步区还没有凭据，上一次写入没成功';
         }
         if (!crossDeviceRemoteAvailable.value) {
             return '已开启 · 但同步区还没有凭据，上一次写入没成功';
@@ -369,14 +377,14 @@ async function handleEnableBrowserSync(): Promise<void> {
 function emptySyncAreaMessage(): string {
     const probe = crossDeviceRemoteProbe.value;
     if (probe) {
-        return `同步区是通的（收到 ${probe.device} 于 ${formatCompactTime(probe.updatedAt)} 发出的自检），但里面没有凭据：那台设备没把 Token 推上来，请到那台点「重试写入同步区」`;
-    }
-    if (syncAreaNative.value && !syncAreaCrossDevice.value) {
-        return '当前是开发版安装：Chrome 不会上传这种安装方式的扩展同步区，另一台设备永远收不到这里的凭据。换设备请用恢复码，或直接粘贴 Token';
+        const versionNote = probeVersionMismatch.value
+            ? `；另外，那台是 v${probe.version}、本机是 v${extensionVersion.value}，先把两边升到同一个版本`
+            : '';
+        return `同步区是通的（收到 ${probe.device} 于 ${formatCompactTime(probe.updatedAt)} 发出的自检），但里面没有凭据：那台设备没把 Token 推上来，请到那台点「重试写入同步区」${versionNote}`;
     }
     return isFirefox.value
         ? '同步区既没有凭据，也没收到另一台的自检：这条路还没通。Firefox 需在「设置 → 同步」勾选「附加组件」，并每 10 分钟或点「立即同步」；两台装的还必须是同一个扩展 ID'
-        : '同步区既没有凭据，也没收到另一台的自检：请确认两台登录的是同一个浏览器账号、在同步设置里勾选了「扩展」，且扩展 ID 一致';
+        : '同步区既没有凭据，也没收到另一台的自检：请确认两台登录的是同一个浏览器账号、在同步设置里勾选「扩展」，且扩展 ID 一致';
 }
 
 /** 重新读取同步区状态，并尝试用本机密码免 Token 还原 */
@@ -385,10 +393,17 @@ async function handleRefreshSyncArea(): Promise<void> {
     try {
         await refreshCrossDevice();
         const restored = await tryRestoreCrossDevice();
+        // 只看一次本机快照，等于只看到浏览器上次同步的结果。这里顺手催它现在就跑一轮：
+        // Firefox 引擎在本地写入后会立刻安排同步，不必等它自己的 10 分钟周期。
+        // 读第二遍交给常规轮询——凭据落地后会自动还原，不会卡住按钮。
+        const nudged = !restored && !crossDeviceRemoteAvailable.value && syncAreaNative.value
+            ? await nudgeCrossDeviceSyncArea()
+            : false;
         if (restored) {
             toast.show('已从同步区恢复登录状态', { type: 'success' });
         } else if (!crossDeviceRemoteAvailable.value) {
-            toast.show(emptySyncAreaMessage(), { type: 'info' });
+            const message = emptySyncAreaMessage();
+            toast.show(nudged ? `${message}；已催促浏览器同步，几秒内会自动重试` : message, { type: 'info' });
         }
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -725,11 +740,6 @@ const statusClass = computed(() => {
             <p v-if="!syncAreaNative" class="cloud-sync-cross__warn">
                 当前为网页预览环境，无法写入浏览器账号同步区，该功能仅在扩展中生效。
             </p>
-            <p v-if="syncAreaNative && !syncAreaCrossDevice" class="cloud-sync-cross__warn">
-                当前扩展是以「加载已解压的扩展程序」安装的：Chrome 不会上传这种安装方式的扩展同步区，
-                同一账号、同一扩展 ID 也不会把这里的凭据送到其他设备。换设备请用下方的「导出恢复码」，
-                或直接粘贴 Token；从扩展商店安装后这项才真正跨设备。
-            </p>
 
             <label v-if="browserMode === 'off' || browserMode === 'setup'" class="cloud-sync-toggle">
                 <input
@@ -885,19 +895,18 @@ const statusClass = computed(() => {
 
             <!-- 同步区诊断：让「到底同步到了没」可见，而不是靠猜 -->
             <div class="cloud-sync-cross__diag">
-                <span>同步区：{{ syncAreaNative ? (syncAreaCrossDevice ? '浏览器账号' : '本机（开发版安装）') : '本机模拟' }}</span>
+                <span>同步区：{{ syncAreaNative ? '浏览器账号' : '本机模拟' }}</span>
                 <span>凭据：{{ crossDeviceRemoteAvailable ? remoteMetaText : '暂无' }}</span>
                 <!-- 扩展 ID 直接印出来：同步区按它隔离，两台不一致就永远看不到对方，
                      这一点原来藏在鼠标悬停里，谁也不会去悬停。 -->
-                <span
-                    v-if="extensionId"
-                    class="cloud-sync-cross__id"
-                    :title="extensionId"
-                >
-                    扩展 ID：{{ extensionId }}
+                <span v-if="extensionId" class="cloud-sync-cross__id" :title="extensionId">
+                    扩展 ID：{{ extensionId }}<template v-if="extensionVersion">（v{{ extensionVersion }}）</template>
                 </span>
                 <span v-if="crossDeviceRemoteProbe">
-                    自检：收到（{{ crossDeviceRemoteProbe.device }}，{{ formatCompactTime(crossDeviceRemoteProbe.updatedAt) }}）
+                    自检：收到（{{ crossDeviceRemoteProbe.device }}<template v-if="crossDeviceRemoteProbe.version">，v{{ crossDeviceRemoteProbe.version }}</template>，{{ formatCompactTime(crossDeviceRemoteProbe.updatedAt) }}）
+                </span>
+                <span v-if="probeVersionMismatch" class="cloud-sync-cross__id">
+                    版本不一致：另一台是 v{{ crossDeviceRemoteProbe?.version }}
                 </span>
                 <button
                     type="button"
@@ -919,7 +928,7 @@ const statusClass = computed(() => {
             </div>
 
             <p
-                v-if="syncAreaNative && syncAreaCrossDevice && !crossDeviceRemoteAvailable && !isLoggedIn"
+                v-if="syncAreaNative && !crossDeviceRemoteAvailable && !isLoggedIn"
                 class="cloud-sync-cross__warn"
             >
                 <template v-if="isFirefox">

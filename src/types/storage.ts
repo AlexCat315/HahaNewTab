@@ -57,6 +57,13 @@ export const STORAGE_KEYS = {
     CROSS_DEVICE_REMOTE_META: 'haha_cross_device_auth_meta',
     /** 同步区：连通性探测（明文随机值，用来区分「没推上去」和「传不过来」） */
     CROSS_DEVICE_REMOTE_PROBE: 'haha_cross_device_probe',
+    /**
+     * 同步区：催促标记
+     *
+     * Firefox 的同步引擎在本地写入后会把 score 抬高并立刻跑一轮同步，
+     * 等待中的设备改一下这个值，就能把远端凭据主动拉下来，不必等 10 分钟。
+     */
+    CROSS_DEVICE_REMOTE_NUDGE: 'haha_cross_device_nudge',
     /** 本机：最后一次自己发出的探测标识（不上传，用于认出同步区里那条是不是别处写的） */
     CROSS_DEVICE_LOCAL_PROBE: 'appNavigator_crossDevice_probe'
 } as const;

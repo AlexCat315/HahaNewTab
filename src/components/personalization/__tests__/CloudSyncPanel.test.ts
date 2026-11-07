@@ -451,9 +451,9 @@ describe('CloudSyncPanel', () => {
             api.dismissAll();
         });
 
-        it('Chrome 开发版安装：明说同步区不会跨设备，诊断行不再写「浏览器账号」', async () => {
+        it('「加载已解压的扩展程序」安装照常显示浏览器账号同步区', async () => {
             installNativeSyncArea();
-            // 加载已解压的扩展程序：原生同步区在，但 Chrome 不会上传它
+            // 同步区按扩展 ID 隔离，不按安装方式；同一个 key 装出来的包照样走账号同步
             Object.assign((window as unknown as { chrome: Record<string, unknown> }).chrome, {
                 runtime: { id: 'lpaaldonlnldlkaghoealdcbiafljagb' },
                 management: {
@@ -466,10 +466,9 @@ describe('CloudSyncPanel', () => {
             const wrapper = mount(CloudSyncPanel);
 
             await vi.waitFor(() => {
-                expect(wrapper.text()).toContain('本机（开发版安装）');
+                expect(wrapper.text()).toContain('同步区：浏览器账号');
             });
-            expect(wrapper.text()).toContain('Chrome 不会上传这种安装方式的扩展同步区');
-            expect(wrapper.text()).not.toContain('同步区：浏览器账号');
+            expect(wrapper.text()).not.toContain('不会上传');
         });
 
         it('「导出恢复码」生成一段可解回的密文', async () => {

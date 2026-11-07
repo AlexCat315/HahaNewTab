@@ -45,6 +45,8 @@ export const REMOTE_AUTH_KEY = STORAGE_KEYS.CROSS_DEVICE_REMOTE_AUTH;
 export const REMOTE_META_KEY = STORAGE_KEYS.CROSS_DEVICE_REMOTE_META;
 /** 同步区：连通性探测 */
 export const REMOTE_PROBE_KEY = STORAGE_KEYS.CROSS_DEVICE_REMOTE_PROBE;
+/** 同步区：催促标记（见 nudgeSyncArea） */
+export const REMOTE_NUDGE_KEY = STORAGE_KEYS.CROSS_DEVICE_REMOTE_NUDGE;
 /** 本机：最后一次自己发出的探测标识 */
 const LOCAL_PROBE_KEY = STORAGE_KEYS.CROSS_DEVICE_LOCAL_PROBE;
 
@@ -71,6 +73,8 @@ export interface SyncAreaProbe {
     device: string;
     /** 发起设备的扩展 ID：两台不一致就直接解释了「永远收不到」 */
     extensionId: string;
+    /** 发起设备的扩展版本：两台版本差太远时，旧版可能根本不看这些键 */
+    version: string;
     /** 发起时间 */
     updatedAt: number;
     /** 随机标识，本机靠它认出同步区里那条是不是自己写的 */
@@ -99,25 +103,10 @@ export interface CrossDeviceState {
 export interface CrossDeviceStatus extends CrossDeviceState {
     /** 当前环境是否使用浏览器账号同步区（false = 网页预览的 localStorage 降级） */
     nativeSync: boolean;
-    /**
-     * 写进同步区的东西是否真的会离开这台机器
-     *
-     * Chrome 只对「从扩展商店安装」的扩展上传 storage.sync，用「加载已解压的扩展程序」
-     * 安装的包即使同一个账号、同一个扩展 ID 也只留在本机，而 nativeSync 同样是 true。
-     */
-    syncAreaCrossDevice: boolean;
     /** 同步区是否已有加密凭据（无需口令即可判断） */
     remoteAvailable: boolean;
     /** 同步区凭据的元信息（来自哪台设备、何时推送） */
     remoteMeta: CrossDeviceRemoteMeta | null;
-}
-
-/** 安装方式探测结果 */
-interface CrossDeviceInstallInfo {
-    /** management.getSelf().installType；浏览器不提供该信息时为 null */
-    installType: string | null;
-    /** 同步区写入的数据是否会离开本机 */
-    crossDevice: boolean;
 }
 
 /** 启用结果 */
@@ -163,78 +152,16 @@ export async function getRemoteCrossDeviceMeta(): Promise<CrossDeviceRemoteMeta 
     };
 }
 
-/**
- * 读本机安装方式，判断同步区能不能真的跨设备
- *
- * Chromium 只给「从扩展商店安装」的扩展同步 storage.sync
- * （sync_helper::IsSyncable 只放行 ManifestLocation::kInternal），
- * 用「加载已解压的扩展程序」装的包写进去的凭据不会离开本机。
- * management.getSelf() 不需要额外权限，且开发版会如实报告 installType = "development"。
- *
- * Firefox 没有这条限制，所以只在非 Gecko 的原生同步区上做这层判定；
- * 探测不到安装方式时保持乐观（沿用 nativeSync 的结论），不凭空报警。
- */
-async function detectCrossDeviceInstall(): Promise<CrossDeviceInstallInfo> {
-    if (!getSyncAreaStatus().native) {
-        return { installType: null, crossDevice: false };
-    }
-    if (typeof window === 'undefined' || !isChromiumExtension()) {
-        return { installType: null, crossDevice: true };
-    }
-    const installType = await readInstallType();
-    return { installType, crossDevice: installType !== 'development' };
-}
-
-/** Firefox 同时暴露 browser 与 chrome 命名空间，chrome-only 才是 Chromium 系 */
-function isChromiumExtension(): boolean {
-    const win = window as unknown as {
-        chrome?: { runtime?: { id?: string }; management?: { getSelf?: unknown } };
-        browser?: { runtime?: { id?: string } };
-    };
-    return !win.browser?.runtime?.id && !!win.chrome?.runtime?.id;
-}
-
-/** management.getSelf()：Firefox 直接返回 Promise，Chrome 需要回调 */
-function readInstallType(): Promise<string | null> {
-    const win = window as unknown as {
-        chrome?: { management?: { getSelf?: (...args: unknown[]) => unknown } };
-        browser?: { management?: { getSelf?: () => Promise<{ installType?: string }> } };
-    };
-    const pick = (info: { installType?: string } | null | undefined): string | null =>
-        typeof info?.installType === 'string' ? info.installType : null;
-
-    if (win.browser?.management?.getSelf) {
-        try {
-            return win.browser.management.getSelf().then(pick, () => null);
-        } catch {
-            return Promise.resolve(null);
-        }
-    }
-    const getSelf = win.chrome?.management?.getSelf;
-    if (!getSelf) {
-        return Promise.resolve(null);
-    }
-    return new Promise(resolve => {
-        try {
-            getSelf.call(win.chrome?.management, (info: { installType?: string }) => resolve(pick(info)));
-        } catch {
-            resolve(null);
-        }
-    });
-}
-
-/** 读取完整状态（含同步区可用性 / 能否跨设备 / 远端密文） */
+/** 读取完整状态（含同步区可用性 / 远端密文） */
 export async function getCrossDeviceStatus(): Promise<CrossDeviceStatus> {
-    const [state, install, remoteAvailable, remoteMeta] = await Promise.all([
+    const [state, remoteAvailable, remoteMeta] = await Promise.all([
         getCrossDeviceState(),
-        detectCrossDeviceInstall(),
         hasRemoteCrossDeviceAuth(),
         getRemoteCrossDeviceMeta()
     ]);
     return {
         ...state,
         nativeSync: getSyncAreaStatus().native,
-        syncAreaCrossDevice: install.crossDevice,
         remoteAvailable,
         remoteMeta: remoteAvailable ? remoteMeta : null
     };
@@ -248,6 +175,56 @@ export async function isCrossDeviceEnabled(): Promise<boolean> {
 /** 同步区是否已有其他设备推送的加密凭据（无需口令即可判断） */
 export async function hasRemoteCrossDeviceAuth(): Promise<boolean> {
     return isEncryptedPayload(await syncGet(REMOTE_AUTH_KEY));
+}
+
+/**
+ * 同步区里那份凭据本机是否解得开
+ *
+ * 「同步区里有东西」不等于「本机能用」：另一台用别的密码推的密文，
+ * 这台永远解不开。推送逻辑据此决定要不要覆盖——否则一份解不开的旧密文
+ * 会把所有设备永久挡在门外，而每台都以为「已经有凭据了，不用再推」。
+ */
+export async function canReadRemoteCrossDeviceAuth(): Promise<boolean> {
+    const raw = await syncGet(REMOTE_AUTH_KEY);
+    if (!isEncryptedPayload(raw)) {
+        return false;
+    }
+    const passphrase = await storageManager.get(LOCAL_PASSPHRASE_KEY);
+    if (typeof passphrase !== 'string' || passphrase.length < MIN_PASSPHRASE_LENGTH) {
+        return false;
+    }
+    try {
+        const plain = await decryptText(raw, passphrase);
+        const parsed = JSON.parse(plain) as CrossDeviceAuth | null;
+        return !!parsed && typeof parsed.token === 'string' && parsed.token.length > 0;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * 催一次浏览器同步
+ *
+ * Firefox 的同步调度器在任一引擎 score 变化后立刻安排同步（score 更新延迟 100ms，
+ * 越过阈值就置 0 等待），所以「往同步区写一个每次都不同的值」等于「现在就去
+ * 把远端的改动拉下来」。等待凭据的那台设备靠它把 MDN 写的 10 分钟节奏压到秒级；
+ * Chrome 侧同样只是一次普通本地改动，不会带来额外负担。
+ *
+ * 失败不抛：催促只是加速，常规轮询仍然兜底。
+ */
+export async function nudgeSyncArea(): Promise<boolean> {
+    if (!getSyncAreaStatus().native) {
+        return false;
+    }
+    try {
+        await syncSet(REMOTE_NUDGE_KEY, {
+            at: Date.now(),
+            nonce: createNonce()
+        });
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 /**
@@ -340,12 +317,14 @@ export async function disableCrossDevice(): Promise<void> {
     });
     await syncRemove(REMOTE_AUTH_KEY);
     await syncRemove(REMOTE_META_KEY);
+    await syncRemove(REMOTE_NUDGE_KEY);
 }
 
 /** 仅清除同步区密文，保留本机开关与口令 */
 export async function clearRemoteCrossDeviceAuth(): Promise<void> {
     await syncRemove(REMOTE_AUTH_KEY);
     await syncRemove(REMOTE_META_KEY);
+    await syncRemove(REMOTE_NUDGE_KEY);
 }
 
 /** 生成粗粒度的设备标识，仅用于界面显示「凭据来自哪台设备」 */
@@ -565,6 +544,21 @@ export function getExtensionId(): string {
     return win.browser?.runtime?.id ?? win.chrome?.runtime?.id ?? '';
 }
 
+/** 本机扩展版本（读不到时为空串） */
+export function getExtensionVersion(): string {
+    if (typeof window === 'undefined') return '';
+    const win = window as unknown as {
+        browser?: { runtime?: { getManifest?: () => { version?: string } | null } };
+        chrome?: { runtime?: { getManifest?: () => { version?: string } | null } };
+    };
+    try {
+        const manifest = win.browser?.runtime?.getManifest?.() ?? win.chrome?.runtime?.getManifest?.();
+        return typeof manifest?.version === 'string' ? manifest.version : '';
+    } catch {
+        return '';
+    }
+}
+
 /**
  * 往同步区发一次探测
  *
@@ -579,6 +573,7 @@ export async function sendSyncAreaProbe(): Promise<SyncAreaProbe> {
     const probe: SyncAreaProbe = {
         device: getDeviceLabel(),
         extensionId: getExtensionId(),
+        version: getExtensionVersion(),
         updatedAt: Date.now(),
         nonce: createNonce()
     };
@@ -616,7 +611,8 @@ function toSyncAreaProbe(value: unknown): SyncAreaProbe | null {
         nonce: probe.nonce,
         updatedAt: probe.updatedAt,
         device: typeof probe.device === 'string' ? probe.device : '未知设备',
-        extensionId: typeof probe.extensionId === 'string' ? probe.extensionId : ''
+        extensionId: typeof probe.extensionId === 'string' ? probe.extensionId : '',
+        version: typeof probe.version === 'string' ? probe.version : ''
     };
 }
 

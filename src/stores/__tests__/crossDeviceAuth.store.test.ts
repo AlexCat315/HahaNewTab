@@ -16,6 +16,8 @@ const { service } = vi.hoisted(() => ({
         enableCrossDevice: vi.fn(),
         disableCrossDevice: vi.fn(),
         pushCrossDeviceAuth: vi.fn(),
+        canReadRemoteCrossDeviceAuth: vi.fn(),
+        nudgeSyncArea: vi.fn(async () => true),
         clearRemoteCrossDeviceAuth: vi.fn(async () => {}),
         sendSyncAreaProbe: vi.fn(async () => null),
         readIncomingSyncAreaProbe: vi.fn(async () => null),
@@ -40,7 +42,6 @@ function setStatus(overrides: Partial<{
     enabled: boolean;
     hasPassphrase: boolean;
     nativeSync: boolean;
-    syncAreaCrossDevice: boolean;
     remoteAvailable: boolean;
     remoteMeta: { updatedAt: number; device: string; provider: string } | null;
 }> = {}): void {
@@ -48,7 +49,6 @@ function setStatus(overrides: Partial<{
         enabled: true,
         hasPassphrase: true,
         nativeSync: true,
-        syncAreaCrossDevice: true,
         remoteAvailable: false,
         remoteMeta: null,
         ...overrides
@@ -68,6 +68,7 @@ describe('crossDeviceAuth store', () => {
         service.getStoredPassphrase.mockResolvedValue('my-sync-pass');
         service.enableCrossDevice.mockResolvedValue({ pushed: true });
         service.pushCrossDeviceAuth.mockResolvedValue(true);
+        service.canReadRemoteCrossDeviceAuth.mockResolvedValue(true);
         service.restoreCrossDeviceAuth.mockResolvedValue(null);
     });
 
@@ -85,17 +86,6 @@ describe('crossDeviceAuth store', () => {
         expect(store.remoteAvailable).toBe(true);
         expect(store.remoteMeta?.device).toBe('Chrome / macOS');
         expect(store.syncAreaNative).toBe(true);
-        expect(store.syncAreaCrossDevice).toBe(true);
-    });
-
-    it('Chrome 开发版安装时把「同步区不会跨设备」如实抄进镜像', async () => {
-        const store = useCrossDeviceAuthStore();
-        setStatus({ nativeSync: true, syncAreaCrossDevice: false });
-
-        await store.refresh();
-
-        expect(store.syncAreaNative).toBe(true);
-        expect(store.syncAreaCrossDevice).toBe(false);
     });
 
     it('读取状态失败时保持原样，只留一句日志', async () => {
@@ -267,13 +257,30 @@ describe('crossDeviceAuth store', () => {
         expect(service.pushCrossDeviceAuth).toHaveBeenCalledTimes(1);
     });
 
-    it('补推：同步区已经有凭据就什么都不做，别把别人的凭据顶掉', async () => {
+    it('补推：同步区里那份本机解得开，就什么都不做，别把别人的凭据顶掉', async () => {
         const store = useCrossDeviceAuthStore();
         setStatus({ remoteAvailable: true });
+        service.canReadRemoteCrossDeviceAuth.mockResolvedValue(true);
         await store.refresh();
 
         expect(await store.pushIfMissing(AUTH)).toEqual({ enabled: true, pushed: true });
         expect(service.pushCrossDeviceAuth).not.toHaveBeenCalled();
+    });
+
+    it('补推：同步区里那份解不开（别的密码推的）就用自己的覆盖，否则永远卡死', async () => {
+        const store = useCrossDeviceAuthStore();
+        setStatus({ remoteAvailable: true });
+        service.canReadRemoteCrossDeviceAuth.mockResolvedValue(false);
+        await store.refresh();
+
+        expect(await store.pushIfMissing(AUTH)).toEqual({ enabled: true, pushed: true });
+        expect(service.pushCrossDeviceAuth).toHaveBeenCalledWith(AUTH);
+    });
+
+    it('nudge 直接交给服务层催同步', async () => {
+        const store = useCrossDeviceAuthStore();
+        await expect(store.nudge()).resolves.toBe(true);
+        expect(service.nudgeSyncArea).toHaveBeenCalledTimes(1);
     });
 
     it('补推：没登录、没开启，都不该去碰同步区', async () => {

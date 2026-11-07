@@ -42,8 +42,6 @@ export interface UseCloudSyncReturn {
     crossDeviceRemoteMeta: ComputedRef<CrossDeviceRemoteMeta | null>;
     /** 当前环境是否使用浏览器账号同步区（false = 网页预览的 localStorage 降级） */
     syncAreaNative: ComputedRef<boolean>;
-    /** 同步区是否能真的把凭据送到别的设备（Chrome 开发版安装为 false） */
-    syncAreaCrossDevice: ComputedRef<boolean>;
     statusText: ComputedRef<string>;
     formattedLastSyncTime: ComputedRef<string>;
     init: () => Promise<void>;
@@ -67,6 +65,8 @@ export interface UseCloudSyncReturn {
     crossDeviceRemoteProbe: ComputedRef<SyncAreaProbe | null>;
     /** 往同步区发一次探测，让另一台设备能确认这条路通不通 */
     probeCrossDeviceSyncArea: () => Promise<SyncAreaProbe>;
+    /** 让浏览器现在就跑一轮同步（等待凭据时把远端那份拉下来） */
+    nudgeCrossDeviceSyncArea: () => Promise<boolean>;
     /** 导出不依赖浏览器同步区的恢复码（口令缺省用本机保存的） */
     exportRecoveryCode: (passphrase?: string) => Promise<string>;
     /** 用恢复码 + 同步密码恢复登录，返回是否成功 */
@@ -74,12 +74,16 @@ export interface UseCloudSyncReturn {
 }
 
 /**
- * 未登录设备定期看一眼同步区的间隔
+ * 未登录时查看同步区的间隔
  *
- * Firefox Sync 自己就是每 10 分钟一趟，凭据落地时 onChanged 不一定及时通知到页面；
- * 这个轮询只负责「到了就认出来」，不能让 Firefox 的快照来得更早。
+ * 读的是本机同步区，不发网络请求，代价很小。浏览器把凭据送到本机后，
+ * 下一次 tick 就能认出来，不必等用户重开页面。
  */
-const REMOTE_CREDENTIAL_POLL_MS = 30_000;
+const REMOTE_CREDENTIAL_POLL_MS = 5_000;
+/** 等待凭据时，每分钟催一次浏览器同步（本地写一次，Firefox 会立即跑一轮同步） */
+const REMOTE_NUDGE_INTERVAL_MS = 60_000;
+/** 一次会话最多催这么多次，避免长期空等时一直写同步区 */
+const REMOTE_NUDGE_BUDGET = 15;
 
 /** 平台标识到显示名的映射 */
 const PROVIDER_NAMES: Record<CloudSyncProviderId, string> = {
@@ -268,28 +272,86 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
 
     /** 防止定时检查与 focus / 同步区变更同时触发两次还原 */
     let checkingRemoteCredential = false;
+    /** 上次催同步的时间与次数：催促只用来缩短等待，不能变成常态写入 */
+    let lastNudgeAt = 0;
+    let nudgeCount = 0;
+    /**
+     * 自动还原的去重标记
+     *
+     * 远端那份没变、口令又不对时，每次轮询都解一次意味着每分钟重复十几遍
+     * 21 万次 PBKDF2。同一份密文最多每分钟试一次，凭据一换（meta 变了）立刻重试。
+     */
+    let lastRestoreKey = '';
+    let lastRestoreAt = 0;
+    const RESTORE_RETRY_MS = 60_000;
+    /** 组件卸载后不再做任何检查（init 的 finally 可能晚于卸载） */
+    let credentialWatchStopped = false;
+
+    async function nudgeRemoteSync(force = false): Promise<void> {
+        if (!force && nudgeCount >= REMOTE_NUDGE_BUDGET) {
+            return;
+        }
+        if (!force && Date.now() - lastNudgeAt < REMOTE_NUDGE_INTERVAL_MS) {
+            return;
+        }
+        lastNudgeAt = Date.now();
+        nudgeCount += 1;
+        try {
+            await crossDevice.nudge();
+        } catch {
+            // 催促失败不影响轮询兜底
+        }
+    }
+
+    /** 手动让浏览器现在就同步一次（面板上的「重新检查」用） */
+    async function nudgeCrossDeviceSyncArea(): Promise<boolean> {
+        try {
+            return await crossDevice.nudge();
+        } catch {
+            return false;
+        }
+    }
 
     /**
      * 未登录时看一眼同步区：有凭据且本机有口令就尝试还原
      *
      * 只做免打扰的检查：失败不弹提示，状态与原因由面板上的「重新检查」负责说清楚。
+     *
+     * 最后一层等待由浏览器决定：Firefox 的同步周期是 10 分钟，但引擎在本地写入后
+     * 会立刻安排一轮同步，所以等待中的设备每分钟往同步区写一个催促值，
+     * 等于「现在就去把远端那份拉下来」——凭据一到本机，下一次 tick 立刻还原。
      */
     async function checkRemoteCredential(): Promise<void> {
-        if (checkingRemoteCredential || store.isLoggedIn || document.visibilityState === 'hidden') {
+        if (
+            credentialWatchStopped
+            || checkingRemoteCredential
+            || store.isLoggedIn
+            || document.visibilityState === 'hidden'
+        ) {
             return;
         }
         checkingRemoteCredential = true;
         try {
             await refreshCrossDevice();
-            if (
-                store.isLoggedIn
-                || !crossDevice.enabled
-                || !crossDevice.hasPassphrase
-                || !crossDevice.remoteAvailable
-            ) {
+            if (store.isLoggedIn) {
+                // 检查期间登录完成了：顺手催一次，把刚写入的凭据送出去
+                await nudgeRemoteSync();
                 return;
             }
-            await tryRestoreCrossDevice();
+            if (!crossDevice.enabled || !crossDevice.hasPassphrase) {
+                return;
+            }
+            if (crossDevice.remoteAvailable) {
+                // 同一份远端密文不反复解密：meta 变了或过了冷却时间才再试
+                const key = `${crossDevice.remoteMeta?.updatedAt ?? 0}:${crossDevice.remoteMeta?.device ?? ''}`;
+                if (key !== lastRestoreKey || Date.now() - lastRestoreAt >= RESTORE_RETRY_MS) {
+                    lastRestoreKey = key;
+                    lastRestoreAt = Date.now();
+                    await tryRestoreCrossDevice();
+                }
+                return;
+            }
+            await nudgeRemoteSync();
         } catch {
             // 定期检查失败不打扰：恢复成功会有登录提示，其余交给手动「重新检查」
         } finally {
@@ -299,11 +361,15 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
 
     function handlePageVisible(): void {
         if (document.visibilityState === 'visible') {
+            // 回到页面时补满催促预算：长时间挂着会把 15 次用完，
+            // 而用户切回来正是最希望马上同步的时刻（写入仍受 60 秒节流约束）
+            nudgeCount = 0;
             void checkRemoteCredential();
         }
     }
 
     function startRemoteCredentialWatch(): void {
+        credentialWatchStopped = false;
         credentialPollTimer = setInterval(() => {
             void checkRemoteCredential();
         }, REMOTE_CREDENTIAL_POLL_MS);
@@ -312,6 +378,7 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
     }
 
     function stopRemoteCredentialWatch(): void {
+        credentialWatchStopped = true;
         if (credentialPollTimer !== null) {
             clearInterval(credentialPollTimer);
             credentialPollTimer = null;
@@ -335,6 +402,14 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         startRemoteCredentialWatch();
         init().catch(() => {
             // 初始化失败由 store.error 暴露，不在此处抛出
+        }).finally(() => {
+            // 已登录设备刚补推过凭据，催一次让浏览器立刻上传；等待中的设备走常规检查。
+            // checkRemoteCredential 在已登录时直接返回，这一步不能并进去。
+            if (store.isLoggedIn) {
+                void nudgeRemoteSync(true);
+            } else {
+                void checkRemoteCredential();
+            }
         });
     });
 
@@ -361,7 +436,6 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         crossDeviceRemoteAvailable: computed(() => crossDevice.remoteAvailable),
         crossDeviceRemoteMeta: computed(() => crossDevice.remoteMeta),
         syncAreaNative: computed(() => crossDevice.syncAreaNative),
-        syncAreaCrossDevice: computed(() => crossDevice.syncAreaCrossDevice),
         crossDeviceRemoteProbe: computed(() => crossDevice.remoteProbe),
         statusText,
         formattedLastSyncTime,
@@ -382,6 +456,7 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         tryRestoreCrossDevice,
         retryCrossDevicePush,
         probeCrossDeviceSyncArea,
+        nudgeCrossDeviceSyncArea,
         exportRecoveryCode,
         restoreFromRecoveryCode
     };

@@ -11,6 +11,7 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { getSyncAreaStatus } from '@/services/syncStorage.service';
 import {
+    canReadRemoteCrossDeviceAuth,
     createRecoveryCode,
     clearRemoteCrossDeviceAuth,
     disableCrossDevice,
@@ -18,6 +19,7 @@ import {
     getCrossDeviceState,
     getCrossDeviceStatus,
     getStoredPassphrase,
+    nudgeSyncArea,
     pushCrossDeviceAuth,
     readIncomingSyncAreaProbe,
     readRecoveryCode,
@@ -66,11 +68,6 @@ export const useCrossDeviceAuthStore = defineStore('crossDeviceAuth', () => {
     const remoteMeta = ref<CrossDeviceRemoteMeta | null>(null);
     /** 当前环境是否使用浏览器账号同步区（false = 网页预览的 localStorage 降级） */
     const syncAreaNative = ref(getSyncAreaStatus().native);
-    /**
-     * 同步区里的数据是否真的能离开本机
-     * Chrome 开发版安装（加载已解压的扩展程序）下 native 仍为 true，但同步区不会上传。
-     */
-    const syncAreaCrossDevice = ref(getSyncAreaStatus().native);
     /** 同步区里最近一次「别的设备」发来的连通性探测（null = 没收到过） */
     const remoteProbe = ref<SyncAreaProbe | null>(null);
 
@@ -83,7 +80,6 @@ export const useCrossDeviceAuthStore = defineStore('crossDeviceAuth', () => {
             remoteAvailable.value = status.remoteAvailable;
             remoteMeta.value = status.remoteMeta;
             syncAreaNative.value = status.nativeSync;
-            syncAreaCrossDevice.value = status.syncAreaCrossDevice;
         } catch (e) {
             console.warn('[CrossDevice] 读取浏览器同步状态失败:', e);
         }
@@ -146,11 +142,15 @@ export const useCrossDeviceAuthStore = defineStore('crossDeviceAuth', () => {
     }
 
     /**
-     * 补推：只在「已开启 + 已登录 + 同步区里还没有凭据」时真的写一次
+     * 补推：只在「已开启 + 已登录 + 同步区里没有可用的凭据」时真的写一次
      *
      * 推送原先只发生在登录与开启那两个瞬间，那一次失败（同步区当时不可用、
      * 网络抖动、Firefox 还没勾上「附加组件」同步）就再也没人补，界面却一路显示
      * 「已加密写入」。启动与「重新检查」各补一次，把这个洞关上。
+     *
+     * 「有密文」不等于「本机能用」：别的设备用另一个密码推的那份解不开，
+     * 若还当成「已经有了」而跳过，双方都会永远卡住。解不开就用自己的凭据覆盖，
+     * 覆盖后的密码就是本机这把——新设备按界面上的密码恢复即可。
      */
     async function pushIfMissing(auth: CrossDeviceAuth | null): Promise<CrossDevicePushOutcome> {
         // 状态镜像可能落后于别的页面刚改过的开关，补推前先看一眼真相
@@ -158,10 +158,15 @@ export const useCrossDeviceAuthStore = defineStore('crossDeviceAuth', () => {
         if (!enabled.value || !auth?.token) {
             return { enabled: enabled.value, pushed: false };
         }
-        if (remoteAvailable.value) {
+        if (remoteAvailable.value && await canReadRemoteCrossDeviceAuth()) {
             return { enabled: true, pushed: true };
         }
         return push(auth);
+    }
+
+    /** 催一次浏览器同步：等待凭据的那台用它立刻去拉，而不是等浏览器自己的节奏 */
+    function nudge(): Promise<boolean> {
+        return nudgeSyncArea();
     }
 
     /**
@@ -255,13 +260,13 @@ export const useCrossDeviceAuthStore = defineStore('crossDeviceAuth', () => {
         remoteAvailable,
         remoteMeta,
         syncAreaNative,
-        syncAreaCrossDevice,
         remoteProbe,
         refresh,
         refreshProbe,
         probeSyncArea,
         push,
         pushIfMissing,
+        nudge,
         clearRemote,
         createRecovery,
         restoreWithRecovery,

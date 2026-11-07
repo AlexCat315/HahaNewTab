@@ -17,6 +17,9 @@ const { localStore, syncStore } = vi.hoisted(() => ({
 vi.mock('@/services/storage.service', () => ({
     storageManager: {
         get: vi.fn(async (key: string) => localStore.get(key) ?? null),
+        set: vi.fn(async (key: string, value: unknown) => {
+            localStore.set(key, value);
+        }),
         setMany: vi.fn(async (items: Record<string, unknown>) => {
             for (const [key, value] of Object.entries(items)) {
                 if (value === null || value === undefined) {
@@ -58,7 +61,11 @@ import {
     hasRemoteCrossDeviceAuth,
     clearRemoteCrossDeviceAuth,
     createRecoveryCode,
-    readRecoveryCode
+    readRecoveryCode,
+    sendSyncAreaProbe,
+    readIncomingSyncAreaProbe,
+    canReadRemoteCrossDeviceAuth,
+    nudgeSyncArea
 } from '../crossDeviceSync.service';
 import { getSyncAreaStatus, syncSetMany } from '@/services/syncStorage.service';
 
@@ -224,7 +231,6 @@ describe('crossDeviceSync.service', () => {
             enabled: false,
             hasPassphrase: false,
             nativeSync: false,
-            syncAreaCrossDevice: false,
             remoteAvailable: false,
             remoteMeta: null
         });
@@ -258,48 +264,83 @@ describe('crossDeviceSync.service', () => {
         );
     });
 
-    it('Chrome 开发版安装：同步区仍在，但明确告知它不会跨设备', async () => {
+    /**
+     * 同步区自检
+     *
+     * 自检读得出、凭据读不出，就是「路通、凭据没推上来」；两个都读不出，才是路不通。
+     * ID 与版本一起写进去，两台设备的差异可以直接比对，不必靠猜。
+     */
+    it('同步区自检带上扩展 ID 与版本', async () => {
         vi.mocked(getSyncAreaStatus).mockReturnValue({ native: true, kind: 'native' });
         (window as unknown as { chrome: unknown }).chrome = {
-            runtime: { id: 'lpaaldonlnldlkaghoealdcbiafljagb' },
-            management: {
-                getSelf: (callback: (info: { installType: string }) => void) => {
-                    callback({ installType: 'development' });
-                }
+            runtime: {
+                id: 'lpaaldonlnldlkaghoealdcbiafljagb',
+                getManifest: () => ({ version: '1.0.1.20' })
             }
         };
 
-        const status = await getCrossDeviceStatus();
-        expect(status.nativeSync).toBe(true);
-        expect(status.syncAreaCrossDevice).toBe(false);
+        const probe = await sendSyncAreaProbe();
+
+        expect(probe.extensionId).toBe('lpaaldonlnldlkaghoealdcbiafljagb');
+        expect(probe.version).toBe('1.0.1.20');
+        expect(syncStore.get('haha_cross_device_probe')).toMatchObject({ nonce: probe.nonce });
     });
 
-    it('Chrome 商店安装（或探测不到安装方式）时保持跨设备判定', async () => {
+    it('旧版自检没有版本字段也能读，不因缺字段丢掉整条记录', async () => {
         vi.mocked(getSyncAreaStatus).mockReturnValue({ native: true, kind: 'native' });
-        (window as unknown as { chrome: unknown }).chrome = {
-            runtime: { id: 'lpaaldonlnldlkaghoealdcbiafljagb' },
-            management: {
-                getSelf: (callback: (info: { installType: string }) => void) => {
-                    callback({ installType: 'normal' });
-                }
-            }
-        };
+        syncStore.set('haha_cross_device_probe', {
+            device: 'Chrome · Windows',
+            extensionId: 'lpaaldonlnldlkaghoealdcbiafljagb',
+            updatedAt: 123,
+            nonce: 'from-other-device'
+        });
 
-        const status = await getCrossDeviceStatus();
-        expect(status.syncAreaCrossDevice).toBe(true);
+        await expect(readIncomingSyncAreaProbe()).resolves.toEqual({
+            device: 'Chrome · Windows',
+            extensionId: 'lpaaldonlnldlkaghoealdcbiafljagb',
+            version: '',
+            updatedAt: 123,
+            nonce: 'from-other-device'
+        });
     });
 
-    it('Firefox 的安装方式不参与这条判定：同步区照常跨设备', async () => {
+    /**
+     * 催促同步
+     *
+     * Firefox 的调度器在本地写入后立刻安排一轮同步（score 更新延迟 100ms），
+     * 「催」就是写一个每次都不同的值，让等待中的设备主动把远端凭据拉下来。
+     */
+    it('催促写入同步区，且每次的值都不同', async () => {
         vi.mocked(getSyncAreaStatus).mockReturnValue({ native: true, kind: 'native' });
-        (window as unknown as { browser: unknown }).browser = {
-            runtime: { id: 'firefox-addon-id' },
-            management: {
-                getSelf: async () => ({ installType: 'development' })
-            }
-        };
 
-        const status = await getCrossDeviceStatus();
-        expect(status.syncAreaCrossDevice).toBe(true);
+        await expect(nudgeSyncArea()).resolves.toBe(true);
+        const first = syncStore.get('haha_cross_device_nudge') as { nonce: string };
+
+        await expect(nudgeSyncArea()).resolves.toBe(true);
+        const second = syncStore.get('haha_cross_device_nudge') as { nonce: string };
+
+        expect(first.nonce).toBeTruthy();
+        expect(second.nonce).not.toBe(first.nonce);
+    });
+
+    it('网页预览环境没有同步区可催，直接返回 false', async () => {
+        vi.mocked(getSyncAreaStatus).mockReturnValue({ native: false, kind: 'local' });
+        await expect(nudgeSyncArea()).resolves.toBe(false);
+        expect(syncStore.has('haha_cross_device_nudge')).toBe(false);
+    });
+
+    /**
+     * 「同步区里有密文」与「本机解得开」是两件事：另一台用别的密码推的那份，
+     * 本机永远解不开，补推逻辑必须据此覆盖，否则所有设备都会卡在「已经有了」。
+     */
+    it('能判断同步区里的凭据本机是否解得开', async () => {
+        await expect(canReadRemoteCrossDeviceAuth()).resolves.toBe(false);
+
+        await enableCrossDevice(PASSPHRASE, AUTH);
+        await expect(canReadRemoteCrossDeviceAuth()).resolves.toBe(true);
+
+        localStore.set(LOCAL_PASSPHRASE_KEY, 'another-passphrase');
+        await expect(canReadRemoteCrossDeviceAuth()).resolves.toBe(false);
     });
 
     it('clearRemoteCrossDeviceAuth 只清远端密文，保留本机开关', async () => {

@@ -289,8 +289,9 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
             // 另一台设备推来的那份还能不能用——这才是「换设备免 Token」的正路
             const adopted = token.value ? false : await tryRestoreCrossDevice();
             await refreshCrossDevice();
-            if (!adopted && token.value && crossDevice.enabled && !crossDevice.remoteAvailable) {
-                // 已登录、已开启，同步区里却没有凭据：上一次推送没成，这里补一次。
+            if (!adopted && token.value && crossDevice.enabled) {
+                // 已登录、已开启：缺凭据或本机解不开同步区那份，都在这里补一次。
+                // 解不开的旧密文不覆盖就永远没有可用的那份，是否真写由 pushIfMissing 判断。
                 // 后台静默补推，成没成由面板那行状态如实显示，不额外弹提示。
                 await crossDevice.pushIfMissing(currentAuth());
                 await refreshCrossDevice();
