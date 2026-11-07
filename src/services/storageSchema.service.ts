@@ -31,7 +31,7 @@ import {
 import type { CloudSyncKeyStrategy } from '@/utils/syncMerge.util';
 
 /** 存储后端：local = 扩展本地存储；sync = 浏览器账号同步区 */
-export type StorageBackendName = 'local' | 'sync';
+export type StorageBackendName = 'local';
 
 /** 键的归属 store：只有 owner 能写这个键，用于消灭「两个 store 写同一个键」 */
 export type StorageOwner =
@@ -290,27 +290,6 @@ export const STORAGE_SCHEMA = {
     updateDismissedVersion: defineKey({
         id: STORAGE_KEYS.UPDATE_DISMISSED_VERSION,
         backend: 'local'
-    }),
-    crossDeviceEnabled: defineKey<boolean>({
-        id: STORAGE_KEYS.CROSS_DEVICE_ENABLED,
-        backend: 'local',
-        owner: 'cloudSync',
-        defaultValue: false
-    }),
-    crossDevicePassphrase: defineKey({
-        id: STORAGE_KEYS.CROSS_DEVICE_PASSPHRASE,
-        backend: 'local',
-        owner: 'cloudSync'
-    }),
-    crossDeviceRemoteAuth: defineKey({
-        id: STORAGE_KEYS.CROSS_DEVICE_REMOTE_AUTH,
-        backend: 'sync',
-        owner: 'cloudSync'
-    }),
-    crossDeviceRemoteMeta: defineKey({
-        id: STORAGE_KEYS.CROSS_DEVICE_REMOTE_META,
-        backend: 'sync',
-        owner: 'cloudSync'
     })
 } as const;
 

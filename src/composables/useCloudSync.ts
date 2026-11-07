@@ -1,15 +1,12 @@
 /**
  * 云同步 Composable
- * 把 cloudSync store（同步本身）与 crossDeviceAuth store（浏览器账号同步区）拼成面板要的那一份接口，
- * 并处理副作用清理：本地数据变更监听、未完成的操作、同步区凭据变更监听。
+ * 把 cloudSync store 包成面板要的那一份接口，并处理副作用清理：
+ * 本地数据变更监听、未完成的异步操作。
  */
 
 import { computed, onMounted, onUnmounted } from 'vue';
 import type { ComputedRef } from 'vue';
 import { useCloudSyncStore } from '@/stores/cloudSync.store';
-import { useCrossDeviceAuthStore } from '@/stores/crossDeviceAuth.store';
-import type { EnableCrossDeviceOutcome } from '@/stores/cloudSync.store';
-import type { CrossDeviceRemoteMeta, SyncAreaProbe } from '@/services/crossDeviceSync.service';
 import type {
     CloudSyncProviderId,
     DownloadResult,
@@ -35,13 +32,6 @@ export interface UseCloudSyncReturn {
     isLoading: ComputedRef<boolean>;
     error: ComputedRef<string | null>;
     isLoggedIn: ComputedRef<boolean>;
-    crossDeviceEnabled: ComputedRef<boolean>;
-    crossDeviceHasPassphrase: ComputedRef<boolean>;
-    crossDeviceRemoteAvailable: ComputedRef<boolean>;
-    /** 同步区凭据的元信息（来自哪台设备、何时推送） */
-    crossDeviceRemoteMeta: ComputedRef<CrossDeviceRemoteMeta | null>;
-    /** 当前环境是否使用浏览器账号同步区（false = 网页预览的 localStorage 降级） */
-    syncAreaNative: ComputedRef<boolean>;
     statusText: ComputedRef<string>;
     formattedLastSyncTime: ComputedRef<string>;
     init: () => Promise<void>;
@@ -54,32 +44,7 @@ export interface UseCloudSyncReturn {
     pullAndApply: (options?: { force?: boolean; silent?: boolean }) => Promise<PullResult>;
     showLoginDialog: () => Promise<void>;
     cancelPending: () => void;
-    refreshCrossDevice: () => Promise<void>;
-    enableCrossDeviceSync: (passphrase: string) => Promise<EnableCrossDeviceOutcome>;
-    disableCrossDeviceSync: () => Promise<void>;
-    restoreFromCrossDevice: (passphrase: string) => Promise<boolean>;
-    tryRestoreCrossDevice: (passphrase?: string) => Promise<boolean>;
-    /** 手动把当前凭据补写进同步区，返回是否写成 */
-    retryCrossDevicePush: () => Promise<boolean>;
-    /** 同步区里最近一次「别的设备」发来的连通性探测 */
-    crossDeviceRemoteProbe: ComputedRef<SyncAreaProbe | null>;
-    /** 往同步区发一次探测，让另一台设备能确认这条路通不通 */
-    probeCrossDeviceSyncArea: () => Promise<SyncAreaProbe>;
-    /** 让浏览器现在就跑一轮同步（等待凭据时把远端那份拉下来） */
-    nudgeCrossDeviceSyncArea: () => Promise<boolean>;
 }
-
-/**
- * 未登录时查看同步区的间隔
- *
- * 读的是本机同步区，不发网络请求，代价很小。浏览器把凭据送到本机后，
- * 下一次 tick 就能认出来，不必等用户重开页面。
- */
-const REMOTE_CREDENTIAL_POLL_MS = 5_000;
-/** 等待凭据时，每分钟催一次浏览器同步（本地写一次，Firefox 会立即跑一轮同步） */
-const REMOTE_NUDGE_INTERVAL_MS = 60_000;
-/** 一次会话最多催这么多次，避免长期空等时一直写同步区 */
-const REMOTE_NUDGE_BUDGET = 15;
 
 /** 平台标识到显示名的映射 */
 const PROVIDER_NAMES: Record<CloudSyncProviderId, string> = {
@@ -128,12 +93,9 @@ function createAbortControllerSet(): {
  */
 export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncReturn {
     const store = useCloudSyncStore();
-    const crossDevice = useCrossDeviceAuthStore();
     const { uiAdapter } = options;
 
     const abortControllers = createAbortControllerSet();
-    let unwatchRemoteAuth: (() => void) | null = null;
-    let credentialPollTimer: ReturnType<typeof setInterval> | null = null;
 
     if (uiAdapter) {
         store.setUIAdapter(uiAdapter);
@@ -230,181 +192,16 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         return createAbortable(() => store.showLoginDialog());
     }
 
-    async function refreshCrossDevice(): Promise<void> {
-        return createAbortable(() => store.refreshCrossDevice());
-    }
-
-    async function enableCrossDeviceSync(passphrase: string): Promise<EnableCrossDeviceOutcome> {
-        return createAbortable(() => store.enableCrossDeviceSync(passphrase));
-    }
-
-    async function tryRestoreCrossDevice(passphrase?: string): Promise<boolean> {
-        return createAbortable(() => store.tryRestoreCrossDevice(passphrase));
-    }
-
-    async function disableCrossDeviceSync(): Promise<void> {
-        return createAbortable(() => store.disableCrossDeviceSync());
-    }
-
-    async function restoreFromCrossDevice(passphrase: string): Promise<boolean> {
-        return createAbortable(() => store.restoreFromCrossDevice(passphrase));
-    }
-
-    async function retryCrossDevicePush(): Promise<boolean> {
-        return createAbortable(() => store.retryCrossDevicePush());
-    }
-
-    async function probeCrossDeviceSyncArea(): Promise<SyncAreaProbe> {
-        return createAbortable(() => store.probeCrossDeviceSyncArea());
-    }
-
-    /** 防止定时检查与 focus / 同步区变更同时触发两次还原 */
-    let checkingRemoteCredential = false;
-    /** 上次催同步的时间与次数：催促只用来缩短等待，不能变成常态写入 */
-    let lastNudgeAt = 0;
-    let nudgeCount = 0;
-    /**
-     * 自动还原的去重标记
-     *
-     * 远端那份没变、口令又不对时，每次轮询都解一次意味着每分钟重复十几遍
-     * 21 万次 PBKDF2。同一份密文最多每分钟试一次，凭据一换（meta 变了）立刻重试。
-     */
-    let lastRestoreKey = '';
-    let lastRestoreAt = 0;
-    const RESTORE_RETRY_MS = 60_000;
-    /** 组件卸载后不再做任何检查（init 的 finally 可能晚于卸载） */
-    let credentialWatchStopped = false;
-
-    async function nudgeRemoteSync(force = false): Promise<void> {
-        if (!force && nudgeCount >= REMOTE_NUDGE_BUDGET) {
-            return;
-        }
-        if (!force && Date.now() - lastNudgeAt < REMOTE_NUDGE_INTERVAL_MS) {
-            return;
-        }
-        lastNudgeAt = Date.now();
-        nudgeCount += 1;
-        try {
-            await crossDevice.nudge();
-        } catch {
-            // 催促失败不影响轮询兜底
-        }
-    }
-
-    /** 手动让浏览器现在就同步一次（面板上的「重新检查」用） */
-    async function nudgeCrossDeviceSyncArea(): Promise<boolean> {
-        try {
-            return await crossDevice.nudge();
-        } catch {
-            return false;
-        }
-    }
-
-    /**
-     * 对账浏览器同步区：该补推的补推，该还原的还原
-     *
-     * 两个方向都要管，缺一个就会出现「删一次就再也同步不上」：
-     *   - 本机已登录、已开启，同步区里那份却被别的设备删了（「断开连接」会清掉共用凭据，
-     *     删除顺着浏览器同步传到每一台）→ 静默补推回去。不补的话同步区永远空着，
-     *     另一台再怎么点浏览器「同步」也无东西可传，这正是用户遇到的死局；
-     *   - 本机未登录，同步区里有别的设备推来的凭据 → 用本机口令免 Token 还原。
-     *
-     * 只做免打扰的对账：失败不弹提示，状态与原因由面板上的「重新检查」负责说清楚。
-     * 等待中的设备每分钟催一次浏览器同步，凭据一到本机，下一次 tick 立刻还原。
-     */
-    async function reconcileCrossDevice(): Promise<void> {
-        if (
-            credentialWatchStopped
-            || checkingRemoteCredential
-            || document.visibilityState === 'hidden'
-        ) {
-            return;
-        }
-        checkingRemoteCredential = true;
-        try {
-            await refreshCrossDevice();
-            if (store.isLoggedIn) {
-                // 已登录：同步区缺凭据就补回去（别的设备刚删过，或上次写入没成功）。
-                // 只在「缺」时补，已有就不动，避免每 5 秒重复一次解密与写入。
-                if (crossDevice.enabled && !crossDevice.remoteAvailable) {
-                    await store.repushCrossDeviceIfMissing();
-                }
-                return;
-            }
-            if (!crossDevice.enabled || !crossDevice.hasPassphrase) {
-                return;
-            }
-            if (crossDevice.remoteAvailable) {
-                // 同一份远端密文不反复解密：meta 变了或过了冷却时间才再试
-                const key = `${crossDevice.remoteMeta?.updatedAt ?? 0}:${crossDevice.remoteMeta?.device ?? ''}`;
-                if (key !== lastRestoreKey || Date.now() - lastRestoreAt >= RESTORE_RETRY_MS) {
-                    lastRestoreKey = key;
-                    lastRestoreAt = Date.now();
-                    await tryRestoreCrossDevice();
-                }
-                return;
-            }
-            await nudgeRemoteSync();
-        } catch {
-            // 定期对账失败不打扰：恢复成功会有登录提示，其余交给手动「重新检查」
-        } finally {
-            checkingRemoteCredential = false;
-        }
-    }
-
-    function handlePageVisible(): void {
-        if (document.visibilityState === 'visible') {
-            // 回到页面时补满催促预算：长时间挂着会把 15 次用完，
-            // 而用户切回来正是最希望马上同步的时刻（写入仍受 60 秒节流约束）
-            nudgeCount = 0;
-            void reconcileCrossDevice();
-        }
-    }
-
-    function startRemoteCredentialWatch(): void {
-        credentialWatchStopped = false;
-        credentialPollTimer = setInterval(() => {
-            void reconcileCrossDevice();
-        }, REMOTE_CREDENTIAL_POLL_MS);
-        document.addEventListener('visibilitychange', handlePageVisible);
-        window.addEventListener('focus', handlePageVisible);
-    }
-
-    function stopRemoteCredentialWatch(): void {
-        credentialWatchStopped = true;
-        if (credentialPollTimer !== null) {
-            clearInterval(credentialPollTimer);
-            credentialPollTimer = null;
-        }
-        document.removeEventListener('visibilitychange', handlePageVisible);
-        window.removeEventListener('focus', handlePageVisible);
-    }
-
     onMounted(() => {
         // 本地数据一落盘就防抖触发自动同步；变更源是存储内核，覆盖所有写入路径
         store.startAutoSyncWatch();
-        // 同步区一变就对账：别的设备推来凭据就免 Token 还原，别的设备删了凭据就补推回去
-        unwatchRemoteAuth = crossDevice.watchRemote(() => {
-            void reconcileCrossDevice();
-        });
-        // Firefox 的同步快照可能晚到十来分钟，落地那一刻本页要能自己认出来
-        startRemoteCredentialWatch();
         init().catch(() => {
             // 初始化失败由 store.error 暴露，不在此处抛出
-        }).finally(() => {
-            // 已登录设备刚补推过凭据，催一次让浏览器立刻上传；其余交给对账（含补推 / 还原）
-            if (store.isLoggedIn) {
-                void nudgeRemoteSync(true);
-            }
-            void reconcileCrossDevice();
         });
     });
 
     onUnmounted(() => {
         store.stopAutoSyncWatch();
-        unwatchRemoteAuth?.();
-        unwatchRemoteAuth = null;
-        stopRemoteCredentialWatch();
         cancelPending();
     });
 
@@ -418,12 +215,6 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         isLoading: computed(() => store.isLoading),
         error: computed(() => store.error),
         isLoggedIn,
-        crossDeviceEnabled: computed(() => crossDevice.enabled),
-        crossDeviceHasPassphrase: computed(() => crossDevice.hasPassphrase),
-        crossDeviceRemoteAvailable: computed(() => crossDevice.remoteAvailable),
-        crossDeviceRemoteMeta: computed(() => crossDevice.remoteMeta),
-        syncAreaNative: computed(() => crossDevice.syncAreaNative),
-        crossDeviceRemoteProbe: computed(() => crossDevice.remoteProbe),
         statusText,
         formattedLastSyncTime,
         init,
@@ -435,14 +226,6 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         download,
         pullAndApply,
         showLoginDialog,
-        cancelPending,
-        refreshCrossDevice,
-        enableCrossDeviceSync,
-        disableCrossDeviceSync,
-        restoreFromCrossDevice,
-        tryRestoreCrossDevice,
-        retryCrossDevicePush,
-        probeCrossDeviceSyncArea,
-        nudgeCrossDeviceSyncArea
+        cancelPending
     };
 }

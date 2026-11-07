@@ -3,7 +3,6 @@ import { setActivePinia, createPinia } from 'pinia';
 import { useCloudSyncStore } from '../cloudSync.store';
 import { useAppDataStore } from '../appData.store';
 import { CloudSyncService } from '@/services/cloudSync.service';
-import { enableCrossDevice, hasRemoteCrossDeviceAuth } from '@/services/crossDeviceSync.service';
 import { storageManager } from '@/services/storage.service';
 import { browserApi } from '@/services/browserApi.service';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -814,80 +813,5 @@ describe('cloudSync store', () => {
         } finally {
             dispose();
         }
-    });
-
-    /**
-     * 浏览器同步的凭据写入与恢复
-     *
-     * 推送原先只发生在「登录」和「开启」那两个瞬间，那一次没写进去（同步区当时不可用、
-     * 网络抖动）就再也没人补，而面板照样显示「已加密写入」。
-     * 现在启动时补一次、界面上可以手动重试，同步区变更与轮询也会自动补推 / 还原。
-     */
-    describe('浏览器同步凭据（补推与恢复）', () => {
-        const PASSPHRASE = 'my-sync-pass';
-        const SYNC_AUTH_ITEM = '__mnt_sync__:haha_cross_device_auth';
-
-        function trackUI() {
-            const messages: string[] = [];
-            const store = useCloudSyncStore();
-            store.setUIAdapter({
-                showToast: message => { messages.push(message); },
-                showConfirm: async () => true,
-                showPrompt: async () => null
-            });
-            return { store, messages };
-        }
-
-        it('已登录、已开启，同步区却是空的：启动时补推一次', async () => {
-            mockFetchSequence([createResponse(TEST_USER_API)]);
-            await storageManager.setMany({
-                [STORAGE_KEYS.CLOUD_TOKEN]: TEST_TOKEN,
-                [STORAGE_KEYS.CROSS_DEVICE_ENABLED]: true,
-                [STORAGE_KEYS.CROSS_DEVICE_PASSPHRASE]: PASSPHRASE
-            });
-
-            const store = useCloudSyncStore();
-            expect(await hasRemoteCrossDeviceAuth()).toBe(false);
-            await store.init();
-
-            expect(store.token).toBe(TEST_TOKEN);
-            expect(await hasRemoteCrossDeviceAuth()).toBe(true);
-        });
-
-        it('同步区里已有别的设备推来的凭据：补推不把它顶掉', async () => {
-            await enableCrossDevice(PASSPHRASE, { token: 'ghp_from_other_device', provider: 'github' });
-            const before = localStorage.getItem(SYNC_AUTH_ITEM);
-            mockFetchSequence([createResponse(TEST_USER_API)]);
-            await storageManager.setMany({
-                [STORAGE_KEYS.CLOUD_TOKEN]: TEST_TOKEN,
-                [STORAGE_KEYS.CROSS_DEVICE_ENABLED]: true,
-                [STORAGE_KEYS.CROSS_DEVICE_PASSPHRASE]: PASSPHRASE
-            });
-
-            const store = useCloudSyncStore();
-            await store.init();
-
-            expect(localStorage.getItem(SYNC_AUTH_ITEM)).toBe(before);
-        });
-
-        it('手动重试写入：成功要报，口令丢了要说「缺少同步密码」', async () => {
-            mockFetchSequence([
-                createResponse(TEST_USER_API),
-                createResponse([]),
-                createResponse({ id: TEST_GIST_ID, files: {} })
-            ]);
-            const { store, messages } = trackUI();
-            await store.login(TEST_TOKEN);
-
-            // 已开启但本机口令没了（清过浏览器数据）
-            await storageManager.setMany({ [STORAGE_KEYS.CROSS_DEVICE_ENABLED]: true });
-            expect(await store.retryCrossDevicePush()).toBe(false);
-            expect(messages).toContain('浏览器同步未写入：本机缺少同步密码，请重新设置');
-
-            await storageManager.setMany({ [STORAGE_KEYS.CROSS_DEVICE_PASSPHRASE]: PASSPHRASE });
-            expect(await store.retryCrossDevicePush()).toBe(true);
-            expect(messages).toContain('登录状态已加密写入浏览器同步区');
-            expect(await hasRemoteCrossDeviceAuth()).toBe(true);
-        });
     });
 });

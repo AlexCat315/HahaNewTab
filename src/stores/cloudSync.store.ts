@@ -1,11 +1,10 @@
 /**
  * 云同步 Store：把服务层的结果写回界面
  *
- * 服务层（cloudSync.service.ts 及其下四个模块）只返回结构化结果，本层负责剩下四件事：
+ * 服务层（cloudSync.service.ts 及其下四个模块）只返回结构化结果，本层负责剩下三件事：
  *   - 界面状态镜像：账号六项跟着服务层的设置订阅抄一份，操作态（isLoading/error）自己管；
  *   - 提示口径：弹什么、弹几次（同一轮自动同步的故障只说一次）由 reportSyncResult / reportConnectResult 定；
- *   - 需要用户点头的操作：断开同步、用云端覆盖本地，先确认再交给服务层；
- *   - 自动同步的排程，以及把登录凭据递给浏览器账号同步区（跨设备状态见 crossDeviceAuth store）。
+ *   - 需要用户点头的操作：断开同步、用云端覆盖本地，先确认再交给服务层。
  * 「什么时候再同步一次」本身在 cloudSync/autoSync.ts，怎么合并怎么传输在服务层。
  */
 
@@ -17,11 +16,6 @@ import { CloudSyncService, createCloudSyncService } from '@/services/cloudSync.s
 import type { CloudSettingsChange } from '@/services/cloudSync.service';
 import { AutoSyncScheduler } from '@/services/cloudSync/autoSync';
 import { providerProfile } from '@/services/cloudSync/transport';
-import { useCrossDeviceAuthStore } from './crossDeviceAuth.store';
-import type { RecoveredAuth } from './crossDeviceAuth.store';
-import type { CrossDevicePushOutcome } from './crossDeviceAuth.store';
-import type { CrossDeviceAuth } from '@/services/crossDeviceSync.service';
-import type { EnableCrossDeviceResult, SyncAreaProbe } from '@/services/crossDeviceSync.service';
 import { createCloudSyncDataManager } from './cloudSyncDataManager';
 import type {
     ConnectResult,
@@ -48,11 +42,6 @@ const DEFAULT_UI_ADAPTER: ICloudSyncUIAdapter = {
     showPrompt: async () => null
 };
 
-/** 启用浏览器同步的结果：是否已推送、是否顺带还原了其他设备的登录状态 */
-export interface EnableCrossDeviceOutcome extends EnableCrossDeviceResult {
-    restored: boolean;
-}
-
 export const useCloudSyncStore = defineStore('cloudSync', () => {
     const uiAdapter = ref<ICloudSyncUIAdapter>(DEFAULT_UI_ADAPTER);
 
@@ -72,12 +61,6 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     const isLoading = ref(false);
     /** 最近一次错误信息 */
     const error = ref<string | null>(null);
-
-    /**
-     * 浏览器账号同步区（跨设备凭据）：状态与操作都在那个 store，这里只按云同步的流程调用它
-     * 必须先于服务实例拿到，否则设置订阅里的「别的页面换了账号」会找不到它。
-     */
-    const crossDevice = useCrossDeviceAuthStore();
 
     /** 云同步服务：store 一建立就创建，设置从这一刻起跟着存储变更走 */
     const cloudSyncService = createService();
@@ -161,104 +144,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         });
         if (change.authChanged) {
             error.value = null;
-            void refreshCrossDevice();
         }
-    }
-
-    /** 重新读取浏览器账号同步区的状态 */
-    function refreshCrossDevice(): Promise<void> {
-        return crossDevice.refresh();
-    }
-
-    /** 本机当前的登录凭据，用于交给同步区（未登录时为 null） */
-    function currentAuth(): CrossDeviceAuth | null {
-        return token.value ? { token: token.value, provider: provider.value } : null;
-    }
-
-    /**
-     * 启用跨设备同步登录状态（加密）
-     *
-     * 已登录：立即把当前凭据加密后推送到同步区。
-     * 未登录：只记住开关与密码；随后若发现同步区已有其他设备的凭据，
-     *        用同一个密码尝试解密并直接登录（新设备「开启」即恢复，不必再点一次「恢复」）。
-     */
-    async function enableCrossDeviceSync(passphrase: string): Promise<EnableCrossDeviceOutcome> {
-        error.value = null;
-        try {
-            const auth = currentAuth();
-            const result = await crossDevice.enable(passphrase, auth);
-            if (auth || !crossDevice.remoteAvailable) {
-                return { ...result, restored: false };
-            }
-            return { pushed: result.pushed, restored: await tryRestoreCrossDevice(passphrase) };
-        } catch (e) {
-            error.value = e instanceof Error ? e.message : String(e);
-            throw e;
-        }
-    }
-
-    /** 关闭跨设备同步：清除本机口令与同步区密文 */
-    async function disableCrossDeviceSync(): Promise<void> {
-        error.value = null;
-        try {
-            await crossDevice.disable();
-        } catch (e) {
-            error.value = e instanceof Error ? e.message : String(e);
-            throw e;
-        }
-    }
-
-    /**
-     * 在新设备上凭口令还原登录状态
-     *
-     * 还原成功后会立即做一次双向合并同步，把云端数据一并拉下来；
-     * 同步失败不影响登录状态（用户可以稍后手动点「立即同步」）。
-     * 口令不对时原样抛出——这是用户主动输的口令，要看到原因。
-     *
-     * @returns 是否还原成功
-     */
-    async function restoreFromCrossDevice(passphrase: string): Promise<boolean> {
-        error.value = null;
-        try {
-            const auth = await crossDevice.readAuth(passphrase);
-            if (!auth) {
-                return false;
-            }
-            return await applyRecoveredAuth(auth);
-        } catch (e) {
-            error.value = e instanceof Error ? e.message : String(e);
-            throw e;
-        }
-    }
-
-    /**
-     * 用本机已保存的密码尝试还原同步区里的凭据
-     *
-     * 这是「另一台设备刚把凭据同步过来」时的自动恢复入口：面板打开、同步区变更、
-     * 用户点「重新检查」时都会调用。本机已经登录就不必再动，口令不匹配也只是没有可用凭据，
-     * 不是故障——所以这里一律不弹提示，只回答「有没有恢复成功」。
-     *
-     * @param passphrase 指定密码（刚开启时用）；不传则用本机保存的密码
-     */
-    async function tryRestoreCrossDevice(passphrase?: string): Promise<boolean> {
-        if (token.value) {
-            return false;
-        }
-        const auth = await crossDevice.tryReadAuth(passphrase);
-        if (!auth) {
-            return false;
-        }
-        return await applyRecoveredAuth(auth);
-    }
-
-    /** 拿到同步区的凭据后：登录，成功再补一轮同步把云端数据拉下来 */
-    async function applyRecoveredAuth(auth: RecoveredAuth): Promise<boolean> {
-        if (!await login(auth.token, auth.provider)) {
-            return false;
-        }
-        // 登录成功后立刻补齐数据：走 store.sync，失败提示与其他自动同步同一个口径
-        await sync({ silent: true });
-        return true;
     }
 
     /**
@@ -271,33 +157,20 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
     }
 
     /**
-     * 初始化：读回设置、确认保存的凭据还认得、必要时从浏览器同步区恢复登录，最后跟一句启动同步的结果
+     * 初始化：读回设置、确认保存的凭据还认得，最后跟一句启动同步的结果
      */
     async function init(): Promise<void> {
         isLoading.value = true;
         error.value = null;
         try {
             const startup = await cloudSyncService.init();
-            await refreshCrossDevice();
             if (startup.rejectedReason) {
                 // 服务层已经把这份凭据清掉了；不说一句，用户只会看到「已连接」莫名变回「未连接」
                 error.value = startup.rejectedReason;
                 uiAdapter.value.showToast(startup.rejectedReason, 'error');
             }
-            // 本机没有可用凭据（从没登录、或刚被平台拒绝）时，先看浏览器同步区里
-            // 另一台设备推来的那份还能不能用——这才是「换设备免 Token」的正路
-            const adopted = token.value ? false : await tryRestoreCrossDevice();
-            await refreshCrossDevice();
-            if (!adopted && token.value && crossDevice.enabled) {
-                // 已登录、已开启：缺凭据或本机解不开同步区那份，都在这里补一次。
-                // 解不开的旧密文不覆盖就永远没有可用的那份，是否真写由 pushIfMissing 判断。
-                // 后台静默补推，成没成由面板那行状态如实显示，不额外弹提示。
-                await crossDevice.pushIfMissing(currentAuth());
-                await refreshCrossDevice();
-            }
             // 启动那一轮是后台同步：失败了提示一次，不弹窗、不挡任何人。
-            // 失败是因为本机凭据被拒、而且已经换上同步区里那份可用的了，这句失败就不再重复
-            if (startup.sync && !(startup.sync.authRejected && adopted)) {
+            if (startup.sync) {
                 reportSyncResult(startup.sync, true);
             }
         } catch (e) {
@@ -310,7 +183,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
 
     /**
      * 使用 Token 登录
-     * 验证通过后持久化，并把凭据推给浏览器同步区。
+     * 验证通过后持久化。
      *
      * 注意：即使同步空间没建出来，Token 也已经保存成功；
      * 设置模块在写成的那一刻就通知了界面，所以这里不会停在「未连接」，
@@ -327,12 +200,6 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         try {
             uiAdapter.value.showToast('正在验证 Token...', 'info');
             const result = await cloudSyncService.saveToken(inputToken, providerId);
-            // 只有真存下了凭据才动同步区：验证失败（Token 打错、被限流、断网）时
-            // currentAuth() 是空的，那时候推一次等于把别的设备推来的那份一起带走
-            if (result.success) {
-                await pushAuthToCrossDevice();
-                await refreshCrossDevice();
-            }
             reportConnectResult(result);
             return result.success;
         } catch (e) {
@@ -349,7 +216,7 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
      * 「本地数据不会删除」这句要说清楚：断开只是不再跟云端往来，本机的一份原样留着。
      */
     async function logout(): Promise<void> {
-        const confirmed = await uiAdapter.value.showConfirm('确定要断开云同步吗？本地数据不会删除，但浏览器同步区里那份共用的登录凭据会一并清除，其他设备需要重新输入 Token。', {
+        const confirmed = await uiAdapter.value.showConfirm('确定要断开云同步吗？本地数据不会删除。', {
             title: '断开同步',
             okText: '断开',
             isDanger: true
@@ -360,9 +227,6 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         error.value = null;
         try {
             await cloudSyncService.logout();
-            // 断开是用户明确要清除共用凭据的唯一时机（另一半是关掉浏览器同步开关）。
-            // 走显式的 clearRemote，而不是「推一份空的」——后者曾经会把失败也当成清空。
-            await crossDevice.clearRemote();
             uiAdapter.value.showToast('已断开云同步', 'success');
         } catch (e) {
             error.value = e instanceof Error ? e.message : String(e);
@@ -371,90 +235,6 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
             isLoading.value = false;
         }
     }
-
-    /**
-     * 把当前登录凭据推送到浏览器账号同步区
-     *
-     * 没开浏览器同步时什么都不说；已开启却没写成功（本机口令丢了、同步区不可用）必须提示，
-     * 否则用户会以为「浏览器同步已经生效」，换设备时才发现根本没有凭据。
-     *
-     * 本机没有凭据时什么都不做：同步区里那份可能是别的设备推来的，
-     * 清空它只在断开云同步（`logout`）和关掉开关（`disableCrossDeviceSync`）时发生。
-     */
-    async function pushAuthToCrossDevice(): Promise<void> {
-        const auth = currentAuth();
-        if (!auth) {
-            return;
-        }
-        const outcome = await crossDevice.push(auth);
-        if (!outcome.enabled || outcome.pushed) {
-            return;
-        }
-        announcePushOutcome(outcome);
-    }
-
-    /**
-     * 手动「重试写入同步区」
-     *
-     * 面板上的状态说「没写进去」，用户点一下就要给出结果：成功报成功，
-     * 失败按原因说人话——三种原因对应三种自救动作。
-     */
-    async function retryCrossDevicePush(): Promise<boolean> {
-        const outcome = await crossDevice.pushIfMissing(currentAuth());
-        await refreshCrossDevice();
-        if (outcome.pushed) {
-            uiAdapter.value.showToast('登录状态已加密写入浏览器同步区', 'success');
-            return true;
-        }
-        if (!crossDevice.enabled) {
-            uiAdapter.value.showToast('浏览器同步未开启', 'info');
-            return false;
-        }
-        announcePushOutcome(outcome);
-        return false;
-    }
-
-    /**
-     * 往浏览器同步区发一次连通性探测
-     *
-     * 「凭据：暂无」有两种成因：另一台没推上来，或者推了但浏览器没把同步区送到这里
-     * （没勾附加组件同步、还没到点、两台装的是不同扩展 ID 的包）。凭据本身分不出来，
-     * 一条与口令无关的探测能分出来：另一台点「重新检查」时读到它，路就是通的。
-     */
-    function probeCrossDeviceSyncArea(): Promise<SyncAreaProbe> {
-        return crossDevice.probeSyncArea();
-    }
-
-    /** 「已开启却没写进去」的三种原因，各自一句话 */
-    function announcePushOutcome(outcome: CrossDevicePushOutcome): void {
-        if (outcome.reason === 'error') {
-            uiAdapter.value.showToast('浏览器同步失败：' + outcome.message, 'error');
-            return;
-        }
-        uiAdapter.value.showToast(
-            outcome.reason === 'missing-passphrase'
-                ? '浏览器同步未写入：本机缺少同步密码，请重新设置'
-                : '浏览器同步未写入：同步区不可用，请检查浏览器账号同步设置',
-            'error'
-        );
-    }
-
-    /**
-     * 共享凭据被别的设备删掉后，本机静默补推一次
-     *
-     * 删除会顺着浏览器同步传到每一台：一台「断开连接」清掉同步区，另一台仍登录的设备
-     * 若不补回去，共用凭据就永远空着，那台再怎么点浏览器「同步」也无东西可传——
-     * 这正是「删一次就再也同步不上」的成因。是否真写由 pushIfMissing 判断（已有且本机
-     * 解得开就不动），这里不弹提示，成没成由面板那行状态如实显示。
-     *
-     * @returns 是否真的写进了同步区
-     */
-    async function repushCrossDeviceIfMissing(): Promise<boolean> {
-        const outcome = await crossDevice.pushIfMissing(currentAuth());
-        await refreshCrossDevice();
-        return outcome.pushed;
-    }
-
 
     /**
      * 切换自动同步开关。
@@ -502,12 +282,6 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         try {
             const result = await cloudSyncService.sync(options);
             reportSyncResult(result, options.silent === true);
-            if (result.authRejected) {
-                // 被拒的只是本机这一份 Token：另一台设备多半早就换掉了，
-                // 同步区里那份才是在用的凭据。跟上它，不用等用户重启浏览器。
-                await tryRestoreCrossDevice();
-                await refreshCrossDevice();
-            }
             return result;
         } catch (e) {
             error.value = e instanceof Error ? e.message : String(e);
@@ -692,14 +466,6 @@ export const useCloudSyncStore = defineStore('cloudSync', () => {
         scheduleAutoSync,
         startAutoSyncWatch,
         stopAutoSyncWatch,
-        setUIAdapter,
-        refreshCrossDevice,
-        enableCrossDeviceSync,
-        disableCrossDeviceSync,
-        restoreFromCrossDevice,
-        tryRestoreCrossDevice,
-        retryCrossDevicePush,
-        repushCrossDeviceIfMissing,
-        probeCrossDeviceSyncArea
+        setUIAdapter
     };
 });

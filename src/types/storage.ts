@@ -46,26 +46,7 @@ export const STORAGE_KEYS = {
     /** 用户已忽略的版本号，同一版本不再重复提示 */
     UPDATE_DISMISSED_VERSION: 'appNavigator_updateDismissedVersion',
     /** 媒体缓存开关（站点图标 / 网络壁纸的本地缓存） */
-    MEDIA_CACHE: 'appNavigator_mediaCache',
-    /** 跨设备同步开关（本机，不上传） */
-    CROSS_DEVICE_ENABLED: 'appNavigator_crossDevice_enabled',
-    /** 跨设备同步口令（本机，不上传） */
-    CROSS_DEVICE_PASSPHRASE: 'appNavigator_crossDevice_passphrase',
-    /** 同步区：加密后的云同步登录凭据 */
-    CROSS_DEVICE_REMOTE_AUTH: 'haha_cross_device_auth',
-    /** 同步区：凭据元信息（明文，只含设备名与时间） */
-    CROSS_DEVICE_REMOTE_META: 'haha_cross_device_auth_meta',
-    /** 同步区：连通性探测（明文随机值，用来区分「没推上去」和「传不过来」） */
-    CROSS_DEVICE_REMOTE_PROBE: 'haha_cross_device_probe',
-    /**
-     * 同步区：催促标记
-     *
-     * Firefox 的同步引擎在本地写入后会把 score 抬高并立刻跑一轮同步，
-     * 等待中的设备改一下这个值，就能把远端凭据主动拉下来，不必等 10 分钟。
-     */
-    CROSS_DEVICE_REMOTE_NUDGE: 'haha_cross_device_nudge',
-    /** 本机：最后一次自己发出的探测标识（不上传，用于认出同步区里那条是不是别处写的） */
-    CROSS_DEVICE_LOCAL_PROBE: 'appNavigator_crossDevice_probe'
+    MEDIA_CACHE: 'appNavigator_mediaCache'
 } as const;
 
 /**
@@ -73,14 +54,11 @@ export const STORAGE_KEYS = {
  * 新版本不再读写，残留值只会白占配额并误导排查，启动时一次性删除。
  */
 export const LEGACY_STORAGE_KEYS: string[] = [
-    STORAGE_KEYS.SHOW_HIDDEN_APPS
+    STORAGE_KEYS.SHOW_HIDDEN_APPS,
+    /** 浏览器账号同步登录状态的功能已移除，清掉本机残留的开关与密码 */
+    'appNavigator_crossDevice_enabled',
+    'appNavigator_crossDevice_passphrase'
 ];
-
-/**
- * 非扩展环境下模拟浏览器账号同步区时使用的 localStorage 键前缀。
- * 沿用历史取值，避免升级后读不到旧版本写入的凭据。
- */
-export const SYNC_AREA_LOCAL_PREFIX = '__mnt_sync__:';
 
 /**
  * 首帧快照键（SYNC_MIRROR_KEYS）与云同步收集键（CLOUD_SYNC_DATA_KEYS）

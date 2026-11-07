@@ -199,7 +199,7 @@ function parseStoredValue(value: string | null): StorageValue {
  * L0 local 区后端
  * 扩展环境走 storage.local，网页预览沿用 browserApi 的 localStorage 实现。
  */
-const localBackend = getStorageBackend('local');
+const localBackend = getStorageBackend();
 
 /**
  * 读首帧快照（localStorage 的 __boot__）
@@ -455,7 +455,7 @@ export class StorageManager implements IStorageManager {
             window.addEventListener('storage', storageHandler);
         }
 
-        const unsubscribeNative = subscribeStorageArea('local', (changes) => {
+        const unsubscribeNative = subscribeStorageArea((changes) => {
             const hits = watchEntries(changes);
             const foreign = hits.filter((hit) => !isSelfEcho(hit.key, hit.json));
             reportKernelChange(
