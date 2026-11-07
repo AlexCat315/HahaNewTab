@@ -2,7 +2,7 @@
     "manifest_version": 3,
     "name": "HahaNewTab - 新标签页导航",
     "short_name": "HahaNewTab",
-    "version": "1.0.1.25",
+    "version": "1.0.1.26",
     "description": "统一管理和快速访问各类开发者工具和外部链接的应用导航中心",
     "author": "HahaNewTab",
     "homepage_url": "https://github.com/AlexCat315/HahaNewTab",
