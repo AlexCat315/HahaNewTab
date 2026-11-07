@@ -42,6 +42,8 @@ export interface UseCloudSyncReturn {
     crossDeviceRemoteMeta: ComputedRef<CrossDeviceRemoteMeta | null>;
     /** 当前环境是否使用浏览器账号同步区（false = 网页预览的 localStorage 降级） */
     syncAreaNative: ComputedRef<boolean>;
+    /** 同步区是否能真的把凭据送到别的设备（Chrome 开发版安装为 false） */
+    syncAreaCrossDevice: ComputedRef<boolean>;
     statusText: ComputedRef<string>;
     formattedLastSyncTime: ComputedRef<string>;
     init: () => Promise<void>;
@@ -70,6 +72,14 @@ export interface UseCloudSyncReturn {
     /** 用恢复码 + 同步密码恢复登录，返回是否成功 */
     restoreFromRecoveryCode: (code: string, passphrase: string) => Promise<boolean>;
 }
+
+/**
+ * 未登录设备定期看一眼同步区的间隔
+ *
+ * Firefox Sync 自己就是每 10 分钟一趟，凭据落地时 onChanged 不一定及时通知到页面；
+ * 这个轮询只负责「到了就认出来」，不能让 Firefox 的快照来得更早。
+ */
+const REMOTE_CREDENTIAL_POLL_MS = 30_000;
 
 /** 平台标识到显示名的映射 */
 const PROVIDER_NAMES: Record<CloudSyncProviderId, string> = {
@@ -123,6 +133,7 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
 
     const abortControllers = createAbortControllerSet();
     let unwatchRemoteAuth: (() => void) | null = null;
+    let credentialPollTimer: ReturnType<typeof setInterval> | null = null;
 
     if (uiAdapter) {
         store.setUIAdapter(uiAdapter);
@@ -255,6 +266,60 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         return createAbortable(() => store.restoreFromRecoveryCode(code, passphrase));
     }
 
+    /** 防止定时检查与 focus / 同步区变更同时触发两次还原 */
+    let checkingRemoteCredential = false;
+
+    /**
+     * 未登录时看一眼同步区：有凭据且本机有口令就尝试还原
+     *
+     * 只做免打扰的检查：失败不弹提示，状态与原因由面板上的「重新检查」负责说清楚。
+     */
+    async function checkRemoteCredential(): Promise<void> {
+        if (checkingRemoteCredential || store.isLoggedIn || document.visibilityState === 'hidden') {
+            return;
+        }
+        checkingRemoteCredential = true;
+        try {
+            await refreshCrossDevice();
+            if (
+                store.isLoggedIn
+                || !crossDevice.enabled
+                || !crossDevice.hasPassphrase
+                || !crossDevice.remoteAvailable
+            ) {
+                return;
+            }
+            await tryRestoreCrossDevice();
+        } catch {
+            // 定期检查失败不打扰：恢复成功会有登录提示，其余交给手动「重新检查」
+        } finally {
+            checkingRemoteCredential = false;
+        }
+    }
+
+    function handlePageVisible(): void {
+        if (document.visibilityState === 'visible') {
+            void checkRemoteCredential();
+        }
+    }
+
+    function startRemoteCredentialWatch(): void {
+        credentialPollTimer = setInterval(() => {
+            void checkRemoteCredential();
+        }, REMOTE_CREDENTIAL_POLL_MS);
+        document.addEventListener('visibilitychange', handlePageVisible);
+        window.addEventListener('focus', handlePageVisible);
+    }
+
+    function stopRemoteCredentialWatch(): void {
+        if (credentialPollTimer !== null) {
+            clearInterval(credentialPollTimer);
+            credentialPollTimer = null;
+        }
+        document.removeEventListener('visibilitychange', handlePageVisible);
+        window.removeEventListener('focus', handlePageVisible);
+    }
+
     onMounted(() => {
         // 本地数据一落盘就防抖触发自动同步；变更源是存储内核，覆盖所有写入路径
         store.startAutoSyncWatch();
@@ -266,6 +331,8 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
                     // 状态刷新 / 自动还原失败不影响主流程
                 });
         });
+        // Firefox 的同步快照可能晚到十来分钟，落地那一刻本页要能自己认出来
+        startRemoteCredentialWatch();
         init().catch(() => {
             // 初始化失败由 store.error 暴露，不在此处抛出
         });
@@ -275,6 +342,7 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         store.stopAutoSyncWatch();
         unwatchRemoteAuth?.();
         unwatchRemoteAuth = null;
+        stopRemoteCredentialWatch();
         cancelPending();
     });
 
@@ -293,6 +361,7 @@ export function useCloudSync(options: UseCloudSyncOptions = {}): UseCloudSyncRet
         crossDeviceRemoteAvailable: computed(() => crossDevice.remoteAvailable),
         crossDeviceRemoteMeta: computed(() => crossDevice.remoteMeta),
         syncAreaNative: computed(() => crossDevice.syncAreaNative),
+        syncAreaCrossDevice: computed(() => crossDevice.syncAreaCrossDevice),
         crossDeviceRemoteProbe: computed(() => crossDevice.remoteProbe),
         statusText,
         formattedLastSyncTime,

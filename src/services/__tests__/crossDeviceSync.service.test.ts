@@ -7,7 +7,7 @@
  *   - 登出 / 关闭开关时的清理行为
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const { localStore, syncStore } = vi.hoisted(() => ({
     localStore: new Map<string, unknown>(),
@@ -34,6 +34,11 @@ vi.mock('@/services/syncStorage.service', () => ({
     syncSet: vi.fn(async (key: string, value: unknown) => {
         syncStore.set(key, value);
     }),
+    syncSetMany: vi.fn(async (items: Record<string, unknown>) => {
+        for (const [key, value] of Object.entries(items)) {
+            syncStore.set(key, value);
+        }
+    }),
     syncRemove: vi.fn(async (key: string) => {
         syncStore.delete(key);
     }),
@@ -55,6 +60,7 @@ import {
     createRecoveryCode,
     readRecoveryCode
 } from '../crossDeviceSync.service';
+import { getSyncAreaStatus, syncSetMany } from '@/services/syncStorage.service';
 
 const REMOTE_AUTH_KEY = 'haha_cross_device_auth';
 const LOCAL_PASSPHRASE_KEY = 'appNavigator_crossDevice_passphrase';
@@ -66,6 +72,13 @@ describe('crossDeviceSync.service', () => {
     beforeEach(() => {
         localStore.clear();
         syncStore.clear();
+        vi.clearAllMocks();
+        vi.mocked(getSyncAreaStatus).mockReturnValue({ native: false, kind: 'local' });
+    });
+
+    afterEach(() => {
+        delete (window as unknown as { chrome?: unknown }).chrome;
+        delete (window as unknown as { browser?: unknown }).browser;
     });
 
     it('初始状态为未启用', async () => {
@@ -211,6 +224,7 @@ describe('crossDeviceSync.service', () => {
             enabled: false,
             hasPassphrase: false,
             nativeSync: false,
+            syncAreaCrossDevice: false,
             remoteAvailable: false,
             remoteMeta: null
         });
@@ -232,6 +246,60 @@ describe('crossDeviceSync.service', () => {
 
         await disableCrossDevice();
         expect(syncStore.has('haha_cross_device_auth_meta')).toBe(false);
+    });
+
+    it('密文与元信息作为一次写入进同步区，不会只到一半', async () => {
+        await enableCrossDevice(PASSPHRASE, AUTH);
+
+        expect(vi.mocked(syncSetMany)).toHaveBeenCalledTimes(1);
+        const [items] = vi.mocked(syncSetMany).mock.calls[0];
+        expect(Object.keys(items).sort()).toEqual(
+            [REMOTE_AUTH_KEY, 'haha_cross_device_auth_meta'].sort()
+        );
+    });
+
+    it('Chrome 开发版安装：同步区仍在，但明确告知它不会跨设备', async () => {
+        vi.mocked(getSyncAreaStatus).mockReturnValue({ native: true, kind: 'native' });
+        (window as unknown as { chrome: unknown }).chrome = {
+            runtime: { id: 'lpaaldonlnldlkaghoealdcbiafljagb' },
+            management: {
+                getSelf: (callback: (info: { installType: string }) => void) => {
+                    callback({ installType: 'development' });
+                }
+            }
+        };
+
+        const status = await getCrossDeviceStatus();
+        expect(status.nativeSync).toBe(true);
+        expect(status.syncAreaCrossDevice).toBe(false);
+    });
+
+    it('Chrome 商店安装（或探测不到安装方式）时保持跨设备判定', async () => {
+        vi.mocked(getSyncAreaStatus).mockReturnValue({ native: true, kind: 'native' });
+        (window as unknown as { chrome: unknown }).chrome = {
+            runtime: { id: 'lpaaldonlnldlkaghoealdcbiafljagb' },
+            management: {
+                getSelf: (callback: (info: { installType: string }) => void) => {
+                    callback({ installType: 'normal' });
+                }
+            }
+        };
+
+        const status = await getCrossDeviceStatus();
+        expect(status.syncAreaCrossDevice).toBe(true);
+    });
+
+    it('Firefox 的安装方式不参与这条判定：同步区照常跨设备', async () => {
+        vi.mocked(getSyncAreaStatus).mockReturnValue({ native: true, kind: 'native' });
+        (window as unknown as { browser: unknown }).browser = {
+            runtime: { id: 'firefox-addon-id' },
+            management: {
+                getSelf: async () => ({ installType: 'development' })
+            }
+        };
+
+        const status = await getCrossDeviceStatus();
+        expect(status.syncAreaCrossDevice).toBe(true);
     });
 
     it('clearRemoteCrossDeviceAuth 只清远端密文，保留本机开关', async () => {

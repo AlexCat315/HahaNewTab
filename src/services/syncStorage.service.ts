@@ -60,16 +60,27 @@ export async function syncGet(key: string): Promise<unknown | null> {
     }
 }
 
-/** 写入单个同步项 */
-export async function syncSet(key: string, value: unknown): Promise<void> {
+/**
+ * 一次写入一批同步项
+ *
+ * 浏览器只把这一批当成一次改动：凭据与元信息必须同进同退，
+ * 分两次写会出现「密文到了、元信息没到」或反过来，另一台设备据此显示的
+ * 「凭据来自哪台设备」就与真实内容对不上。
+ */
+export async function syncSetMany(items: Record<string, unknown>): Promise<void> {
     try {
-        await syncBackend().set({ [key]: value });
+        await syncBackend().set(items);
     } catch (error) {
         throw translateStorageError(
             error,
             isNativeSyncStorage() ? '写入浏览器同步区失败' : '写入本机模拟同步区失败'
         );
     }
+}
+
+/** 写入单个同步项 */
+export async function syncSet(key: string, value: unknown): Promise<void> {
+    return syncSetMany({ [key]: value });
 }
 
 /** 删除单个同步项 */

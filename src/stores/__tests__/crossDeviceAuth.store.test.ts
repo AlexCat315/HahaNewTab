@@ -40,6 +40,7 @@ function setStatus(overrides: Partial<{
     enabled: boolean;
     hasPassphrase: boolean;
     nativeSync: boolean;
+    syncAreaCrossDevice: boolean;
     remoteAvailable: boolean;
     remoteMeta: { updatedAt: number; device: string; provider: string } | null;
 }> = {}): void {
@@ -47,6 +48,7 @@ function setStatus(overrides: Partial<{
         enabled: true,
         hasPassphrase: true,
         nativeSync: true,
+        syncAreaCrossDevice: true,
         remoteAvailable: false,
         remoteMeta: null,
         ...overrides
@@ -83,6 +85,17 @@ describe('crossDeviceAuth store', () => {
         expect(store.remoteAvailable).toBe(true);
         expect(store.remoteMeta?.device).toBe('Chrome / macOS');
         expect(store.syncAreaNative).toBe(true);
+        expect(store.syncAreaCrossDevice).toBe(true);
+    });
+
+    it('Chrome 开发版安装时把「同步区不会跨设备」如实抄进镜像', async () => {
+        const store = useCrossDeviceAuthStore();
+        setStatus({ nativeSync: true, syncAreaCrossDevice: false });
+
+        await store.refresh();
+
+        expect(store.syncAreaNative).toBe(true);
+        expect(store.syncAreaCrossDevice).toBe(false);
     });
 
     it('读取状态失败时保持原样，只留一句日志', async () => {

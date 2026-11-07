@@ -22,6 +22,7 @@ import { STORAGE_KEYS } from '@/types/storage';
 import {
     syncGet,
     syncSet,
+    syncSetMany,
     syncRemove,
     getSyncAreaStatus,
     subscribeSyncAreaChanges
@@ -98,10 +99,25 @@ export interface CrossDeviceState {
 export interface CrossDeviceStatus extends CrossDeviceState {
     /** 当前环境是否使用浏览器账号同步区（false = 网页预览的 localStorage 降级） */
     nativeSync: boolean;
+    /**
+     * 写进同步区的东西是否真的会离开这台机器
+     *
+     * Chrome 只对「从扩展商店安装」的扩展上传 storage.sync，用「加载已解压的扩展程序」
+     * 安装的包即使同一个账号、同一个扩展 ID 也只留在本机，而 nativeSync 同样是 true。
+     */
+    syncAreaCrossDevice: boolean;
     /** 同步区是否已有加密凭据（无需口令即可判断） */
     remoteAvailable: boolean;
     /** 同步区凭据的元信息（来自哪台设备、何时推送） */
     remoteMeta: CrossDeviceRemoteMeta | null;
+}
+
+/** 安装方式探测结果 */
+interface CrossDeviceInstallInfo {
+    /** management.getSelf().installType；浏览器不提供该信息时为 null */
+    installType: string | null;
+    /** 同步区写入的数据是否会离开本机 */
+    crossDevice: boolean;
 }
 
 /** 启用结果 */
@@ -147,16 +163,78 @@ export async function getRemoteCrossDeviceMeta(): Promise<CrossDeviceRemoteMeta 
     };
 }
 
-/** 读取完整状态（含同步区可用性 / 远端密文） */
+/**
+ * 读本机安装方式，判断同步区能不能真的跨设备
+ *
+ * Chromium 只给「从扩展商店安装」的扩展同步 storage.sync
+ * （sync_helper::IsSyncable 只放行 ManifestLocation::kInternal），
+ * 用「加载已解压的扩展程序」装的包写进去的凭据不会离开本机。
+ * management.getSelf() 不需要额外权限，且开发版会如实报告 installType = "development"。
+ *
+ * Firefox 没有这条限制，所以只在非 Gecko 的原生同步区上做这层判定；
+ * 探测不到安装方式时保持乐观（沿用 nativeSync 的结论），不凭空报警。
+ */
+async function detectCrossDeviceInstall(): Promise<CrossDeviceInstallInfo> {
+    if (!getSyncAreaStatus().native) {
+        return { installType: null, crossDevice: false };
+    }
+    if (typeof window === 'undefined' || !isChromiumExtension()) {
+        return { installType: null, crossDevice: true };
+    }
+    const installType = await readInstallType();
+    return { installType, crossDevice: installType !== 'development' };
+}
+
+/** Firefox 同时暴露 browser 与 chrome 命名空间，chrome-only 才是 Chromium 系 */
+function isChromiumExtension(): boolean {
+    const win = window as unknown as {
+        chrome?: { runtime?: { id?: string }; management?: { getSelf?: unknown } };
+        browser?: { runtime?: { id?: string } };
+    };
+    return !win.browser?.runtime?.id && !!win.chrome?.runtime?.id;
+}
+
+/** management.getSelf()：Firefox 直接返回 Promise，Chrome 需要回调 */
+function readInstallType(): Promise<string | null> {
+    const win = window as unknown as {
+        chrome?: { management?: { getSelf?: (...args: unknown[]) => unknown } };
+        browser?: { management?: { getSelf?: () => Promise<{ installType?: string }> } };
+    };
+    const pick = (info: { installType?: string } | null | undefined): string | null =>
+        typeof info?.installType === 'string' ? info.installType : null;
+
+    if (win.browser?.management?.getSelf) {
+        try {
+            return win.browser.management.getSelf().then(pick, () => null);
+        } catch {
+            return Promise.resolve(null);
+        }
+    }
+    const getSelf = win.chrome?.management?.getSelf;
+    if (!getSelf) {
+        return Promise.resolve(null);
+    }
+    return new Promise(resolve => {
+        try {
+            getSelf.call(win.chrome?.management, (info: { installType?: string }) => resolve(pick(info)));
+        } catch {
+            resolve(null);
+        }
+    });
+}
+
+/** 读取完整状态（含同步区可用性 / 能否跨设备 / 远端密文） */
 export async function getCrossDeviceStatus(): Promise<CrossDeviceStatus> {
-    const [state, remoteAvailable, remoteMeta] = await Promise.all([
+    const [state, install, remoteAvailable, remoteMeta] = await Promise.all([
         getCrossDeviceState(),
+        detectCrossDeviceInstall(),
         hasRemoteCrossDeviceAuth(),
         getRemoteCrossDeviceMeta()
     ]);
     return {
         ...state,
         nativeSync: getSyncAreaStatus().native,
+        syncAreaCrossDevice: install.crossDevice,
         remoteAvailable,
         remoteMeta: remoteAvailable ? remoteMeta : null
     };
@@ -201,12 +279,14 @@ export async function enableCrossDevice(
         return { pushed: false };
     }
 
-    await syncSet(REMOTE_AUTH_KEY, payload);
-    await syncSet(REMOTE_META_KEY, {
-        updatedAt: Date.now(),
-        device: getDeviceLabel(),
-        provider: auth.provider
-    } satisfies CrossDeviceRemoteMeta);
+    await syncSetMany({
+        [REMOTE_AUTH_KEY]: payload,
+        [REMOTE_META_KEY]: {
+            updatedAt: Date.now(),
+            device: getDeviceLabel(),
+            provider: auth.provider
+        } satisfies CrossDeviceRemoteMeta
+    });
     return { pushed: true };
 }
 
@@ -323,13 +403,15 @@ export async function pushCrossDeviceAuth(auth: CrossDeviceAuth | null): Promise
     }
 
     const payload = await encryptText(JSON.stringify(auth), passphrase);
-    await syncSet(REMOTE_AUTH_KEY, payload);
-    // 元信息是明文，只写设备名与时间，便于另一台设备显示「凭据来自 X」
-    await syncSet(REMOTE_META_KEY, {
-        updatedAt: Date.now(),
-        device: getDeviceLabel(),
-        provider: auth.provider
-    } satisfies CrossDeviceRemoteMeta);
+    // 密文与元信息一次写入：分两次写时，另一台设备可能先看到其一，界面就会自相矛盾
+    await syncSetMany({
+        [REMOTE_AUTH_KEY]: payload,
+        [REMOTE_META_KEY]: {
+            updatedAt: Date.now(),
+            device: getDeviceLabel(),
+            provider: auth.provider
+        } satisfies CrossDeviceRemoteMeta
+    });
     return true;
 }
 
