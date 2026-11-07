@@ -14,7 +14,7 @@
  *   - 订阅者（store 的镜像、服务层的判断）拿到的是同一份快照，不会再各自漂移。
  *
  * 「上次同步时间」不在这里：它跟着 base 快照同一批写入，属于同步账本的内容。
- * OAuth App 的 Client ID 也不在这里：那是应用配置，断开连接不该把它清掉。
+ * OAuth App 的 Client ID 内置在代码里，不属于账号状态，断开连接也不会动它。
  */
 
 import { STORAGE_KEYS } from '@/types/storage';

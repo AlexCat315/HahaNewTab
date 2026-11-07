@@ -214,26 +214,41 @@ dist-firefox/  # Firefox
 
 ## ☁️ 云同步（GitHub OAuth）
 
-云同步面板（右下角菜单 → 云同步）用 GitHub **Device Flow** 授权：点一次「使用 GitHub 登录」，
-在打开的 GitHub 页面输入面板显示的授权码并确认即可。凭据由 GitHub 下发、保存在本机扩展存储中，
-不需要手工申请或粘贴 Token，也不需要 client secret、回调页或后端服务。
+云同步面板（右下角菜单 → 云同步）里点「使用 GitHub 登录」，扩展会自动打开 GitHub 授权页，
+并把授权码复制到剪贴板；粘贴、确认一次即完成连接。**使用者不需要申请 Token，也不需要填写任何配置。**
+凭据由 GitHub 下发并保存在本机扩展存储中，数据写进自己账号下的**私密 Gist**。
 
-### 一次性配置：OAuth App Client ID
+### 项目维护者：内置 Client ID（一次性）
 
-Device Flow 只需要一个 GitHub OAuth App 的 **Client ID**（公开标识，不是密钥）：
+GitHub 规定任何第三方登录都要对应一个注册过的 OAuth App，因此扩展需要一个 **Client ID**
+（公开标识，不是密钥）。这一步由**项目维护者做一次并内置在扩展里**，使用者完全无感：
 
-1. 打开 <https://github.com/settings/developers> →「New OAuth App」创建一个应用。
-   Homepage URL 与 Authorization callback URL 填任意合法地址即可，Device Flow 不使用回调；
-2. 在应用设置里勾选 **Enable Device Flow**；
-3. 把 Client ID 填进云同步面板的「OAuth App Client ID」并保存；
-   也可以在构建时统一注入，省去每台设备填写：
+打开 <https://github.com/settings/developers> →「New OAuth App」，按下表填写：
 
-   ```bash
-   VITE_GITHUB_CLIENT_ID=Iv1.xxxxxxxxxxxxxxxx npm run build
-   ```
+| 字段 | 填什么 | 说明 |
+|------|--------|------|
+| Application name | `HahaNewTab` | 授权页上显示的名字，自己认得出即可 |
+| Homepage URL | `https://github.com/AlexCat315/HahaNewTab` | 与 `manifest.json` 的 `homepage_url` 一致 |
+| Application description | `HahaNewTab 新标签页的云同步，用于读写你自己的私密 Gist` | 授权时会展示给使用者 |
+| Redirect URIs | `https://github.com/AlexCat315/HahaNewTab` | Device Flow 不走回调，随便填一个你控制的合法 URL；能留空就留空 |
+| Allow wildcard matching | **不勾** | 用不到，勾了只会扩大风险 |
+| Enable Device Flow | **勾上** | 必选，没勾会报 `device_flow_disabled` |
+| Expire user access tokens | **不勾** | 勾了 token 8 小时过期并需要刷新令牌，当前扩展未实现刷新，会变成每隔几小时就要重新授权 |
 
-Client ID 单独存在扩展本地存储里，断开云同步或换账号都不会清掉它。扩展只申请 `gist` scope，
-站点数据写进你自己账号下的**私密 Gist**，不接触账号密码，也不参与浏览器账号同步区。
+提交后复制页面上的 **Client ID**，填进
+`src/services/cloudSync/oauthConfig.ts` 的 `BUILT_IN_CLIENT_ID`。本项目已经填好，
+普通构建无需再动；只有自建实例才需要在构建时覆盖：
+
+```bash
+VITE_GITHUB_CLIENT_ID=<你的 Client ID> npm run build
+```
+
+**Client secret 不需要**：Device Flow 不用它，也不要把它放进前端代码。若注册时忘了勾
+Device Flow，可到应用设置页补勾。
+
+Device Flow 不需要 client secret，所以扩展里只有公开的 Client ID：没有密钥、没有后端、没有回调页。
+GitHub 的标准 Web 跳转流程在换取 token 时强制要求 `client_secret`，纯前端扩展无法安全保存，
+因此这里采用 Device Flow。扩展只申请 `gist` scope，不接触账号密码，也不参与浏览器账号同步区。
 
 ### 多设备
 

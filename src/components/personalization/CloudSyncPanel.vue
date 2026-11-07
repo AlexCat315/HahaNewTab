@@ -2,22 +2,22 @@
 /**
  * CloudSyncPanel - 云同步状态面板
  *
- * 用 GitHub OAuth Device Flow 授权，换取 gist scope 的 access_token 后读写私密 Gist。
- * 用户不再需要手工申请、复制或粘贴 Token，也不再需要选择平台。
+ * GitHub OAuth Device Flow：点一下「使用 GitHub 登录」→ 自动打开 GitHub 授权页 →
+ * 用户确认一次 → 扩展自动换到 access_token 并连上云同步。
+ * Client ID 由扩展内置，使用者不需要去 GitHub 申请任何东西。
  * 提示使用 useToast，确认框使用 useConfirm（依赖 App.vue 挂载的 MntConfirmHost）。
  */
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onUnmounted, ref } from 'vue';
 import { useCloudSync } from '@/composables/useCloudSync';
 import { useToast } from '@/composables/useToast';
 import { useConfirm } from '@/composables/useConfirm';
-import { loadClientId, saveClientId } from '@/services/cloudSync/oauthConfig';
+import { githubClientId } from '@/services/cloudSync/oauthConfig';
 import {
     GitHubOAuthError,
     pollForAccessToken,
     requestDeviceCode
 } from '@/services/githubOAuth.service';
 import IconSvg from '@/components/icon/IconSvg.vue';
-import BaseInput from '@/components/common/BaseInput.vue';
 import BaseButton from '@/components/common/BaseButton.vue';
 
 export interface CloudSyncPanelProps {
@@ -75,24 +75,14 @@ const verificationUri = ref('');
 const oauthError = ref<string | null>(null);
 const copied = ref(false);
 
-/** OAuth App 的公开标识，只需配置一次；断开连接不会清掉它 */
-const clientId = ref('');
-const clientIdInput = ref('');
-const editingClientId = ref(false);
-
 let authorizationAbort: AbortController | null = null;
-
-const maskedClientId = computed(() => {
-    const id = clientId.value;
-    return id.length > 8 ? `${id.slice(0, 4)}…${id.slice(-4)}` : id;
-});
 
 const oauthStatusText = computed(() => {
     switch (oauthPhase.value) {
         case 'requesting':
-            return '正在向 GitHub 申请授权码…';
+            return '正在向 GitHub 申请授权…';
         case 'waiting':
-            return '在 GitHub 页面输入下面的授权码并确认，完成后会自动连接。';
+            return '已打开 GitHub 授权页。授权码已复制到剪贴板，粘贴并确认后会自动完成连接。';
         case 'finishing':
             return '授权成功，正在验证并初始化同步空间…';
         default:
@@ -113,16 +103,36 @@ function cancelAuthorization(): void {
     resetAuthorization();
 }
 
+/** 自动打开授权页；被浏览器拦下时下方链接仍可点开 */
+function openVerificationPage(): void {
+    if (!verificationUri.value) return;
+    try {
+        window.open(verificationUri.value, '_blank', 'noopener,noreferrer');
+    } catch {
+        // 弹窗被拦截不打断流程
+    }
+}
+
+/** 尽力把授权码放进剪贴板，用户只需在 GitHub 页面粘贴一下 */
+async function copyUserCode(silent = false): Promise<void> {
+    if (!userCode.value) return;
+    try {
+        await navigator.clipboard?.writeText(userCode.value);
+        copied.value = true;
+    } catch {
+        if (!silent) toast.show('复制失败，请手动选中授权码', { type: 'error' });
+    }
+}
+
 /**
- * 一键授权：申请设备码 → 展示用户码 → 轮询换 token → 交给服务层验证并保存。
+ * 一键授权：申请设备码 → 自动跳转 GitHub 并备好授权码 → 轮询换 token → 验证并保存。
  * 过程中任何一步都可取消，面板卸载时也会自动取消，不留后台轮询。
  */
 async function handleAuthorize(): Promise<void> {
-    const id = (await loadClientId()).trim();
-    clientId.value = id;
+    const id = githubClientId();
+    // 只会在项目维护者忘了内置 Client ID 时出现，正常使用者的面板永远看不到这句
     if (!id) {
-        oauthError.value = '请先配置 OAuth App 的 Client ID';
-        editingClientId.value = true;
+        oauthError.value = '此扩展未内置 GitHub OAuth Client ID：构建时请设置 VITE_GITHUB_CLIENT_ID。';
         return;
     }
 
@@ -137,6 +147,8 @@ async function handleAuthorize(): Promise<void> {
         userCode.value = authorization.userCode;
         verificationUri.value = authorization.verificationUri;
         oauthPhase.value = 'waiting';
+        openVerificationPage();
+        void copyUserCode(true);
 
         const accessToken = await pollForAccessToken(id, authorization, controller.signal);
         oauthPhase.value = 'finishing';
@@ -160,34 +172,6 @@ async function handleAuthorize(): Promise<void> {
         toast.show(message, { type: 'error' });
         resetAuthorization();
     }
-}
-
-async function copyUserCode(): Promise<void> {
-    if (!userCode.value) return;
-    try {
-        await navigator.clipboard?.writeText(userCode.value);
-        copied.value = true;
-    } catch {
-        toast.show('复制失败，请手动选中授权码', { type: 'error' });
-    }
-}
-
-function openClientIdEditor(): void {
-    clientIdInput.value = clientId.value;
-    editingClientId.value = true;
-}
-
-async function saveClientIdSetting(): Promise<void> {
-    const value = clientIdInput.value.trim();
-    if (!value) {
-        toast.show('请输入 Client ID', { type: 'error' });
-        return;
-    }
-    await saveClientId(value);
-    clientId.value = value;
-    clientIdInput.value = '';
-    editingClientId.value = false;
-    toast.show('Client ID 已保存', { type: 'success' });
 }
 
 async function handleLogout(): Promise<void> {
@@ -241,10 +225,6 @@ const statusClass = computed(() => {
     return isLoggedIn.value ? 'is-connected' : 'is-disconnected';
 });
 
-onMounted(async () => {
-    clientId.value = await loadClientId();
-});
-
 onUnmounted(() => {
     authorizationAbort?.abort();
 });
@@ -266,52 +246,11 @@ onUnmounted(() => {
         </div>
 
         <div v-if="!isLoggedIn" class="cloud-sync-panel__guest">
-            <p class="cloud-sync-panel__hint">
-                通过 GitHub 授权登录，数据保存在你自己的私密 Gist 中；无需手动申请或粘贴 Token。
-            </p>
-
             <div v-if="oauthPhase === 'idle'" class="cloud-sync-oauth-setup">
-                <div v-if="editingClientId || !clientId" class="cloud-sync-oauth-config">
-                    <BaseInput
-                        v-model="clientIdInput"
-                        label="OAuth App Client ID"
-                        placeholder="Iv1.xxxxxxxxxxxxxxxx"
-                        autocomplete="off"
-                        @enter="saveClientIdSetting"
-                    />
-                    <p class="cloud-sync-panel__hint">
-                        在 GitHub → Settings → Developer settings → OAuth Apps 创建应用并勾选「Enable Device Flow」，
-                        把 Client ID 填在这里。它是公开标识、不是密钥，只需配置一次。
-                    </p>
-                    <div class="cloud-sync-oauth-config__actions">
-                        <BaseButton size="small" @click="saveClientIdSetting">保存</BaseButton>
-                        <BaseButton
-                            v-if="clientId"
-                            variant="text"
-                            size="small"
-                            @click="editingClientId = false"
-                        >
-                            取消
-                        </BaseButton>
-                    </div>
-                </div>
-
-                <div v-else class="cloud-sync-oauth-client">
-                    <span>Client ID：{{ maskedClientId }}</span>
-                    <button
-                        type="button"
-                        class="cloud-sync-oauth-client__edit"
-                        @click="openClientIdEditor"
-                    >
-                        修改
-                    </button>
-                </div>
-
                 <BaseButton
                     variant="primary"
                     size="small"
                     block
-                    :disabled="!clientId"
                     :loading="isLoading"
                     @click="handleAuthorize"
                 >
@@ -320,8 +259,8 @@ onUnmounted(() => {
                     </template>
                     使用 GitHub 登录
                 </BaseButton>
-                <p v-if="!clientId" class="cloud-sync-panel__hint">
-                    配置 Client ID 后即可一键授权。
+                <p class="cloud-sync-panel__hint">
+                    点击后自动跳转 GitHub 授权页，确认一次即完成登录；数据保存在你自己的私密 Gist 中。
                 </p>
             </div>
 
@@ -339,9 +278,9 @@ onUnmounted(() => {
                             target="_blank"
                             rel="noopener noreferrer"
                         >
-                            打开 GitHub 授权页
+                            重新打开授权页
                         </a>
-                        <BaseButton variant="outlined" size="small" @click="copyUserCode">
+                        <BaseButton variant="outlined" size="small" @click="copyUserCode()">
                             {{ copied ? '已复制' : '复制授权码' }}
                         </BaseButton>
                     </div>
@@ -544,36 +483,16 @@ onUnmounted(() => {
 }
 
 .cloud-sync-oauth-setup,
-.cloud-sync-oauth-config,
 .cloud-sync-oauth-pending {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
 }
 
-.cloud-sync-oauth-config__actions,
 .cloud-sync-oauth-actions {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-}
-
-.cloud-sync-oauth-client {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-    font-size: var(--text-xs);
-    color: var(--label-secondary);
-
-    &__edit {
-        padding: 0;
-        border: none;
-        background: transparent;
-        color: var(--accent);
-        font-size: var(--text-xs);
-        cursor: pointer;
-    }
 }
 
 .cloud-sync-oauth-code {

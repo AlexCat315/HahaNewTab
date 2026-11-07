@@ -278,11 +278,6 @@ export const STORAGE_SCHEMA = {
         backend: 'local',
         owner: 'cloudSync'
     }),
-    cloudOAuthClientId: defineKey({
-        id: STORAGE_KEYS.CLOUD_OAUTH_CLIENT_ID,
-        backend: 'local',
-        owner: 'cloudSync'
-    }),
     updateCheckCache: defineKey({
         id: STORAGE_KEYS.UPDATE_CHECK_CACHE,
         backend: 'local'

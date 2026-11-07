@@ -1,33 +1,25 @@
 /**
- * OAuth Client ID 配置单测：构建期默认值与本机覆盖值的关系
+ * OAuth Client ID 单测：内置值由项目维护，构建注入可覆盖
  */
-import { describe, it, expect, beforeEach } from 'vitest';
-import { builtInClientId, loadClientId, saveClientId } from '../oauthConfig';
-import { storageManager } from '@/services/storage.service';
-import { browserApi } from '@/services/browserApi.service';
-import { STORAGE_KEYS } from '@/types/storage';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { BUILT_IN_CLIENT_ID, githubClientId } from '../oauthConfig';
 
-describe('OAuth Client ID 配置', () => {
-    beforeEach(() => {
-        localStorage.clear();
-        browserApi.resetDetection();
+describe('GitHub OAuth Client ID', () => {
+    afterEach(() => {
+        vi.unstubAllEnvs();
     });
 
-    it('没有本机配置时退回构建期默认值', async () => {
-        expect(await loadClientId()).toBe(builtInClientId());
+    it('默认使用项目内置值', () => {
+        expect(githubClientId()).toBe(BUILT_IN_CLIENT_ID.trim());
     });
 
-    it('保存后读取覆盖值，并去掉首尾空白', async () => {
-        await saveClientId('  Iv1.frompanel  ');
-
-        expect(await loadClientId()).toBe('Iv1.frompanel');
-        expect(await storageManager.get(STORAGE_KEYS.CLOUD_OAUTH_CLIENT_ID)).toBe('Iv1.frompanel');
+    it('构建注入覆盖内置值并去掉首尾空白', () => {
+        vi.stubEnv('VITE_GITHUB_CLIENT_ID', '  client-id-from-build  ');
+        expect(githubClientId()).toBe('client-id-from-build');
     });
 
-    it('空串清掉覆盖值，退回默认值', async () => {
-        await saveClientId('Iv1.frompanel');
-        await saveClientId('');
-
-        expect(await loadClientId()).toBe(builtInClientId());
+    it('注入空串时仍退回内置值', () => {
+        vi.stubEnv('VITE_GITHUB_CLIENT_ID', '   ');
+        expect(githubClientId()).toBe(BUILT_IN_CLIENT_ID.trim());
     });
 });

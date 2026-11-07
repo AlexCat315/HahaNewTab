@@ -77,13 +77,12 @@ describe('CloudSettings.load', () => {
             [STORAGE_KEYS.CLOUD_TOKEN]: 'gho_abc',
             [STORAGE_KEYS.CLOUD_GIST_ID]: 'gist_1',
             [STORAGE_KEYS.CLOUD_AUTO_SYNC]: true,
-            [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: 1234,
-            [STORAGE_KEYS.CLOUD_OAUTH_CLIENT_ID]: 'Iv1.appclient'
+            [STORAGE_KEYS.CLOUD_LAST_SYNC_TIME]: 1234
         });
 
         const loaded = await settings.load();
 
-        // Client ID 属于应用配置，不混进账号快照
+        // 非账号键不混进设置快照
         expect(loaded).toEqual({
             token: 'gho_abc',
             gistId: 'gist_1',
