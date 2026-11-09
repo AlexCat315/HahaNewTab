@@ -75,7 +75,8 @@ function scheduleFlush(): void {
     }
     flushTimer = setTimeout(() => {
         flushTimer = null;
-        void storageManager.set(STORAGE_KEY_PREFIX + pageId, buffered).catch(() => {});
+        void Promise.resolve(storageManager.set(STORAGE_KEY_PREFIX + pageId, buffered))
+            .catch(() => {});
     }, 1000);
 }
 

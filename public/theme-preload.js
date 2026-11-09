@@ -1,35 +1,41 @@
 /**
  * 主题预加载脚本（防 FOUC）
  *
- * 在 Vue 应用挂载前同步执行：读取首帧快照里的主题选择，
- * 通过同步 XHR 加载 config/themes.json 并提前应用 CSS 变量，
+ * 在 Vue 应用挂载前同步执行：读取首帧快照里的主题选择，提前应用 CSS 变量，
  * 最后移除 data-theme-loading 属性使页面可见。
  *
- * 主题 ID 规则：每个主题族都有 `<family>-light` / `<family>-dark` 两个变体。
- * 老版本存的是不带后缀的 ID（如 material-rose），themes.json 里的 legacyIds
- * 记录了它们原本属于哪一半，这里按表迁移，保证升级后配色不跳变。
+ * 快照键名、结构版本、主题配置都来自 /config/boot-bundle.js（构建期由
+ * scripts/gen-boot-bundle.mjs 从 storageContract.json 与 themes.json 生成），
+ * 这里不再硬编码，也不再发同步 XHR。
  *
- * 快照键名与结构版本要和 src/services/storageSchema.service.ts 保持一致；
- * 这里是纯手写 ES5 的外部脚本，扩展环境 CSP（script-src 'self'）禁止内联脚本，
- * 所以必须以外部文件形式放在 public/ 下，由 index.html 与 view/popup.html 以
- * <script src> 引入。popup 里没有 Vue 主题 store，这一份预加载就是它唯一的主题来源。
+ * 扩展 CSP（script-src 'self'）禁止内联脚本，因此本文件与数据包都必须是外部文件，
+ * 由 index.html / view/popup.html 按顺序引入；popup 没有 Vue 主题 store，
+ * 这一份预加载就是它唯一的主题来源。
  */
 (function () {
     try {
-        // 首帧快照：内核把所有「首帧就要用到」的设置收在 __boot__ 一个键里。
+        var bundle = window.__HAHA_BOOT__;
+        // 数据包缺失时不猜、不兜底硬编码：直接按默认主题显示，避免两处约定悄悄漂移
+        if (!bundle || !bundle.contract || !bundle.themes) return;
+
+        var boot = bundle.contract.boot;
+        var config = bundle.themes;
+        var themeKeys = boot.preload;
+
+        // 首帧快照：内核把所有「首帧就要用到」的设置收在一个键里。
         // 结构版本对不上就整份作废，退回逐键兜底读，避免拿旧结构画出错乱的首帧。
-        var boot = null;
+        var snapshot = null;
         try {
-            var bootRaw = localStorage.getItem('__boot__');
+            var bootRaw = localStorage.getItem(boot.key);
             if (bootRaw) {
                 var bootParsed = JSON.parse(bootRaw);
-                if (bootParsed && bootParsed.v === 1
+                if (bootParsed && bootParsed.v === boot.version
                     && bootParsed.data && typeof bootParsed.data === 'object') {
-                    boot = bootParsed.data;
+                    snapshot = bootParsed.data;
                 }
             }
         } catch (e) {
-            boot = null;
+            snapshot = null;
         }
 
         /**
@@ -37,8 +43,8 @@
          * 快照一旦出现就不再走这里，所以旧键里残留的历史值不会被当成当前设置。
          */
         function bootValue(key) {
-            if (boot) {
-                return Object.prototype.hasOwnProperty.call(boot, key) ? boot[key] : null;
+            if (snapshot) {
+                return Object.prototype.hasOwnProperty.call(snapshot, key) ? snapshot[key] : null;
             }
             var raw = localStorage.getItem(key);
             if (raw === null || raw === undefined) {
@@ -51,14 +57,13 @@
             }
         }
 
-        var selectedThemeValue = bootValue('selectedTheme');
+        var selectedThemeValue = bootValue(themeKeys.selectedThemeKey);
         var selectedTheme = typeof selectedThemeValue === 'string' ? selectedThemeValue : null;
 
-        // 主题偏好（与存储层 appNavigator_themeSettings 同构）：
-        // 跟随系统时首屏就要按系统明暗取同族变体，否则会先错画一次明暗再被 Vue 纠正。
+        // 主题偏好：跟随系统时首屏就要按系统明暗取同族变体，否则会先错画一次明暗再被 Vue 纠正。
         var followSystem = false;
         var settingsFamilyId = null;
-        var settingsValue = bootValue('appNavigator_themeSettings');
+        var settingsValue = bootValue(themeKeys.themeSettingsKey);
         if (settingsValue && typeof settingsValue === 'object') {
             followSystem = settingsValue.followSystem === true;
             settingsFamilyId = typeof settingsValue.familyId === 'string'
@@ -66,12 +71,6 @@
                 : null;
         }
 
-        var request = new XMLHttpRequest();
-        // 必须是根绝对路径：popup 在 /view/popup.html，相对写法会去取
-        // /view/config/themes.json（404），结果 popup 永远停在默认浅色。
-        request.open('GET', '/config/themes.json', false);
-        request.send(null);
-        var config = JSON.parse(request.responseText || '{}');
         var themes = config.themes || [];
         var legacyIds = config.legacyIds || {};
         var prefersDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);

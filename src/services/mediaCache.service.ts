@@ -16,20 +16,18 @@
 
 import { STORAGE_KEYS, type MediaCacheSettings } from '@/types/storage';
 import { storageManager } from '@/services/storage.service';
+import { MEDIA_CACHE_CONTRACT, MEDIA_CACHE_TTL } from '@/services/storageSchema.service';
 
-/** 数据库名称 */
-const DB_NAME = 'haha-media-cache';
-/** 数据库版本 */
-const DB_VERSION = 1;
-/** 对象仓库名称 */
-const STORE_NAME = 'entries';
-/** 旧品牌时期用过的数据库名，打开新库时顺手清掉，回收空间 */
-const LEGACY_DB_NAMES = ['mugen-icon-cache', 'mugen-media-cache'];
+/** 数据库与过期策略统一来自存储契约（注册表导出的唯一配置） */
+const DB_NAME = MEDIA_CACHE_CONTRACT.dbName;
+const DB_VERSION = MEDIA_CACHE_CONTRACT.dbVersion;
+const STORE_NAME = MEDIA_CACHE_CONTRACT.storeName;
+const LEGACY_DB_NAMES: readonly string[] = MEDIA_CACHE_CONTRACT.legacyDbNames;
 
 /** 图标缓存有效期：7 天（毫秒） */
-export const ICON_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const ICON_CACHE_TTL_MS = MEDIA_CACHE_TTL.icon;
 /** 壁纸缓存有效期：30 天（毫秒）。壁纸体积大、变化慢，没必要频繁重下 */
-export const WALLPAPER_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+export const WALLPAPER_CACHE_TTL_MS = MEDIA_CACHE_TTL.wallpaper;
 
 /** 缓存资源类型 */
 export type MediaCacheKind = 'icon' | 'wallpaper';

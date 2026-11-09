@@ -26,7 +26,11 @@
             transition: opacity 0.3s ease;
         }
     </style>
-    <!-- 主题预加载脚本须为外部文件：扩展 CSP（script-src 'self'）禁止内联脚本，内联会导致白屏 -->
+    <!--
+        首帧数据包由构建期生成（契约 + 主题配置），须排在预加载脚本之前。
+        两个脚本都是外部文件：扩展 CSP（script-src 'self'）禁止内联脚本，内联会导致白屏。
+    -->
+    <script src="/config/boot-bundle.js"></script>
     <script src="/theme-preload.js"></script>
 </head>
 <body>

@@ -3,13 +3,14 @@
  * CacheSettings - 本地缓存设置
  *
  * 站点图标与网络壁纸默认缓存在 IndexedDB（mediaCacheService）里，
- * 这里提供总开关、用量展示与一键清理。
+ * 这里提供总开关、两类存储的用量展示与一键清理。
  */
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useCacheStore } from '@/stores/cache.store';
 import { useToast } from '@/composables/useToast';
 import { useConfirm } from '@/composables/useConfirm';
 import { formatFileSize } from '@/utils/file.util';
+import { getMainStorageUsage, STORAGE_USAGE_WARN_BYTES } from '@/services/storageLifecycle';
 import BaseButton from '@/components/common/BaseButton.vue';
 import SettingsSection from '@/components/common/SettingsSection.vue';
 import SettingsRow from '@/components/common/SettingsRow.vue';
@@ -20,6 +21,7 @@ const toast = useToast();
 const confirm = useConfirm();
 
 const stats = computed(() => cacheStore.stats);
+const mainUsage = ref(0);
 
 /** 缓存占用的人类可读文案 */
 const usageText = computed(() => {
@@ -31,6 +33,12 @@ const usageText = computed(() => {
     }
     return `${stats.value.count} 项 · ${formatFileSize(stats.value.bytes)}`;
 });
+
+/** 主存储区（storage.local）占用，来自统一门面的估算 */
+const mainUsageText = computed(() => mainUsage.value ? formatFileSize(mainUsage.value) : '统计中…');
+const mainUsageHint = computed(() => mainUsage.value > STORAGE_USAGE_WARN_BYTES
+    ? '占用偏高，建议删除本地壁纸或清理缓存'
+    : '站点数据、图标库与壁纸等主数据（估算值）');
 
 /** 分类明细 */
 const breakdownText = computed(() => {
@@ -46,6 +54,9 @@ const breakdownText = computed(() => {
 
 onMounted(() => {
     void cacheStore.init().then(() => cacheStore.refreshStats());
+    void getMainStorageUsage()
+        .then(bytes => { mainUsage.value = bytes; })
+        .catch(() => undefined);
 });
 
 async function handleToggle(value: boolean): Promise<void> {
@@ -78,7 +89,13 @@ async function handleClear(): Promise<void> {
                 <SwitchField :model-value="cacheStore.enabled" @update:model-value="handleToggle" />
             </SettingsRow>
 
-            <SettingsRow label="已占用" :hint="breakdownText || '图标缓存 7 天、壁纸缓存 30 天后自动过期'">
+            <SettingsRow label="主数据占用" :hint="mainUsageHint">
+                <template #control>
+                    <span class="cache-settings__usage">{{ mainUsageText }}</span>
+                </template>
+            </SettingsRow>
+
+            <SettingsRow label="缓存已占用" :hint="breakdownText || '图标缓存 7 天、壁纸缓存 30 天后自动过期'">
                 <template #control>
                     <div class="cache-settings__control">
                         <span class="cache-settings__usage">{{ usageText }}</span>

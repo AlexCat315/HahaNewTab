@@ -33,7 +33,9 @@
         popup 里没有 Vue 主题 store，也不加载新标签页那套初始化：不引这份预加载脚本，
         它就永远停在 variables.scss 的默认浅色 —— 用户选了深色主题，弹出的表单还是白的。
         须为外部文件：扩展 CSP（script-src 'self'）禁止内联脚本。
+        前面的数据包由构建期生成（契约 + 主题配置），顺序不能颠倒。
     -->
+    <script src="/config/boot-bundle.js"></script>
     <script src="/theme-preload.js"></script>
 </head>
 <body>

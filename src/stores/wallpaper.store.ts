@@ -160,7 +160,7 @@ export const useWallpaperStore = defineStore('wallpaper', () => {
 
     /**
      * 上传本地图片并设为壁纸
-     * 文件会被读取为 Base64 Data URL 后持久化；大小不设上限，
+     * 文件会被读取为 Base64 Data URL 后持久化；大小校验在 useWallpaper 入口完成（单张 5MB）。
      * 云同步侧由资源通道分片上传，不受单个 Gist 文件体积限制。
      */
     async function setLocalImage(file: File): Promise<void> {

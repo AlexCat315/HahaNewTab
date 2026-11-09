@@ -95,8 +95,11 @@ HahaNewTab/
 ├── sign-firefox.sh             # 扩展打包/签名脚本（同时生成 Chromium .zip 与 Firefox .xpi/.zip）
 ├── scripts/
 │   ├── postbuild.js            # 构建后根据目标生成 <产物目录>/manifest.json
+│   ├── gen-boot-bundle.mjs     # 构建期把存储契约 + 主题数据打成首帧数据包
 │   ├── gen-themes.mjs          # 由 theme-seeds.json 生成 themes.json + 结构/对比度体检（--check 查漂移）
 │   └── audit-styles.mjs        # 样式护栏：统计组件与 composables 里绕过 token 的写法
+├── src/config/
+│   └── storageContract.json    # 存储契约唯一来源：首帧常量、缓存配置、大对象名单
 ├── public/config/
 │   └── theme-seeds.json        # 主题唯一的手写来源：12 族 × 明/暗调色板
 ├── package.json
@@ -109,6 +112,29 @@ HahaNewTab/
 ---
 
 ## 🛠️ 开发说明
+
+### 存储契约与分层
+
+改存储键、首帧常量或缓存 TTL 只需动两处源文件：
+
+- `src/config/storageContract.json`：首帧快照键名与版本、预加载要读的键、媒体缓存 DB 与 TTL、大对象名单。**唯一契约**。
+- `src/services/storageSchema.service.ts`：每个键的 `backend / boot / cloud / cache / sizeClass / owner`。模块加载时会自检契约与 `STORAGE_KEYS` 是否一致，漂移直接报错。
+
+运行时分层是实现细节，业务代码不要直接摸 `localStorage` / `indexedDB` / `chrome.storage`：
+
+| 层 | 用途 | 访问入口 |
+|---|---|---|
+| `chrome.storage.local` | 主数据、跨标签页同步、云同步 | `storageManager`（统一门面：`getSync / get / getMany / set / setMany / remove / usage / subscribe`） |
+| `localStorage.__boot__` | 首帧同步读，防 FOUC | 由门面自动维护 |
+| IndexedDB | 远程图标 / 壁纸 Blob 缓存 | `mediaCacheService` |
+
+`public/theme-preload.js` 不再硬编码键名、也不再发同步 XHR：`scripts/gen-boot-bundle.mjs`
+在构建期把契约与 `public/config/themes.json` 打成 `/config/boot-bundle.js`
+（dev 由 Vite 中间件返回，build 作为 asset 落到 `dist-*/config/`）。
+启动维护统一走 `storageLifecycle.initializeStorage()`，用量走 `getMainStorageUsage()`。
+
+首帧快照只登记真正首帧要用的视觉键；会随使用增长的 `searchHistory` 不进快照，
+否则每次写任一 boot 键都要整份序列化。`sizeClass: 'large'` 标记大对象，供后续迁移到 IndexedDB。
 
 ### 技术栈
 

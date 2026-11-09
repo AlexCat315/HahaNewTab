@@ -1,14 +1,15 @@
 /**
- * 存储键注册表（L2）
+ * 存储键注册表（L2）—— 全项目唯一的存储契约
  *
- * 全项目唯一的一份「这个键存在哪个后端、要不要进首帧快照、要不要云同步（以及校验与合并规则）、归谁写」清单。
- * 以前首帧镜像键集合、云同步键集合、预加载脚本各写一份，改一个设置要同步改四处；
- * 现在这些都从本表派生，加一个键只需要在这里登记一次。
- *
- * 这里只放元数据，不做读写：底层区域访问在 storageBackends（L0），
- * 快照 / 镜像 / 变更通知在 storage.service（L1，存储内核）。
+ * 「这个键存在哪、要不要进首帧快照、要不要云同步、是不是大对象、归谁写」
+ * 全部在这里登记一次，其余模块只消费派生结果：
+ *   - 底层区域访问在 storageBackends（L0）；
+ *   - 快照 / 镜像 / 变更通知 / 用量在 storage.service（L1，统一门面）；
+ *   - 首帧预加载用的常量与主题数据在构建期由 scripts/gen-boot-bundle.mjs
+ *     从 src/config/storageContract.json 注入，不再在 public/theme-preload.js 里手写。
  */
 
+import storageContract from '@/config/storageContract.json';
 import { STORAGE_KEYS } from '@/types/storage';
 import { isAppNavigatorData } from '@/types/app';
 import type { AppNavigatorData } from '@/types/app';
@@ -33,6 +34,9 @@ import type { CloudSyncKeyStrategy } from '@/utils/syncMerge.util';
 /** 存储后端：扩展本地存储 */
 export type StorageBackendName = 'local';
 
+/** 大对象：每次 setMany 都要 clone 与广播，未来可迁到 IndexedDB */
+export type StorageSizeClass = 'large';
+
 /** 键的归属 store：只有 owner 能写这个键，用于消灭「两个 store 写同一个键」 */
 export type StorageOwner =
     | 'appData'
@@ -43,6 +47,12 @@ export type StorageOwner =
     | 'cache'
     | 'wallpaper'
     | 'cloudSync';
+
+/** 媒体缓存策略（配置值统一来自契约 JSON） */
+export interface StorageCachePolicy {
+    kind: 'icon' | 'wallpaper';
+    ttlMs: number;
+}
 
 /**
  * 云同步键的处理策略
@@ -67,11 +77,16 @@ export interface StorageKeyDefinition<T = unknown> {
     backend: StorageBackendName;
     /**
      * 是否写进首帧快照（localStorage 的 __boot__）。
-     * 只有「首帧渲染就要用到、等异步 storage.local 回来会闪一下」的设置才需要。
+     * 只有「首帧渲染就要用到、等异步 storage.local 回来会闪一下」的设置才需要；
+     * 会随使用增长的数据（搜索历史）绝不能进——每次写任一 boot 键都要整份序列化。
      */
     boot?: boolean;
     /** 参与云同步时怎么处理；登记即表示该键会被收进同步快照 */
     cloud?: CloudKeyPolicy;
+    /** 媒体缓存策略；登记即表示该键由 mediaCacheService 管理 */
+    cache?: StorageCachePolicy;
+    /** 体积标记：写入与广播成本高的键 */
+    sizeClass?: StorageSizeClass;
     /** 归属 store */
     owner?: StorageOwner;
     /** 缺省值：键从未写入过时的行为基准，供 owner 侧取初值 */
@@ -82,15 +97,20 @@ function defineKey<T = unknown>(definition: StorageKeyDefinition<T>): StorageKey
     return definition;
 }
 
-/** 首帧快照在 localStorage 中的键名；public/theme-preload.js 在 Vue 挂载前同步读它，两边必须一致 */
-export const BOOT_SNAPSHOT_KEY = '__boot__';
+/** 首帧快照键名 / 结构版本 / 预加载要读的键，全部来自唯一契约 */
+export const BOOT_SNAPSHOT_KEY = storageContract.boot.key;
+export const BOOT_SNAPSHOT_VERSION = storageContract.boot.version;
+export const PRELOAD_THEME_KEYS = storageContract.boot.preload;
 
-/**
- * 首帧快照的结构版本，也是快照整体作废的唯一判据：
- * 版本对不上（键改名、值结构变了）就当没读到，退回异步读取，
- * 避免拿着旧结构画出错乱的首帧。
- */
-export const BOOT_SNAPSHOT_VERSION = 1;
+/** 媒体缓存的数据库与过期策略，全部来自唯一契约 */
+export const MEDIA_CACHE_CONTRACT = storageContract.mediaCache;
+export const MEDIA_CACHE_TTL = {
+    icon: storageContract.mediaCache.ttlMs.icon,
+    wallpaper: storageContract.mediaCache.ttlMs.wallpaper
+};
+
+/** 契约里登记的大对象键名 */
+export const LARGE_STORAGE_KEYS: readonly string[] = storageContract.largeKeys;
 
 /**
  * 搜索历史的结构判据
@@ -118,6 +138,7 @@ export const STORAGE_SCHEMA = {
         id: STORAGE_KEYS.MAIN_DATA,
         backend: 'local',
         owner: 'appData',
+        sizeClass: 'large',
         cloud: {
             validate: isAppNavigatorData,
             rejectMessage: '应用数据格式无效',
@@ -128,6 +149,7 @@ export const STORAGE_SCHEMA = {
         id: STORAGE_KEYS.USER_UI_LIB,
         backend: 'local',
         owner: 'uiLib',
+        sizeClass: 'large',
         cloud: {
             validate: isUserUiLib,
             rejectMessage: '图标库格式无效',
@@ -199,10 +221,11 @@ export const STORAGE_SCHEMA = {
         boot: true,
         owner: 'search'
     }),
+    // 搜索历史会随使用增长：不进首帧快照，否则每次写任一 boot 键都要整份序列化它。
+    // 首帧也用不到（要打开搜索框才可见），挂载后异步读即可。
     searchHistory: defineKey<unknown[]>({
         id: STORAGE_KEYS.SEARCH_HISTORY,
         backend: 'local',
-        boot: true,
         owner: 'search',
         defaultValue: [],
         cloud: {
@@ -216,6 +239,10 @@ export const STORAGE_SCHEMA = {
         backend: 'local',
         boot: true,
         owner: 'cache',
+        cache: {
+            kind: 'icon',
+            ttlMs: storageContract.mediaCache.ttlMs.icon
+        },
         defaultValue: { enabled: true }
     }),
     wallpaper: defineKey({
@@ -232,6 +259,7 @@ export const STORAGE_SCHEMA = {
         id: STORAGE_KEYS.WALLPAPER_IMAGE,
         backend: 'local',
         owner: 'wallpaper',
+        sizeClass: 'large',
         // 整体替换而不是逐字段：图片内容与文件名/尺寸是同一张照片的属性，
         // 混着两端字段拼出来的是一张「元数据对不上」的壁纸。
         // Base64 正文在上传前由资源通道换成 haha-asset:// 引用，不占主文件体积。
@@ -300,6 +328,9 @@ export function getStorageKeyDefinition(id: string): StorageKeyDefinition<unknow
     return DEFINITION_BY_ID.get(id) ?? null;
 }
 
+/** 全部登记过的键名（用量统计与清理用） */
+export const ALL_STORAGE_KEYS: readonly string[] = [...DEFINITION_BY_ID.keys()];
+
 /**
  * 需要镜像进 localStorage 的首屏设置键（旧名沿用，语义已变成「由注册表派生的首帧快照键」）。
  * 防 FOUC 的前提：storage.local 是异步的，等它回来再渲染会先错画一帧。
@@ -340,6 +371,32 @@ export function isBootKey(id: string): boolean {
 export function isCloudSyncedKey(id: string): boolean {
     return CLOUD_SYNC_DATA_KEYS.includes(id);
 }
+
+/** 某个键是不是大对象 */
+export function isLargeKey(id: string): boolean {
+    return Object.values(STORAGE_SCHEMA).some(
+        definition => definition.id === id && definition.sizeClass === 'large'
+    );
+}
+
+/**
+ * 契约一致性自检：JSON 里的键名与 TS 侧常量必须同步改。
+ * 构建期注入的预加载脚本读的是 JSON，运行时读的是 STORAGE_KEYS，
+ * 漂移了就会让首帧读到错的键；宁可在这里直接报错，也不要静默降级。
+ */
+function assertContractInSync(): void {
+    const { preload } = storageContract.boot;
+    if (preload.selectedThemeKey !== STORAGE_KEYS.SELECTED_THEME ||
+        preload.themeSettingsKey !== STORAGE_KEYS.THEME_SETTINGS) {
+        throw new Error('[StorageContract] 预加载键名与 STORAGE_KEYS 不一致');
+    }
+    const unknownLargeKeys = storageContract.largeKeys.filter(key => !DEFINITION_BY_ID.has(key));
+    if (unknownLargeKeys.length) {
+        throw new Error(`[StorageContract] 未登记的 largeKeys: ${unknownLargeKeys.join(', ')}`);
+    }
+}
+
+assertContractInSync();
 
 /**
  * 校验一份同步快照（本地收集结果 / 云端下发的 data）

@@ -8,6 +8,7 @@
 
 import { getStorageBackend, subscribeStorageArea } from '@/services/storageBackends.service';
 import {
+    ALL_STORAGE_KEYS,
     BOOT_SNAPSHOT_KEY,
     BOOT_SNAPSHOT_VERSION,
     isBootKey
@@ -156,14 +157,29 @@ export { STORAGE_KEYS };
  * 由于项目 target 为 ES2020，Error cause 选项不在类型定义中，
  * 因此将原始错误信息拼入 message。
  */
-function createError(message: string, cause?: unknown): Error {
+/** 配额错误在不同浏览器里名字不一样，统一在这里认 */
+function isQuotaError(cause: unknown): boolean {
     if (cause instanceof Error) {
-        return new Error(`${message}: ${cause.message}`);
+        return cause.name === 'QuotaExceededError' ||
+            cause.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+            /quota|storage.*full|exceed/i.test(cause.message);
     }
-    if (cause !== undefined && cause !== null) {
-        return new Error(`${message}: ${String(cause)}`);
+    if (cause === undefined || cause === null) return false;
+    return /quota|storage.*full|exceed/i.test(String(cause));
+}
+
+/**
+ * 统一错误分类：配额满要给用户能照做的提示，其他错误保留原始信息便于排查。
+ * 由门面统一构造，调用方（store / 面板）不再各自猜错误类型。
+ */
+function createError(message: string, cause?: unknown): Error {
+    const detail = cause instanceof Error
+        ? cause.message
+        : (cause === undefined || cause === null ? '' : String(cause));
+    if (isQuotaError(cause)) {
+        return new Error(`${message}：本地存储空间不足，请删除本地壁纸或清理缓存后重试${detail ? `（${detail}）` : ''}`);
     }
-    return new Error(message);
+    return detail ? new Error(`${message}: ${detail}`) : new Error(message);
 }
 
 /**
@@ -272,6 +288,8 @@ export interface IStorageManager {
     set(key: string, value: StorageValue): Promise<void>;
     setMany(items: Record<string, StorageValue>): Promise<void>;
     remove(key: string): Promise<void>;
+    /** 估算主存储区占用（字节），用于界面展示与超量提示 */
+    usage(): Promise<number>;
     subscribe(listener: StorageChangeListener): () => void;
 }
 
@@ -418,6 +436,24 @@ export class StorageManager implements IStorageManager {
                 detail: { [key]: { newValue: undefined } },
             })
         );
+    }
+
+    /**
+     * 估算主存储区占用：只统计注册表登记的键，按 JSON 序列化后的 UTF-8 长度累加。
+     * 这是给界面看的量级与趋势，不等同于浏览器配额计数（后者还含键名与序列化开销）。
+     */
+    async usage(): Promise<number> {
+        const values = await this.getMany([...ALL_STORAGE_KEYS]);
+        let bytes = 0;
+        for (const [key, value] of Object.entries(values)) {
+            if (value === null || value === undefined) continue;
+            try {
+                bytes += new TextEncoder().encode(key + JSON.stringify(value)).length;
+            } catch {
+                // 单个值不可序列化时跳过，不让统计拖垮整次读取
+            }
+        }
+        return bytes;
     }
 
     /**

@@ -1,0 +1,25 @@
+{
+  "boot": {
+    "key": "__boot__",
+    "version": 1,
+    "preload": {
+      "selectedThemeKey": "selectedTheme",
+      "themeSettingsKey": "appNavigator_themeSettings"
+    }
+  },
+  "mediaCache": {
+    "dbName": "haha-media-cache",
+    "dbVersion": 1,
+    "storeName": "entries",
+    "legacyDbNames": ["mugen-icon-cache", "mugen-media-cache"],
+    "ttlMs": {
+      "icon": 604800000,
+      "wallpaper": 2592000000
+    }
+  },
+  "largeKeys": [
+    "appNavigator_data",
+    "appNavigator_user_uiLib",
+    "appNavigator_wallpaper_image"
+  ]
+}

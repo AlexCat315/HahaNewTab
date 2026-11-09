@@ -1,10 +1,39 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import svgLoader from 'vite-svg-loader';
 import path from 'path';
+import { BOOT_BUNDLE_PATH, buildBootBundleSource } from './scripts/gen-boot-bundle.mjs';
+
+/**
+ * 首帧数据包：dev 用中间件即时返回，build 作为 asset 落到 dist/config/。
+ * 两条路径都从同一份契约与 themes.json 生成，无需在 public/ 里维护产物。
+ */
+function bootBundlePlugin(): Plugin {
+    return {
+        name: 'haha-boot-bundle',
+        configureServer(server) {
+            server.middlewares.use((req, res, next) => {
+                if (req.url?.split('?')[0] !== BOOT_BUNDLE_PATH) {
+                    next();
+                    return;
+                }
+                res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+                res.setHeader('Cache-Control', 'no-cache');
+                res.end(buildBootBundleSource());
+            });
+        },
+        generateBundle() {
+            this.emitFile({
+                type: 'asset',
+                fileName: BOOT_BUNDLE_PATH.replace(/^\//, ''),
+                source: buildBootBundleSource()
+            });
+        }
+    };
+}
 
 export default defineConfig({
-    plugins: [vue(), svgLoader()],
+    plugins: [vue(), svgLoader(), bootBundlePlugin()],
     publicDir: 'public',
     resolve: {
         alias: {
