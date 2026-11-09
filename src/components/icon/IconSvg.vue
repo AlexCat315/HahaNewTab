@@ -55,13 +55,14 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
     getSystemIconUrl,
     createPlaceholderSvg,
-    analyzeIconInk,
     resolveBackdropLuminance,
     shouldPlateIcon,
     iconPlateColor,
     type IconInkProfile,
     type IconPlateTone,
 } from '@/utils/image.util';
+import { sanitizeSvg } from '@/utils/sanitizeSvg.util';
+import { evictIconInk, getIconInk, subscribeThemePlate } from '@/utils/iconInkCache';
 import { mediaCacheService } from '@/services/mediaCache.service';
 
 /** 组件接收的属性 */
@@ -240,9 +241,7 @@ const sanitizedSvg = computed(() => {
     if (!isInlineSvgString(svg)) {
         return '';
     }
-    return svg
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-        .replace(/\son\w+=["'][^"']*["']/gi, '');
+    return sanitizeSvg(svg);
 });
 
 const resolvedFallback = computed(() => {
@@ -385,23 +384,16 @@ function evaluatePlate(): void {
     );
 }
 
-/** 主题切换改的是 html 上的 class 与内联变量，背景亮度跟着变，底板要重算 */
-let themeObserver: MutationObserver | null = null;
+/** 主题切换改的是 html 上的 class 与内联变量；全页共用一个观察者，避免 N 个图标 N 个订阅 */
+let unsubscribeThemePlate: (() => void) | null = null;
 
 onMounted(() => {
-    if (typeof MutationObserver === 'undefined' || typeof document === 'undefined') {
-        return;
-    }
-    themeObserver = new MutationObserver(() => evaluatePlate());
-    themeObserver.observe(document.documentElement, {
-        attributes: true,
-        attributeFilter: ['class', 'style'],
-    });
+    unsubscribeThemePlate = subscribeThemePlate(evaluatePlate);
 });
 
 onBeforeUnmount(() => {
-    themeObserver?.disconnect();
-    themeObserver = null;
+    unsubscribeThemePlate?.();
+    unsubscribeThemePlate = null;
 });
 
 function onImageError(event: Event) {
@@ -410,9 +402,10 @@ function onImageError(event: Event) {
 
     const img = event.target as HTMLImageElement | null;
     if (img && resolvedSource.value.startsWith('blob:')) {
-        // 缓存内容损坏：移除缓存并回退到原始网络地址重新加载
+        // 缓存内容损坏：移除缓存与对应的墨色采样，回退到原始网络地址重新加载
         const source = effectiveSource.value;
         void mediaCacheService.evict(source);
+        evictIconInk(source);
         resolvedSource.value = source;
         return;
     }
@@ -428,8 +421,8 @@ function onImageError(event: Event) {
 
 function onImageLoad(event: Event) {
     const img = event.target as HTMLImageElement | null;
-    // 缓存写入已在 fetchAndCache 里完成；这里先采样，再决定要不要垫底板
-    inkProfile.value = analyzeIconInk(img);
+    // 缓存写入已在 fetchAndCache 里完成；同一 src 全局只做一次像素采样
+    inkProfile.value = getIconInk(effectiveSource.value, img);
     evaluatePlate();
     emit('load', event);
 }

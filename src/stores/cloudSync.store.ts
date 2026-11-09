@@ -37,8 +37,7 @@ const PULL_FRESHNESS_BUFFER_MS = 5000;
 /** 默认 UI 适配器：Store 不直接操作 UI，默认无提示 / 自动确认 */
 const DEFAULT_UI_ADAPTER: ICloudSyncUIAdapter = {
     showToast: () => {},
-    showConfirm: async () => true,
-    showPrompt: async () => null
+    showConfirm: async () => true
 };
 
 export const useCloudSyncStore = defineStore('cloudSync', () => {

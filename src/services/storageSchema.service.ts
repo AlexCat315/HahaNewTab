@@ -109,8 +109,12 @@ export const MEDIA_CACHE_TTL = {
     wallpaper: storageContract.mediaCache.ttlMs.wallpaper
 };
 
-/** 契约里登记的大对象键名 */
-export const LARGE_STORAGE_KEYS: readonly string[] = storageContract.largeKeys;
+/** 诊断配置与固定槽键（生产关闭，槽数量有上限） */
+export const DIAG_CONTRACT = storageContract.diag;
+export const DIAG_STORAGE_KEYS: readonly string[] = Array.from(
+    { length: storageContract.diag.slots },
+    (_unused, index) => `${storageContract.diag.keyPrefix}${index}`
+);
 
 /**
  * 搜索历史的结构判据
@@ -332,6 +336,14 @@ export function getStorageKeyDefinition(id: string): StorageKeyDefinition<unknow
 export const ALL_STORAGE_KEYS: readonly string[] = [...DEFINITION_BY_ID.keys()];
 
 /**
+ * 大对象名单直接由注册表的 sizeClass 派生，不再在契约 JSON 里另写一份键名：
+ * 这是「新增大对象只改注册表一处」的落地点，也让 sizeClass 有真实消费方。
+ */
+export const LARGE_STORAGE_KEYS: readonly string[] = Object.values(STORAGE_SCHEMA)
+    .filter(definition => definition.sizeClass === 'large')
+    .map(definition => definition.id);
+
+/**
  * 需要镜像进 localStorage 的首屏设置键（旧名沿用，语义已变成「由注册表派生的首帧快照键」）。
  * 防 FOUC 的前提：storage.local 是异步的，等它回来再渲染会先错画一帧。
  */
@@ -389,10 +401,6 @@ function assertContractInSync(): void {
     if (preload.selectedThemeKey !== STORAGE_KEYS.SELECTED_THEME ||
         preload.themeSettingsKey !== STORAGE_KEYS.THEME_SETTINGS) {
         throw new Error('[StorageContract] 预加载键名与 STORAGE_KEYS 不一致');
-    }
-    const unknownLargeKeys = storageContract.largeKeys.filter(key => !DEFINITION_BY_ID.has(key));
-    if (unknownLargeKeys.length) {
-        throw new Error(`[StorageContract] 未登记的 largeKeys: ${unknownLargeKeys.join(', ')}`);
     }
 }
 

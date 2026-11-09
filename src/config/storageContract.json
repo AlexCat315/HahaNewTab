@@ -17,9 +17,9 @@
       "wallpaper": 2592000000
     }
   },
-  "largeKeys": [
-    "appNavigator_data",
-    "appNavigator_user_uiLib",
-    "appNavigator_wallpaper_image"
-  ]
+  "diag": {
+    "enabledInProduction": false,
+    "keyPrefix": "haha_diag_",
+    "slots": 8
+  }
 }

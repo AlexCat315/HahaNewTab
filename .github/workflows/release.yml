@@ -33,6 +33,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # 发版不能绕过门禁：类型检查 / 单测 / 主题漂移 / 样式护栏
+      - name: Quality gates
+        run: npm run check
+
       # ---------------------------------------------------------------
       # 版本号：tag 触发时取 tag 去掉前缀 v；手动触发时取 manifest 现有版本
       # ---------------------------------------------------------------
@@ -72,6 +76,11 @@ jobs:
               fs.writeFileSync(f, JSON.stringify(j, null, 4) + "\n");
               console.log(f, "->", j.version);
             }
+            // package.json 也同步，避免「npm 包版本」与「扩展版本」长期不一致
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            pkg.version = process.env.VERSION;
+            fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+            console.log("package.json ->", pkg.version);
           '
 
       - name: Build Firefox bundle

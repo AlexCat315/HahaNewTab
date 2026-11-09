@@ -64,7 +64,7 @@ describe('启动时的凭据判定', () => {
         store.setUIAdapter({
             showToast: (message, type = 'info') => toasts.push({ message, type }),
             showConfirm: async () => true,
-            showPrompt: async () => null
+
         });
     });
 

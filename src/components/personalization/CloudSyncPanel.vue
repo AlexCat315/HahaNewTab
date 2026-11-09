@@ -63,8 +63,7 @@ const {
         showToast: (message, type = 'info') => {
             toast.show(message, { type });
         },
-        showConfirm: (message, options) => confirmDialog.confirm(message, options),
-        showPrompt: async () => null
+        showConfirm: (message, options) => confirmDialog.confirm(message, options)
     }
 });
 

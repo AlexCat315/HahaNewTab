@@ -496,8 +496,7 @@ describe('useCloudSync composable', () => {
     it('接受自定义 UI 适配器', async () => {
         const showToast = vi.fn();
         const showConfirm = vi.fn().mockResolvedValue(true);
-        const showPrompt = vi.fn().mockResolvedValue(TEST_TOKEN);
-        const uiAdapter: ICloudSyncUIAdapter = { showToast, showConfirm, showPrompt };
+        const uiAdapter: ICloudSyncUIAdapter = { showToast, showConfirm };
 
         mockFetchSequence([
             createResponse(TEST_USER_API),

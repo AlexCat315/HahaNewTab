@@ -53,7 +53,7 @@ describe('GitHub Gist 客户端', () => {
         expect(headers['X-GitHub-Api-Version']).toBe('2022-11-28');
     });
 
-    it('listGists 访问 /gists?per_page=100 并返回列表', async () => {
+    it('listGists 分页请求并在第一页不足一页时停下', async () => {
         const gists = [{ id: 'g1', files: {} }];
         const fetchMock = vi.fn().mockResolvedValue(createResponse(gists));
         vi.stubGlobal('fetch', fetchMock);
@@ -61,7 +61,25 @@ describe('GitHub Gist 客户端', () => {
         const result = await provider.listGists(TEST_TOKEN);
 
         expect(result).toEqual(gists);
-        expect(lastFetchCall(fetchMock)[0]).toBe('https://api.github.com/gists?per_page=100');
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(lastFetchCall(fetchMock)[0]).toBe('https://api.github.com/gists?per_page=100&page=1');
+    });
+
+    it('listGists 在第一页满 100 条时继续翻页，避免漏掉旧的同步 Gist', async () => {
+        const firstPage = Array.from({ length: 100 }, (_unused, index) => ({
+            id: `g${index}`, files: {}
+        }));
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce(createResponse(firstPage))
+            .mockResolvedValueOnce(createResponse([{ id: 'sync_gist', files: { 'haha-newtab-sync.json': {} } }]));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const result = await provider.listGists(TEST_TOKEN);
+
+        expect(result).toHaveLength(101);
+        expect(result[100].id).toBe('sync_gist');
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(fetchMock.mock.calls[1][0]).toContain('page=2');
     });
 
     it('getGistFileContent 返回指定文件内容', async () => {

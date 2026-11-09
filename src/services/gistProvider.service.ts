@@ -116,6 +116,9 @@ const GITHUB_API_VERSION = '2022-11-28';
 const GITHUB_NETWORK_HINT = '请检查网络或代理（国内可能需代理访问）';
 /** GitHub 单个 Gist 文件的写入上限 */
 const GITHUB_MAX_FILE_BYTES = 10 * 1024 * 1024;
+/** /gists 单页条数与最大翻页数（最多认领 1000 个 Gist） */
+const GIST_PAGE_SIZE = 100;
+const GIST_MAX_PAGES = 10;
 
 function githubHeaders(token: string): Record<string, string> {
     return {
@@ -157,13 +160,25 @@ export const githubGistProvider: ISyncProvider = {
     },
 
     async listGists(token: string): Promise<Gist[]> {
-        const response = await request('GitHub', GITHUB_NETWORK_HINT, `${GITHUB_API_BASE}/gists?per_page=100`, {
-            headers: githubHeaders(token)
-        });
-        if (!response.ok) {
-            await throwForStatus('GitHub', response, '获取 Gist 列表失败');
+        const all: Gist[] = [];
+        // GitHub 按创建时间倒序返回，一页最多 100 条。同步 Gist 可能很旧，
+        // 只看第一页会认领不到，进而新建一个重复的同步空间（清理云端数据也会漏删）。
+        for (let page = 1; page <= GIST_MAX_PAGES; page += 1) {
+            const response = await request(
+                'GitHub',
+                GITHUB_NETWORK_HINT,
+                `${GITHUB_API_BASE}/gists?per_page=${GIST_PAGE_SIZE}&page=${page}`,
+                { headers: githubHeaders(token) }
+            );
+            if (!response.ok) {
+                await throwForStatus('GitHub', response, '获取 Gist 列表失败');
+            }
+            const batch = (await response.json()) as Gist[];
+            if (!Array.isArray(batch)) break;
+            all.push(...batch);
+            if (batch.length < GIST_PAGE_SIZE) break;
         }
-        return (await response.json()) as Gist[];
+        return all;
     },
 
     async getGistFileContent(token: string, gistId: string, fileName: string): Promise<string | null> {

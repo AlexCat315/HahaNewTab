@@ -11,6 +11,7 @@ import {
     ALL_STORAGE_KEYS,
     BOOT_SNAPSHOT_KEY,
     BOOT_SNAPSHOT_VERSION,
+    DIAG_STORAGE_KEYS,
     isBootKey
 } from '@/services/storageSchema.service';
 import type {
@@ -89,8 +90,60 @@ export function setKernelChangeListener(
     kernelChangeListener = listener;
 }
 
-/** 本页刚通过 CustomEvent 通知过的键值，用于识别同一次写入的 onChanged 自回声 */
+/** 本页刚通过 CustomEvent 通知过的键值，用于诊断里标注写入来源 */
 const localSignals: { key: string; json: string; at: number }[] = [];
+
+/**
+ * 本机写入的回声队列（消耗式）
+ *
+ * 扩展环境下一次 setMany 会走两条通知路径：本页同步派发的 CustomEvent，
+ * 以及随后到达的 chrome.storage.onChanged。以前两条都无条件通知订阅者，
+ * 于是每个 listener 都收到两份相同变更（slice 的 revision 加两次、诊断记两条、
+ * 自动同步多排一轮）。这里在写入前登记一份期望值，onChanged 到达时精确匹配并消耗，
+ * 命中就跳过 listener；跨页面写入没有对应登记，照常通知。
+ *
+ * 用「精确键值匹配 + 消耗一次 + 短 TTL」而不是靠时间窗猜，避免误杀跨页面同值写入。
+ */
+interface PendingLocalWrite {
+    values: Record<string, StorageValue>;
+    at: number;
+}
+const pendingLocalWrites: PendingLocalWrite[] = [];
+const LOCAL_ECHO_TTL_MS = 5000;
+const MAX_PENDING_WRITES = 32;
+
+function rememberLocalWrite(values: Record<string, StorageValue>): PendingLocalWrite {
+    const pending: PendingLocalWrite = { values, at: Date.now() };
+    pendingLocalWrites.push(pending);
+    if (pendingLocalWrites.length > MAX_PENDING_WRITES) {
+        pendingLocalWrites.shift();
+    }
+    return pending;
+}
+
+function forgetLocalWrite(pending: PendingLocalWrite): void {
+    const index = pendingLocalWrites.indexOf(pending);
+    if (index >= 0) pendingLocalWrites.splice(index, 1);
+}
+
+function consumeLocalEcho(changes: StorageChanges): boolean {
+    const now = Date.now();
+    while (pendingLocalWrites.length && now - pendingLocalWrites[0].at > LOCAL_ECHO_TTL_MS) {
+        pendingLocalWrites.shift();
+    }
+    const keys = Object.keys(changes);
+    if (!keys.length) return false;
+    const index = pendingLocalWrites.findIndex(pending =>
+        Object.keys(pending.values).length === keys.length &&
+        keys.every(key =>
+            key in pending.values &&
+            safeStringify(changes[key].newValue) === safeStringify(pending.values[key])
+        )
+    );
+    if (index < 0) return false;
+    pendingLocalWrites.splice(index, 1);
+    return true;
+}
 
 function watchEntries(changes: StorageChanges): { key: string; json: string }[] {
     const hits: { key: string; json: string }[] = [];
@@ -397,22 +450,25 @@ export class StorageManager implements IStorageManager {
             writeBootSnapshot(bootEntries);
         }
 
+        // 登记在发起写入之前：onChanged 可能先于 set 的 Promise 回来。
+        // storedItems 已是本门面隔离出的副本，这里直接存引用，不再为去重多拷一份大对象。
+        const pending = rememberLocalWrite(storedItems);
         try {
             await localBackend.set(storedItems);
         } catch (error) {
+            forgetLocalWrite(pending);
             if (hasBootEntries) {
                 restoreBootSnapshot(previousSnapshot);
             }
             throw createError('写入浏览器存储失败，数据未保存', error);
         }
 
+        // 直接复用已隔离的 storedItems：以前这里对每个值再 clone 一次，
+        // 大壁纸 / 图标库会因为一次写入被完整复制两遍。
         window.dispatchEvent(
             new CustomEvent(STORAGE_EVENT, {
                 detail: Object.fromEntries(
-                    Object.entries(storedItems).map(([key, value]) => [
-                        key,
-                        { newValue: clone(value) },
-                    ])
+                    Object.entries(storedItems).map(([key, value]) => [key, { newValue: value }])
                 ),
             })
         );
@@ -422,12 +478,14 @@ export class StorageManager implements IStorageManager {
      * 异步删除单个存储项
      */
     async remove(key: string): Promise<void> {
+        const pending = rememberLocalWrite({ [key]: undefined });
         try {
             await localBackend.remove(key);
             if (isBootKey(key)) {
                 removeBootSnapshotEntry(key);
             }
         } catch (error) {
+            forgetLocalWrite(pending);
             throw createError(`删除存储项 ${key} 失败`, error);
         }
 
@@ -443,7 +501,7 @@ export class StorageManager implements IStorageManager {
      * 这是给界面看的量级与趋势，不等同于浏览器配额计数（后者还含键名与序列化开销）。
      */
     async usage(): Promise<number> {
-        const values = await this.getMany([...ALL_STORAGE_KEYS]);
+        const values = await this.getMany([...ALL_STORAGE_KEYS, ...DIAG_STORAGE_KEYS]);
         let bytes = 0;
         for (const [key, value] of Object.entries(values)) {
             if (value === null || value === undefined) continue;
@@ -492,13 +550,17 @@ export class StorageManager implements IStorageManager {
         }
 
         const unsubscribeNative = subscribeStorageArea((changes) => {
+            const isEcho = consumeLocalEcho(changes);
             const hits = watchEntries(changes);
             const foreign = hits.filter((hit) => !isSelfEcho(hit.key, hit.json));
             reportKernelChange(
-                foreign.length === hits.length ? 'native-other' : 'native-self',
+                isEcho ? 'native-self' : (foreign.length === hits.length ? 'native-other' : 'native-self'),
                 changes,
                 foreign.length === 0 ? hits : foreign
             );
+            // 本机写入已经由上面的 CustomEvent 通知过一次；原生 onChanged 是它的回声。
+            // 顺带解决「云同步写回本地后，异步 onChanged 越过 isApplyingRemoteData 又排一轮同步」。
+            if (isEcho) return;
             listener(changes);
         });
 

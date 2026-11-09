@@ -302,16 +302,6 @@ export interface ICloudSyncUIAdapter {
             isDanger?: boolean;
         }
     ): Promise<boolean>;
-    showPrompt(
-        message: string,
-        options?: {
-            title?: string;
-            confirmText?: string;
-            cancelText?: string;
-            inputPlaceholder?: string;
-            inputType?: string;
-        }
-    ): Promise<string | null>;
 }
 
 /**

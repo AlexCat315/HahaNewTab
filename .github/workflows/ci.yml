@@ -1,0 +1,44 @@
+name: CI
+
+# 每个 PR 与主干推送都要过同一组门禁；发版流程复用 npm run check
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 类型检查 / 单测 / 主题漂移 / 样式护栏一次跑完
+      - name: Quality gates
+        run: npm run check
+
+      # 三个目标都必须能构建（Firefox 与 Edge 也已各自带类型检查）
+      - name: Build Chromium
+        run: npm run build:chromium
+
+      - name: Build Firefox
+        run: npm run build:firefox
+
+      - name: Build Edge
+        run: npm run build:edge

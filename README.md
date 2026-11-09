@@ -1,6 +1,6 @@
 # HahaNewTab - 新标签页导航
 
-一个基于 **Material Design 3** 设计的纯前端新标签页导航应用，同时也是一个 **Chrome / Firefox 浏览器扩展（Manifest V3）**。它提供统一的应用导航中心，用于管理和快速访问各类开发者工具、外部链接和自定义网站。
+一个基于 **Material Design 3** 设计的纯前端新标签页导航应用，同时也是一个 **Chrome / Edge / Firefox 浏览器扩展（Manifest V3）**。它提供统一的应用导航中心，用于管理和快速访问各类开发者工具、外部链接和自定义网站。
 ![HahaNewTab](./public/image/logo/logo_girl-256.png)
 
 ---
@@ -46,7 +46,7 @@ npm run build:chromium
 1. 打开 Chrome 扩展管理页：`chrome://extensions/`
 2. 开启右上角「开发者模式」
 3. 点击「加载已解压的扩展程序」
-4. 选择 `./build-chromium.sh` 生成的 `build-chromium/` 目录（或 `npm run build:chromium` 生成的 `dist-chrome/`）
+4. 选择 `npm run build:chromium` 生成的 `dist-chrome/` 目录（`./build-chromium.sh` 是旧的一键脚本包装）
 5. 打开新标签页即可看到 HahaNewTab
 
 扩展版使用 `chrome.storage.local` 存储数据。
@@ -90,8 +90,8 @@ HahaNewTab/
 │   ├── styles/                 # SCSS 全局样式
 │   ├── types/                  # TypeScript 类型定义
 │   └── utils/                  # 工具函数
-├── build-chromium.sh           # Chromium 扩展构建脚本
-├── build-firefox.sh            # Firefox 扩展构建脚本
+├── build-chromium.sh           # 旧的一键脚本包装（内部走 npm run build:*）
+├── build-firefox.sh            # 旧的一键脚本包装（内部走 npm run build:*）
 ├── sign-firefox.sh             # 扩展打包/签名脚本（同时生成 Chromium .zip 与 Firefox .xpi/.zip）
 ├── scripts/
 │   ├── postbuild.js            # 构建后根据目标生成 <产物目录>/manifest.json
@@ -218,6 +218,7 @@ dist-firefox/  # Firefox
 │   ├── background-firefox.js   # Firefox 后台脚本（仅 Firefox 包使用）
 │   └── *.css
 ├── config/
+│   ├── boot-bundle.js          # 构建期生成：首帧契约 + 主题最小集（dev 由 Vite 中间件提供）
 │   ├── themes.json
 │   ├── searchEngines.json
 │   └── defaultData.json
@@ -243,6 +244,10 @@ dist-firefox/  # Firefox
 云同步面板（右下角菜单 → 云同步）里点「使用 GitHub 登录」，扩展会自动打开 GitHub 授权页，
 并把授权码复制到剪贴板；粘贴、确认一次即完成连接。**使用者不需要申请 Token，也不需要填写任何配置。**
 凭据由 GitHub 下发并保存在本机扩展存储中，数据写进自己账号下的**私密 Gist**。
+
+**权限范围**：授权时请求 `gist` scope，可读写该账号下的**全部 Gist**（不只是同步用的那一个）；
+token 长期有效且以明文保存在本机扩展存储，请勿在不可信的设备上授权。可在
+<https://github.com/settings/applications> 随时撤销。
 
 ### 项目维护者：内置 Client ID（一次性）
 
@@ -290,7 +295,7 @@ GitHub 的标准 Web 跳转流程在换取 token 时强制要求 `client_secret`
 或开启「自动同步」让后续每次启动自动拉取合并。凭据被撤销或过期时，平台返回 401，
 本机凭据会被清掉，重新授权一次即可。
 
-> Gitee 已停用。旧版本留下的平台标记会在启动时清理，旧的 Gitee Token 在校验失败后自动失效，
+> Gitee 支持已移除。启动时只会清理旧版本遗留的平台标记；旧的手工 Token 不再被使用，
 > 需要改用 GitHub 授权重新连接。
 
 ---
@@ -441,8 +446,10 @@ extensions.update.enabled = true
 项目使用 Vitest 进行单元测试，覆盖 services、stores、composables 与 components。
 
 ```bash
-# 运行全部测试
-npx vitest run
+# 完整门禁：类型检查 + 单测 + 主题漂移 + 样式护栏（CI 与发版都跑这一条）
+npm run check
+# 只跑单测
+npm run test:run
 ```
 
 核心存储契约测试位于 `src/services/__tests__/storage.legacy.test.ts`，保留自旧版 `tests/storage.test.js` 的 5 个核心契约：
@@ -452,6 +459,11 @@ npx vitest run
 - 存储失败会拒绝操作并回滚内存缓存
 - 分类局部排序不会删除未出现在排序列表中的分类
 - 旧数据缺少「全部应用」分类时会无损补齐
+
+此外还有几组针对性回归：`storageContract.test.ts`（契约一致性、首帧快照瘦身、大对象标记、用量）、
+`storageEcho.test.ts`（扩展环境 `onChanged` 回声去重）、`sanitizeSvg.util.test.ts`（内联 SVG 白名单）、
+`iconInkCache.test.ts`（墨色采样缓存）、`cloudSync/__tests__/transport.test.ts` 与 `ledger.test.ts`
+（同步空间认领与账本重置）。
 
 ---
 
@@ -466,4 +478,5 @@ MIT 要求保留原始版权声明与许可文本，因此 LICENSE 中的上游�
 
 ## 🤝 贡献
 
-欢迎提交 Issue 和 Pull Request。开发前请运行 `npm run build` 与 `npx vitest run` 确保构建与测试通过。
+欢迎提交 Issue 和 Pull Request。开发前请运行 `npm run check`（类型检查、单测、主题漂移、样式护栏）
+与 `npm run build` 确保门禁与构建都通过；PR 会由 `.github/workflows/ci.yml` 自动跑同一组检查。

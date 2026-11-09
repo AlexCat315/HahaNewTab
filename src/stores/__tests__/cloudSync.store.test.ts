@@ -203,7 +203,7 @@ describe('cloudSync store', () => {
             const store = await seedConnectedStore();
             const showConfirm = vi.fn().mockResolvedValue(false);
             const showToast = vi.fn();
-            store.setUIAdapter({ showToast, showConfirm, showPrompt: async () => null });
+            store.setUIAdapter({ showToast, showConfirm,  });
             const fetchMock = vi.fn();
             globalThis.fetch = fetchMock;
 
@@ -222,7 +222,7 @@ describe('cloudSync store', () => {
             store.setUIAdapter({
                 showToast: (message) => { messages.push(message); },
                 showConfirm: async () => true,
-                showPrompt: async () => null
+                
             });
             const fetchMock = vi.fn().mockResolvedValue(createResponse({}, 204));
             globalThis.fetch = fetchMock;
@@ -357,7 +357,7 @@ describe('cloudSync store', () => {
         store.setUIAdapter({
             showToast: () => {},
             showConfirm: async () => false,
-            showPrompt: async () => null
+            
         });
 
         const syncData = {
@@ -684,7 +684,7 @@ describe('cloudSync store', () => {
         store.setUIAdapter({
             showToast: message => { messages.push(message); },
             showConfirm: async () => true,
-            showPrompt: async () => null
+            
         });
         return { store, messages };
     }

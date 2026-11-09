@@ -41,7 +41,15 @@ export function buildBootBundleSource() {
             }
         },
         themes: {
-            themes: themes.themes ?? [],
+            // 首帧只需要定位主题与注入颜色；name/description/logo 是主题选择器 UI 用的，
+            // 放进同步执行的数据包纯属浪费（整份 themes.json 约 40KB）。
+            themes: (themes.themes ?? []).map(theme => ({
+                id: theme.id,
+                family: theme.family,
+                mode: theme.mode,
+                isDark: theme.isDark,
+                colors: theme.colors
+            })),
             legacyIds: themes.legacyIds ?? {},
             defaultTheme: themes.defaultTheme ?? null
         }

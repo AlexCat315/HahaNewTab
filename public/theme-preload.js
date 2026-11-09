@@ -76,11 +76,17 @@
         var prefersDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
         var wantedMode = prefersDark ? 'dark' : 'light';
 
+        // 首帧只跑一次，但主题切换会反复查：预建两个索引，避免每次线性扫全表
+        var byIdIndex = {};
+        var byFamilyMode = {};
+        for (var i = 0; i < themes.length; i += 1) {
+            var item = themes[i];
+            byIdIndex[item.id] = item;
+            byFamilyMode[(item.family || item.id) + '|' + item.mode] = item;
+        }
+
         function byId(id) {
-            for (var i = 0; i < themes.length; i += 1) {
-                if (themes[i].id === id) return themes[i];
-            }
-            return null;
+            return byIdIndex[id] || null;
         }
 
         function familyOf(theme) {
@@ -88,12 +94,7 @@
         }
 
         function variantOf(familyId, mode) {
-            for (var i = 0; i < themes.length; i += 1) {
-                if (familyOf(themes[i]) === familyId && themes[i].mode === mode) {
-                    return themes[i];
-                }
-            }
-            return null;
+            return byFamilyMode[familyId + '|' + mode] || null;
         }
 
         var theme = null;

@@ -205,13 +205,15 @@ export function usePersistentSlice(options: PersistentSliceOptions): PersistentS
     }
 
     async function mutate(change: () => void, writeKeys?: string[]): Promise<void> {
-        const previous = keys.map(sliceKey => plainValue(sliceKey.read()));
+        const selected = selectKeys(writeKeys);
+        // 只给真正要落盘的键做回滚快照：改一个透明度不该顺手深拷贝几 MB 的壁纸 Base64
+        const previous = selected.map(sliceKey => plainValue(sliceKey.read()));
         change();
         revision++;
         try {
-            await write(selectKeys(writeKeys), true);
+            await write(selected, true);
         } catch (error) {
-            keys.forEach((sliceKey, index) => {
+            selected.forEach((sliceKey, index) => {
                 sliceKey.apply(previous[index] as StorageValue);
             });
             revision++;
