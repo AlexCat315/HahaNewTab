@@ -60,14 +60,15 @@ function createTestComponent(options: Parameters<typeof useCloudSync>[0] = {}) {
 }
 
 /**
- * 推进虚拟时间直到条件成立（最多约 50 拍）
+ * 推进虚拟时间直到条件成立
  *
  * 一轮同步要 await 多少次不固定：云端版本号指纹走 SubtleCrypto 的异步摘要，
  * 落盘与否又取决于本机是否已见过那一版。固定次数的 flushPromises 偶尔会在
  * 同步还没跑完时就走到断言，所以这里等条件而不是等次数。
+ * 拍数给足：CI 机器比本地慢，原生异步摘要不吃 fake timers，50 拍偶发不够。
  */
 async function waitUntilReady(isReady: () => boolean): Promise<void> {
-    for (let attempt = 0; attempt < 50 && !isReady(); attempt++) {
+    for (let attempt = 0; attempt < 500 && !isReady(); attempt++) {
         await vi.advanceTimersByTimeAsync(1);
     }
 }
@@ -312,20 +313,23 @@ describe('useCloudSync composable', () => {
         const allCategory = { id: 'all', name: '全部应用', icon: './image/icons/menu.svg', monochrome: true };
         const syncData = {
             version: '1.0',
-            lastModified: Date.now(),
+            // 首次同步没有 base，engine 用 lastModified 与 DATA_UPDATED_AT 定方向。
+            // 用 Date.now() 会与 fake timers / 其它用例留下的时间戳竞争：一旦本机"更晚"
+            // 就走上传分支，多出两次 Gist 请求，而 mock 响应不够会导致 sync 失败。
+            // 固定云端明显更新，并在下面把本机时间戳压到 1，方向恒定。
+            lastModified: 1_000_000,
             device: 'Browser',
             data: {
                 [STORAGE_KEYS.MAIN_DATA]: { categories: [allCategory], apps: [] },
                 [STORAGE_KEYS.USER_UI_LIB]: { categories: [], items: [] }
             }
         };
-        mockFetchSequence([
-            createGistResponse(syncData),
-            createGistResponse(syncData)
-        ]);
+        // 给足响应余量：无论合并后走应用、上传，还是应用后又排一轮同步，都不会撞 404
+        mockFetchSequence(Array.from({ length: 8 }, () => createGistResponse(syncData)));
         const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
 
         await storageManager.setMany({
+            [STORAGE_KEYS.DATA_UPDATED_AT]: 1,
             [STORAGE_KEYS.MAIN_DATA]: { categories: [allCategory], apps: [] }
         });
 
