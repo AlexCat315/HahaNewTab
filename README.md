@@ -326,16 +326,26 @@ GitHub 的标准 Web 跳转流程在换取 token 时强制要求 `client_secret`
 ### 发版
 
 ```bash
-./scripts/release.sh          # 版本号自动 +1（基于最新 tag / manifest），
-                              # 例如 1.0.0.110 → 1.0.0.111，1.0.1.0 → 1.0.1.1
-./scripts/release.sh 1.0.2.0  # 或指定版本号（必须大于已发布的最新版本）
+./scripts/release.sh                    # 版本号自动 +1，并跑完整门禁
+./scripts/release.sh 1.0.2.0            # 指定版本号（必须大于已发布的最新版本）
+./scripts/release.sh --dry-run          # 只跑门禁并打印计划版本，不改动任何文件、不推送
+./scripts/release.sh --skip-check       # 紧急发版：跳过门禁（不推荐）
 ```
 
 版本号以 git tag 与 manifest 为准，由 `scripts/resolve-version.js` 统一解析，
 不再使用可被意外清零的 `.build-num`。
 
-脚本会写入三份 manifest（Chrome / Edge / Firefox）的版本号、提交、打 `v<版本>` tag 并推送。随后
-`.github/workflows/release.yml` 自动执行：
+**门禁在本地先跑**：脚本在写版本号、提交、打 tag 之前执行 `CI=true npm run check`
+（类型检查 / 单测 / 主题漂移 / 样式护栏）与三个目标的构建（chromium / firefox / edge）。
+用 `CI=true` 是为了与 GitHub Actions 的 vitest / vite 行为一致。任何一步失败都会就地退出，
+**不产生提交、不产生 tag、不消耗版本号**——以前测试只在 push 后的 CI 上第一次跑，
+失败时 tag 已经推上去，修完还得再发一个版本（Edge 商店要求版本严格递增）。
+
+脚本还会拦下未跟踪的新文件（`git add -u` 不会收它们，否则本地与 CI 跑的不是同一套代码），
+并把版本号同步写入三份 manifest **以及** `package.json` / `package-lock.json`。
+
+推送后 `.github/workflows/ci.yml`（分支 push）与 `release.yml`（tag push）会再跑一遍同样的门禁，
+随后 `release.yml` 自动执行：
 
 1. `npm ci` + 构建 Firefox / Chromium 两个产物
 2. `web-ext sign --channel unlisted` 调用 AMO 签名 Firefox 包
